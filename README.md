@@ -218,6 +218,31 @@ docker exec healthlog healthlog analyze
 | `PUID` / `PGID` | `1000` | host user/group that owns `/config` (Unraid: `99` / `100`) |
 | `LOG_LEVEL` | `INFO` | log verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 | `LOG_FORMAT` | `text` | `text` (human-readable) or `json` (one object per line, for Loki/ELK) |
+| `NOTIFY_URL` | *(empty)* | Gotify/PushBits base URL; notifications are off until this is set |
+| `NOTIFY_TOKEN` | *(empty)* | Gotify/PushBits application token (secret; never logged) |
+| `NOTIFY_EVENTS` | `analysis,findings` | which sources may notify: any of `ingest`, `analysis`, `findings` |
+| `NOTIFY_LEVEL` | `problems` | `problems` (failures + empty ingests + health alerts) or `always` (also routine OK summaries) |
+| `NOTIFY_VERIFY_TLS` | `true` | verify the push endpoint's TLS certificate |
+
+### Notifications
+
+HealthLog can push run outcomes and health alerts to a
+[Gotify](https://gotify.net/)-compatible endpoint
+([PushBits](https://github.com/pushbits/server) works too — it relays into a
+Matrix room). Leave `NOTIFY_URL` empty to disable. The token is a secret and is
+never logged. Three independent sources can notify, chosen via `NOTIFY_EVENTS`:
+
+- **`analysis`** — the nightly analysis run: a crash always pages; the clean OK
+  summary is sent only at `NOTIFY_LEVEL=always`.
+- **`findings`** — health alerts from a run: recent anomalies and recovery
+  alerts (low HRV with high resting heart rate). Sent whenever a run surfaces
+  any, regardless of level.
+- **`ingest`** — an *empty* HAE sync (a payload that produced no rows) always
+  pages; each successful sync is reported only at `NOTIFY_LEVEL=always`.
+
+Messages carry only counters and metric kinds — never raw health values.
+Notifications are strictly best-effort: a failed or misconfigured push is
+logged and ignored, and never affects ingestion or analysis.
 
 ## Operations
 

@@ -653,6 +653,10 @@ def main() -> int:
         result.recovery_alerts,
         result.consistency,
     )
+
+    from .notify import notify_analysis
+
+    notify_analysis(settings, result)
     return 0
 
 

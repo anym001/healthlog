@@ -14,7 +14,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="", extra="ignore")
+    model_config = SettingsConfigDict(env_prefix="", extra="ignore", populate_by_name=True)
 
     # --- Storage -----------------------------------------------------------
     # SQLAlchemy URL for the TimescaleDB/Postgres backend. The psycopg (v3)
@@ -49,6 +49,26 @@ class Settings(BaseSettings):
     # --- Logging -----------------------------------------------------------
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     log_format: str = Field(default="text", alias="LOG_FORMAT")  # text | json
+
+    # --- Notifications -----------------------------------------------------
+    # Push run outcomes and health alerts to a Gotify-compatible endpoint
+    # (Gotify or PushBits). Off unless NOTIFY_URL is set. The token is a secret
+    # (NOTIFY_TOKEN), never logged — it travels as a query parameter, so request
+    # URLs must not be logged either.
+    notify_url: str = Field(default="", alias="NOTIFY_URL")
+    notify_token: str = Field(default="", alias="NOTIFY_TOKEN")
+    notify_verify_tls: bool = Field(default=True, alias="NOTIFY_VERIFY_TLS")
+    # Which sources may notify: a comma-separated subset of
+    # {ingest, analysis, findings}. Unknown tokens are ignored. Empty disables
+    # everything even when NOTIFY_URL is set.
+    notify_events: str = Field(default="analysis,findings", alias="NOTIFY_EVENTS")
+    # "problems" => only failures (+ empty ingests) and health alerts;
+    # "always" => additionally the routine OK/info notifications.
+    notify_level: str = Field(default="problems", alias="NOTIFY_LEVEL")
+
+    def notify_event_set(self) -> set[str]:
+        """The enabled notification sources, normalised to a lowercase set."""
+        return {tok.strip().lower() for tok in self.notify_events.split(",") if tok.strip()}
 
 
 @lru_cache
