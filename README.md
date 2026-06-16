@@ -43,7 +43,26 @@ Health Auto Export **REST API** automation to POST JSON to
 
 - Format **JSON**, export version **v2**, *Aggregate data* on, hourly grouping.
 - *Use Localized Units* **off**; fixed metric unit preferences.
-- First run: export the full history (backfill); then nightly deltas.
+- First run: export the full history (backfill, see below); then nightly deltas.
+
+### Bulk backfill (full history)
+
+A multi-year first export is too large for the HTTP endpoint (it exceeds
+`MAX_PAYLOAD_BYTES` and the proxy timeout). Export the full history from HAE to
+JSON file(s), copy them onto the server (e.g. into `/config/import`), and run
+the backfill CLI — it uses the same parse/store pipeline as the endpoint and is
+idempotent, so re-running is always safe:
+
+```bash
+# Inspect first (parses + reports counts, writes nothing):
+docker compose exec healthlog python -m app.backfill --dry-run /config/import
+
+# Then import a directory of *.json (or pass individual files):
+docker compose exec healthlog python -m app.backfill /config/import
+```
+
+Each file is committed on its own; identical re-posts are skipped by content
+hash. Afterwards the nightly HAE automation takes over with deltas.
 
 ## Configuration (environment)
 
