@@ -305,8 +305,9 @@ dem Tag der Anomalie). Nicht zutreffende Felder bleiben NULL.
   `ANALYSIS_CRON` (5-Feld-Cron), `LOG_LEVEL`, `LOG_FORMAT` (text/json) — analog PocketLog.
 - **Compose:** `timescaledb` + `healthlog` + `grafana`; DB nicht öffentlich
   exponiert, Grafana hinter Auth, Reverse-Proxy/TLS vor dem Ingest.
-- **Public-Tauglichkeit:** README + Beispiel-`docker-compose.yml`, sinnvolle Defaults,
-  keine Telemetrie, Doku der HAE-Automation-Einrichtung.
+- **Public-Tauglichkeit:** README mit eingebettetem Compose-Beispiel (keine
+  separate `docker-compose.yml`- oder `.env`-Datei im Repo — analog PocketLog),
+  sinnvolle Defaults, keine Telemetrie, Doku der HAE-Automation-Einrichtung.
 
 ## 7. Tests & Qualität
 
