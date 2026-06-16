@@ -123,6 +123,60 @@ def test_annual_seasonality_detected_over_two_years():
     assert annual is not None
     assert annual["strength"] >= analysis.SEASONALITY_STRENGTH_MIN
     assert annual["peak_month"] != annual["trough_month"]
+    # A clean sine peaks and troughs ~6 months apart -> phase is trustworthy.
+    assert annual["phase_confident"] is True
+
+
+def _annual_decomp(month_level: dict[int, float]) -> analysis.Decomp:
+    """A synthetic Decomp whose annual component takes a fixed value per month."""
+    idx = pd.date_range("2024-01-01", periods=730, freq="D")
+    seasonal = pd.Series([month_level.get(d.month, 0.0) for d in idx], index=idx, dtype="float64")
+    resid = pd.Series(np.zeros(len(idx)), index=idx)
+    return analysis.Decomp(trend=resid, resid=resid, seasonal={analysis.SEASONAL_PERIOD: seasonal}, has_annual=True)
+
+
+def test_seasonality_phase_flagged_uncertain_when_peak_trough_adjacent():
+    annual = annual_seasonality(_annual_decomp({5: 1.0, 6: -1.0}))  # May peak, Jun trough
+    assert annual["peak_month"] == 5 and annual["trough_month"] == 6
+    assert annual["phase_confident"] is False
+
+
+def test_seasonality_phase_confident_when_peak_trough_far_apart():
+    annual = annual_seasonality(_annual_decomp({1: 1.0, 7: -1.0}))  # Jan peak, Jul trough
+    assert annual["phase_confident"] is True
+
+
+# --- Correlation de-trending + de-duplication -------------------------------
+
+
+def test_correlation_collapses_spurious_trend_only_pairs():
+    # Two independent noise series with opposite linear trends correlate near
+    # -1 on raw levels (pure trend artefact). De-trending must collapse that to
+    # a weak residual: the shared drift is gone, the noise is independent.
+    rng = np.random.default_rng(20)
+    n = 400
+    t = np.arange(n)
+    up = _daily(0.5 * t + rng.normal(scale=1.0, size=n))
+    down = _daily(-0.5 * t + rng.normal(scale=1.0, size=n))
+
+    assert abs(spearman_lag(up, down, 0).coef) > 0.9  # raw: pure trend artefact
+    findings = analysis._correlation_findings({"up": up, "down": down}, dt.datetime.now(UTC))
+    assert all(abs(float(f.coefficient)) < 0.3 for f in findings)  # collapsed
+
+
+def test_correlation_keeps_one_finding_per_pair():
+    # An autocorrelated common signal makes several lags significant, but the
+    # output must collapse to a single best row for the {a, b} pair.
+    rng = np.random.default_rng(21)
+    n = 300
+    base = np.zeros(n)
+    for k in range(1, n):
+        base[k] = 0.8 * base[k - 1] + rng.normal()  # stationary AR(1): no trend
+    a = _daily(base + rng.normal(scale=0.3, size=n))
+    b = _daily(base + rng.normal(scale=0.3, size=n))
+    findings = analysis._correlation_findings({"a": a, "b": b}, dt.datetime.now(UTC))
+    assert len(findings) == 1
+    assert {findings[0].metric_a, findings[0].metric_b} == {"a", "b"}
 
 
 # --- Bedtime offset (circular) ---------------------------------------------

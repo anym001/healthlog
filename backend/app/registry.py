@@ -30,11 +30,12 @@ class MetricSpec(TypedDict):
     display_name: str
     unit_canonical: str
     agg_default: str
-    category: str  # activity | sleep | vital | mobility | environment
+    category: str  # activity | sleep | vital | mobility | environment | mindfulness | nutrition
     tier: str  # core | secondary
 
 
-# Confirmed against a real Health Auto Export v2 payload (30 metrics).
+# Confirmed against real Health Auto Export v2 payloads (curated, not exhaustive:
+# unseen metrics are still accepted and auto-registered as secondary stubs).
 METRIC_REGISTRY: dict[str, MetricSpec] = {
     # --- core: activity ---------------------------------------------------
     "step_count": {
@@ -242,6 +243,72 @@ METRIC_REGISTRY: dict[str, MetricSpec] = {
         "unit_canonical": "dBASPL",
         "agg_default": "avg",
         "category": "environment",
+        "tier": "secondary",
+    },
+    # --- curated from the first full backfill's auto-registered unknowns ---
+    # cardio_recovery (1-minute heart-rate recovery after exercise) is a genuine
+    # cardio-fitness marker, so it joins the default pipeline as core.
+    "cardio_recovery": {
+        "display_name": "Cardio Recovery",
+        "unit_canonical": "count/min",
+        "agg_default": "avg",
+        "category": "vital",
+        "tier": "core",
+    },
+    "waist_circumference": {
+        "display_name": "Waist Circumference",
+        "unit_canonical": "cm",
+        "agg_default": "avg",
+        "category": "vital",
+        "tier": "secondary",
+    },
+    "height": {
+        "display_name": "Height",
+        "unit_canonical": "m",
+        "agg_default": "avg",
+        "category": "vital",
+        "tier": "secondary",
+    },
+    "atrial_fibrillation_burden": {
+        "display_name": "AFib History",
+        "unit_canonical": "%",
+        "agg_default": "avg",
+        "category": "vital",
+        "tier": "secondary",
+    },
+    "swimming_distance": {
+        "display_name": "Swimming Distance",
+        "unit_canonical": "m",
+        "agg_default": "sum",
+        "category": "activity",
+        "tier": "secondary",
+    },
+    "swimming_stroke_count": {
+        "display_name": "Swimming Strokes",
+        "unit_canonical": "count",
+        "agg_default": "sum",
+        "category": "activity",
+        "tier": "secondary",
+    },
+    "handwashing": {
+        "display_name": "Handwashing Duration",
+        "unit_canonical": "s",
+        "agg_default": "sum",
+        "category": "activity",
+        "tier": "secondary",
+    },
+    "mindful_minutes": {
+        "display_name": "Mindful Minutes",
+        "unit_canonical": "min",
+        "agg_default": "sum",
+        "category": "mindfulness",
+        "tier": "secondary",
+    },
+    "dietary_water": {
+        "display_name": "Water Intake",
+        "unit_canonical": "mL",
+        "agg_default": "sum",
+        "category": "nutrition",
         "tier": "secondary",
     },
 }

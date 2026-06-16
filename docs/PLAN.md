@@ -408,10 +408,14 @@ manueller Lauf per `healthlog analyze`. Serien sind die Core-Metriken (Tageswert
 nach `agg_default`) plus
 abgeleitete Schlaf-Serien (`sleep_total_h`/`deep_h`/`rem_h`/`sleep_efficiency`).
 Befund-Typen (`findings`, Snapshot pro Lauf):
-- **correlation** — Spearman, Lags 0–3 Tage (beide Richtungen), FDR-`p_value_adj`.
+- **correlation** — Spearman auf **trendbereinigten** Reihen (Trendkomponente
+  subtrahiert, damit gegenläufige Langzeit-Trends keine Schein-Korrelation
+  erzeugen), Lags 0–3 Tage (beide Richtungen), FDR-`p_value_adj`; pro Metrik-Paar
+  nur der **stärkste** Lag/Richtung (Dedup).
 - **anomaly** — 28-Tage trailing Median + MAD (robuster z), nur letzte 14 Tage.
 - **trend** — STL-Trendkomponente (Slope + Trendstärke).
-- **seasonality** — MSTL(7, 365): Jahresmuster (Amplitude + Hoch-/Tief-Monat), ab ≥2 Jahren.
+- **seasonality** — MSTL(7, 365): Jahresmuster (Amplitude + Hoch-/Tief-Monat), ab ≥2 Jahren;
+  liegen Hoch/Tief <2 Monate auseinander, ist die Phase als unsicher geflaggt (`phase_confident`).
 - **recovery_alert** — kombiniert: HRV auffällig niedrig **und** Ruhepuls hoch (+ optional kurzer Schlaf).
 - **consistency** — rollende Streuung von Schlafdauer und Zubettgeh-Zeit (Mitternachts-Wrap behandelt).
 

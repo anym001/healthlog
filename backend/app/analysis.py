@@ -9,10 +9,12 @@ they are unit-tested against synthetic series with a fixed seed. The DB
 orchestration (loaders + ``run``) is kept separate.
 
 Findings (PLAN.md §4.7), all derived, never medical advice:
-- correlation    Spearman, lags 0..3 days (both directions), FDR-corrected.
+- correlation    Spearman on de-trended series, lags 0..3 days (both
+                 directions), FDR-corrected, best lag/direction per pair.
 - anomaly        28-day trailing median + MAD robust z; only recent days.
 - trend          long-run drift (slope of the trend component + strength).
-- seasonality    MSTL(7, 365): annual pattern (amplitude + peak/trough month).
+- seasonality    MSTL(7, 365): annual pattern (amplitude + peak/trough month,
+                 with a phase-confidence flag when peak/trough are too close).
 - recovery_alert composite early warning: HRV low AND resting HR high together.
 - consistency    rolling variability of sleep duration and bedtime.
 """
@@ -53,6 +55,8 @@ WEEK_PERIOD = 7
 SEASONAL_PERIOD = 365
 TREND_STRENGTH_MIN = 0.30  # report a trend only above this strength
 SEASONALITY_STRENGTH_MIN = 0.20  # report annual seasonality only above this
+SEASONAL_MIN_PEAK_TROUGH_GAP = 2  # months; a near-adjacent peak/trough means the
+#                                   annual phase estimate is unreliable (flagged)
 
 RECOVERY_RECENT_DAYS = 14
 RECOVERY_Z = 1.5  # both HRV (low) and resting HR (high) must exceed this
@@ -200,11 +204,19 @@ def annual_seasonality(decomp: Decomp) -> dict | None:
     season = decomp.seasonal[SEASONAL_PERIOD]
     strength = _component_strength(season, decomp.resid)
     by_month = season.groupby(season.index.month).mean()
+    peak_month = int(by_month.idxmax())
+    trough_month = int(by_month.idxmin())
+    # A real annual cycle peaks and troughs ~6 months apart; when they land in
+    # near-adjacent months the amplitude may be real but the phase is not
+    # trustworthy (often a sparse/noisy series), so flag it.
+    gap = abs(peak_month - trough_month) % 12
+    gap = min(gap, 12 - gap)
     return {
         "strength": strength,
         "amplitude": float(season.max() - season.min()),
-        "peak_month": int(by_month.idxmax()),
-        "trough_month": int(by_month.idxmin()),
+        "peak_month": peak_month,
+        "trough_month": trough_month,
+        "phase_confident": gap >= SEASONAL_MIN_PEAK_TROUGH_GAP,
     }
 
 
@@ -365,30 +377,63 @@ def build_series(db: Session, tz: str) -> dict[str, pd.Series]:
     return series
 
 
+def _detrend_for_correlation(series: dict[str, pd.Series]) -> dict[str, pd.Series]:
+    """Subtract each metric's long-run trend so correlations measure day-to-day
+    co-movement, not shared drift.
+
+    Two metrics that merely trend in opposite directions over the years
+    otherwise correlate spuriously (e.g. weight up vs. VO2 max down). Real
+    observations only: the series keeps its complete daily index (NaN at
+    gaps/edges) so lag shifts stay calendar-correct, but no interpolated point
+    enters a correlation. A series too short to decompose is dropped.
+    """
+    out: dict[str, pd.Series] = {}
+    for name, s in series.items():
+        decomp = decompose(s)
+        if decomp is None:
+            continue
+        detrended = s - decomp.trend.reindex(s.index)
+        if not detrended.dropna().empty:
+            out[name] = detrended
+    return out
+
+
 def _correlation_findings(series: dict[str, pd.Series], computed_at: dt.datetime) -> list[Finding]:
-    names = list(series)
+    detrended = _detrend_for_correlation(series)
+    names = list(detrended)
     candidates: list[tuple[str, str, int, Corr]] = []
     for i in range(len(names)):
         for j in range(i + 1, len(names)):
             a, b = names[i], names[j]
-            c0 = spearman_lag(series[a], series[b], 0)
+            c0 = spearman_lag(detrended[a], detrended[b], 0)
             if c0:
                 candidates.append((a, b, 0, c0))
             for lag in range(1, MAX_LAG + 1):
-                cab = spearman_lag(series[a], series[b], lag)  # a leads b
+                cab = spearman_lag(detrended[a], detrended[b], lag)  # a leads b
                 if cab:
                     candidates.append((a, b, lag, cab))
-                cba = spearman_lag(series[b], series[a], lag)  # b leads a
+                cba = spearman_lag(detrended[b], detrended[a], lag)  # b leads a
                 if cba:
                     candidates.append((b, a, lag, cba))
 
     if not candidates:
         return []
     adj = fdr_adjust([c.p for *_, c in candidates])
-    findings = []
+
+    # FDR sees every lag/direction we tested (multiple-testing honesty); for
+    # presentation keep only the single strongest lag/direction per unordered
+    # metric pair, so a slow pair isn't listed 5x across lags and directions.
+    best: dict[frozenset[str], tuple[str, str, int, Corr, float]] = {}
     for (a, b, lag, c), p_adj in zip(candidates, adj, strict=True):
         if p_adj > CORR_KEEP_ALPHA:
             continue
+        key = frozenset((a, b))
+        prev = best.get(key)
+        if prev is None or abs(c.coef) > abs(prev[3].coef):
+            best[key] = (a, b, lag, c, p_adj)
+
+    findings = []
+    for a, b, lag, c, p_adj in best.values():
         findings.append(
             Finding(
                 computed_at=computed_at,
@@ -465,11 +510,13 @@ def _trend_and_seasonality_findings(series: dict[str, pd.Series], computed_at: d
                     window_start=start,
                     window_end=end,
                     severity=round(annual["strength"], 4),
+                    note=None if annual["phase_confident"] else "annual phase uncertain (peak and trough too close)",
                     details={
                         "strength": round(annual["strength"], 4),
                         "amplitude": round(annual["amplitude"], 4),
                         "peak_month": annual["peak_month"],
                         "trough_month": annual["trough_month"],
+                        "phase_confident": annual["phase_confident"],
                     },
                 )
             )
