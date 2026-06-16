@@ -11,7 +11,7 @@
 ## 1. Grundentscheidungen
 
 - **Datenexport:** Health Auto Export (iPhone) → REST-Automation an eigenen Endpoint
-- **Topologie:** Always-On-Server (Ingestion + DB + Grafana + Routine-Analyse) ⟷ Mac (interaktive Exploration + LLM)
+- **Topologie:** Always-On-Server trägt **alles Statistische** (Ingestion + DB + automatische Analyse + Grafana, optional interaktive Exploration) ⟷ Mac **nur** für die LLM-Narration (Phase 4); allein dort zahlt sich Apple Silicon (Unified Memory) aus
 - **Analyse-Kern:** klassische Statistik/ML (Korrelationen, Anomalien, Trends) — **kein** LLM im kritischen Pfad
 - **LLM:** Ollama auf dem Mac (32 GB Unified Memory) als **Ausbaustufe (Phase 4)** für Klartext-Reports; Zielklasse 8–14B (z. B. Qwen 2.5 14B)
 - **Datenfokus:** Aktivität & Training, Schlaf & Erholung, Vitalwerte
@@ -27,7 +27,7 @@
 │  (nächtlich, JSON POST, mit Secret-Header über TLS)    │
 └───────────────────────────┬───────────────────────────┘
                             │  HTTPS (Reverse Proxy)
-┌─ Always-On-Server (Docker Compose) ─────────────────────┐
+┌─ Always-On-Server (Docker / Unraid) ────────────────────┐
 │  healthlog  (EIN App-Container, PID 1 = s6-overlay)     │
 │    ├─ service: uvicorn   → FastAPI-Ingest, 24/7         │
 │    │     validiert, archiviert Roh-JSON, schreibt (Upsert)│
@@ -38,11 +38,12 @@
 │  TimescaleDB  (Postgres + Hypertables)  ← Single Source │
 │  Grafana  → Dashboards / Trends                          │
 └───────────────────────────┬───────────────────────────┘
-                            │  read (psql)
+                            │  read-only (psql)
 ┌─ Mac (Apple Silicon, 32 GB) ───────────────────────────┐
-│  Interaktive Exploration: Jupyter · pandas · statsmodels│
-│  (Phase 4) Ollama → Wochen-Report aus `findings`        │
+│  NUR LLM (Phase 4): Ollama → Wochen-Report aus `findings`│
+│  Apple Silicon / Unified Memory — der einzige Mac-Vorteil│
 └────────────────────────────────────────────────────────┘
+(Interaktive Exploration läuft, falls gewünscht, ebenfalls am Server.)
 ```
 
 ### Prozess- statt Container-Trennung (Begründung)
@@ -63,8 +64,8 @@ harter Crash in einer C-Extension nur diesen Subprozess killt — Scheduler **un
 | Analyse | App-Container, Subprozess des Schedulers | fault-isoliert, gefährdet die Annahme nicht |
 | TimescaleDB | eigener Container | Postgres ohnehin separat |
 | Grafana | eigener Container | fertig, direkt auf Timescale |
-| Interaktive Exploration (Jupyter) | Mac | bequem lokal während der Findungsphase |
-| LLM-Reports (Phase 4) | Mac | Apple Silicon (Unified Memory) spielt hier seine Stärke aus |
+| Interaktive Exploration (optional, Jupyter) | Server | nur Ad-hoc-Analyse; Pipeline + Grafana decken den Normalfall, Daten bleiben am Server |
+| LLM-Reports (Phase 4) | Mac | **einziger** Mac-Grund: Apple Silicon (Unified Memory) für lokale 8–14B-Modelle |
 
 ## 3. Tech-Stack & Begründung
 
@@ -392,9 +393,12 @@ Reverse-Proxy-Route. Ziel: Daten landen zuverlässig und idempotent.
 **Parallel:** Repo-Grundgerüst — `CONTRIBUTING.md`, die drei Workflows (§8, GHCR-only)
 und die ersten Parser-/Idempotenz-/TZ-Tests (§7), damit das Gate von Anfang an grün ist.
 
-### Phase 2 – Exploration (Jupyter auf dem Mac)
-Daten verstehen, Tagesaggregate (lokale TZ) prüfen, erste manuelle Korrelations-
-und Trend-Plots. Hier lernst du, was überhaupt aussagekräftig ist.
+### Phase 2 – Exploration (optional, am Server)
+Ad-hoc-Graben in den Rohdaten: Tagesaggregate (lokale TZ) prüfen, Einheiten/Lücken
+plausibilisieren, neue Analyse-Ideen prototypen, bevor sie in die Pipeline wandern.
+Läuft **am Server** (Jupyter mit DB-Lesezugriff), nicht am Mac — nichts verlässt die
+Box. **Kein Blocker:** die automatische Pipeline (Phase 3) + Grafana (Phase 4) decken
+den Normalfall bereits ab; Jupyter ist nur bei Bedarf.
 
 ### Phase 3 – Automatische Pipeline (im App-Container) ✅ (umgesetzt)
 APScheduler triggert nachts den Analyse-Subprozess (`python -m app.analysis`,
