@@ -275,6 +275,11 @@ dem Tag der Anomalie). Nicht zutreffende Felder bleiben NULL.
 - **Backfill vs. Delta:** Beim ersten manuellen HAE-Export die **gesamte
   Apple-Health-Historie** (Jahre) einmal als Bulk-Backfill einspielen → danach
   **nächtliche Deltas**. Damit sind Korrelationen ab Tag 1 belastbar (≥6–8 Wochen).
+  Der Voll-Export sprengt das HTTP-Limit (`MAX_PAYLOAD_BYTES`) und den Proxy-Timeout;
+  deshalb läuft er **datei-basiert** über das CLI `healthlog backfill <pfad>`
+  (Datei oder Verzeichnis, `--dry-run` zum Prüfen) — dieselbe `archive_raw → parse →
+  store`-Pipeline wie der Endpoint, pro Datei committet, idempotent (Re-Run = No-Op
+  dank `content_hash`-Dedup + Upsert).
 - **Zeitzone:** Speicherung in `TIMESTAMPTZ`; alle Tages-Buckets in **lokaler TZ
   (Europe/Vienna)**, da das Tagesraster die Basis aller Analysen ist.
 - **Robustheit & Erweiterbarkeit:** Payload-Größenlimit, Secret-Header in konstanter
@@ -371,12 +376,14 @@ Dependency-Bump, der die Suite rot macht, wird nicht gemergt.
 
 ## 10. Phasen-Fahrplan
 
-### Phase 0 – Daten-Audit ✅ (Sample ausgewertet)
+### Phase 0 – Daten-Audit ✅ (abgeschlossen)
 Reale HAE-Payload (v2, 7 Tage, 30 Metriken + 1 Workout) liegt vor und ist analysiert:
 zwei Bucket-Shapes, Datums-/TZ-Format, Schlafstruktur (Aufwach-Tag-Zuordnung),
 Workout-`id`, Einheiten-Realität (Energie in kJ) — alles in §4 eingearbeitet, Inventar
-in §4.7. **Offen für den Abschluss:** finale `metric_registry`-Befüllung (Tier/Einheit/
-agg pro Metrik) und der **Bulk-Backfill** (gesamte Historie) vor den nächtlichen Deltas.
+in §4.7. **Abschluss erledigt:** die `metric_registry` ist final kuratiert (Tier/Einheit/
+`agg_default` pro der 30 Metriken, durch `test_registry.py` festgezurrt), und der
+**Bulk-Backfill** existiert als datei-basiertes CLI (`python -m app.backfill`, §5) —
+selbe Pipeline wie der Endpoint, idempotent, mit `--dry-run`.
 
 ### Phase 1 – Ingestion + Storage
 Docker-Compose mit TimescaleDB + dem `healthlog`-Image (uvicorn + Scheduler-Skelett),
@@ -452,11 +459,14 @@ Registry-Kuratierung, dann Phase 2.
 - Schlaf- und Workout-Struktur (inkl. Workout-`id`, Aufwach-Tag-Zuordnung) → §4.3/§4.4.
 - Metrik-Inventar + vorläufige Tier-Einteilung → §4.7.
 
-### Noch offen (Abschluss Phase 0 / Start Phase 1)
+### Phase 0 — Abschluss erledigt ✅
 - **Finale `metric_registry`-Befüllung:** Tier/Einheit/`agg_default` pro der 30 Metriken
-  festzurren (Stub-Heuristik aus §5 als Startpunkt).
-- **Bulk-Backfill:** einmaliger Voll-Export der gesamten Apple-Health-Historie vor den
-  nächtlichen Deltas (HAE-Datumsbereich „Alle"/größtmöglich).
+  festgezurrt; Konsistenz + Seed-Migration durch `test_registry.py` gepinnt.
+- **Bulk-Backfill:** datei-basiertes CLI `healthlog backfill` (Konsolen-Skript via
+  `[project.scripts]`; auch `python -m app backfill`), idempotent über dieselbe Pipeline
+  wie der Endpoint, mit `--dry-run`; `test_backfill.py`.
+
+### Noch offen (in einer späteren Phase)
 - **Workout-Typ-Normalisierung:** Mapping lokalisierter `name` → kanonischer Typ (§4.4).
 
 ### Optional „think bigger" — nicht aktivierte Health-Kategorien

@@ -1,3 +1,25 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "healthlog"
+version = "0.0.0"
+description = "Self-hosted, privacy-first Apple Health analysis."
+requires-python = ">=3.12"
+# Runtime dependencies are pinned in requirements.txt and installed separately;
+# this project metadata exists to expose the `healthlog` console script.
+dynamic = ["dependencies"]
+
+[project.scripts]
+healthlog = "app.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
 [tool.ruff]
 line-length = 120
 target-version = "py312"
