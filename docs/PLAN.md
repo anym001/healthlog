@@ -208,7 +208,63 @@ dem Tag der Anomalie). Nicht zutreffende Felder bleiben NULL.
 - **Public-Tauglichkeit:** README + Beispiel-`docker-compose.yml`, sinnvolle Defaults,
   keine Telemetrie, Doku der HAE-Automation-Einrichtung.
 
-## 7. Phasen-Fahrplan
+## 7. Tests & Qualität
+
+Übernimmt PocketLogs Philosophie: **grüne Suite ist Pflicht-Gate vor jedem Image-Push**
+(§8). HealthLogs Kern-Risiko liegt nicht in CRUD, sondern in **Parser-Korrektheit**
+und **Analyse-Mathematik** — genau dort liegt der Testfokus.
+
+- **Backend-Lint:** `ruff check` + `ruff format --check` (wie PocketLog).
+- **Parser-/Ingest-Tests (pytest):** echte HAE-Payload als Fixture (aus Phase 0) →
+  erwartete Zeilen in `metric_samples`/`sleep_sessions`/`workouts`. Pinnt die
+  Übersetzung der HAE-Eigenheiten (Min/Avg/Max-Buckets, Einheiten).
+- **Idempotenz:** zweimaliges Posten derselben Payload → keine Dubletten, Upsert
+  greift, `content_hash`-Dedup verwirft den Re-Post. (Das Kernrisiko aus §5.)
+- **TZ-Bucketing:** Sample um Mitternacht (Europe/Vienna) landet im korrekten
+  lokalen Tag; Schlafsession wird dem Aufwach-Tag zugeordnet (§4.3).
+- **Analyse-Mathematik:** synthetische Reihen mit **bekannter** Lag-Korrelation →
+  Pipeline findet sie beim richtigen Lag; injizierte Anomalie wird erkannt;
+  FDR-Korrektur senkt Zufallstreffer. Reproduzierbar mit festem Seed.
+- **Migrationen gegen echtes Postgres/TimescaleDB:** `service`-Container in CI,
+  `alembic upgrade head` von leerem Schema (analog PocketLogs MariaDB-Job — die DDL
+  läuft sonst nur beim Endnutzer das erste Mal).
+- **Smoke:** Image bauen, mit `PUID/PGID` + `/config`-Mount + Timescale-Service
+  booten, `/api/health` abfragen, prüfen dass der Entrypoint chownt und beide
+  s6-Services hochkommen.
+- Frontend-Tests (Vitest/Playwright) erst relevant, falls Phase 5 (eigene Web-App) kommt.
+
+## 8. CI/CD – GitHub Workflows
+
+Drei Workflows, gespiegelt von PocketLog, mit gepinnten Action-SHAs:
+
+| Workflow | Trigger | Tut |
+|---|---|---|
+| `test.yml` | `pull_request` **+** `workflow_call` | Lint, pytest (inkl. Migrationen gegen Timescale-Service), Smoke. Reusable, damit Build-Workflows darauf gaten. |
+| `dev.yml` | Push auf `dev` | `uses: test.yml` → nur bei grün: Build + Push `:dev` und `:dev-<sha>` nach **GHCR**. |
+| `build.yml` | Push Tag `v*` (+ `workflow_dispatch`) | `uses: test.yml` → bei grün: Build + Push `:vX.Y.Z` und `:latest` nach **GHCR** + GitHub-Release (`generate_release_notes`). |
+
+- **Registry: zunächst nur GHCR** (`ghcr.io/<owner>/healthlog`). Die Docker-Hub-
+  `login-action`- und Mirror-`tags`-Zeilen werden **bewusst später ergänzt** — im Plan
+  als TODO markiert, damit der Build sofort ohne `DOCKERHUB_*`-Secrets läuft.
+- Least-Privilege: `test.yml` hat `contents: read`; nur `dev.yml`/`build.yml` fordern
+  `packages: write` (bzw. `contents: write` für das Release) auf ihren eigenen Jobs an.
+- Plattform vorerst `linux/amd64` (Unraid-Ziel); arm64 bei Bedarf nachrüstbar.
+- **Tests blocken den Push:** ein roter Lauf verhindert `:dev`/`:vX.Y.Z` — ein kaputter
+  Commit erreicht nie ein Image.
+
+## 9. Branching & Release (CONTRIBUTING)
+
+**Identisch zu PocketLog:**
+- Entwicklung auf kurzlebigen `feature/*`-Branches, abgezweigt von `dev`.
+- **PRs immer gegen `dev`**, nie direkt gegen `main`.
+- `main` wird ausschließlich per PR `dev → main` aktualisiert; **Release = Tag-Push**
+  `vX.Y.Z` auf `main` → triggert `build.yml` (versioniertes Image + Release).
+- `:dev` = Maintainer-Staging-Kanal, `:vX.Y.Z`/`:latest` = Produktion.
+- `main` und `dev` per Ruleset geschützt (PR nötig, grüne Checks, keine Force-Pushes).
+- Sprache durchgängig Englisch (Code, Kommentare, Docs, Commits, PRs) — wie PocketLog.
+- Ein `CONTRIBUTING.md` hält diese Regeln fest (in Phase 1 anzulegen).
+
+## 10. Phasen-Fahrplan
 
 ### Phase 0 – Daten-Audit (zuerst, klein) ← nächster Schritt nach Freigabe
 HAE-Export aktivieren, einmal manuell exportieren und die **reale Payload** prüfen:
@@ -220,6 +276,8 @@ Schlaf strukturiert ist. **Entscheidet das endgültige Schema** (§4) und füllt
 Docker-Compose mit TimescaleDB + dem `healthlog`-Image (uvicorn + Scheduler-Skelett),
 Roh-Archiv + Parser + Upsert, HAE-Automation (nächtlich, Secret-Header),
 Reverse-Proxy-Route. Ziel: Daten landen zuverlässig und idempotent.
+**Parallel:** Repo-Grundgerüst — `CONTRIBUTING.md`, die drei Workflows (§8, GHCR-only)
+und die ersten Parser-/Idempotenz-/TZ-Tests (§7), damit das Gate von Anfang an grün ist.
 
 ### Phase 2 – Exploration (Jupyter auf dem Mac)
 Daten verstehen, Tagesaggregate (lokale TZ) prüfen, erste manuelle Korrelations-
@@ -228,7 +286,8 @@ und Trend-Plots. Hier lernst du, was überhaupt aussagekräftig ist.
 ### Phase 3 – Automatische Pipeline (im App-Container)
 APScheduler triggert nachts den Analyse-Subprozess: Lag-Korrelationen (Spearman,
 Lags 0–3 Tage) + Anomalie-Erkennung (28-Tage rolling Median + MAD) + Trends (STL),
-Befunde → `findings` (mit FDR-`p_value_adj`).
+Befunde → `findings` (mit FDR-`p_value_adj`). Begleitend die Analyse-Mathematik-Tests
+gegen synthetische Reihen (§7).
 
 ### Phase 4 – Visualisierung + optionales LLM
 Grafana-Dashboards (Trainingslast vs. HRV/Ruhepuls, Schlaf-Trends, `findings` als
@@ -238,7 +297,7 @@ nur strukturierte Befunde; Zahlen werden gegroundet, nicht halluziniert.
 ### Phase 5 (optional, später)
 Eigene Web-App im PocketLog-Stil.
 
-## 8. Methodische Stolperfallen
+## 11. Methodische Stolperfallen
 
 - **Tagesraster:** Alles auf Kalendertage (lokale TZ) resamplen, sonst sind Metriken nicht vergleichbar.
 - **Zeitversatz:** Effekte wirken verzögert (Training heute → HRV morgen) — Lag-Korrelationen, nicht nur Lag 0.
@@ -248,14 +307,14 @@ Eigene Web-App im PocketLog-Stil.
 - **Saisonalität:** Wochentag-Effekte (Wochenende ≠ Werktag) bei Anomalien berücksichtigen.
 - **Aggregat-Semantik:** je Metrik den richtigen Tageswert nehmen (Registry) — Steps summieren, RestingHR minimieren, kein "avg über alles".
 
-## 9. Privacy-Checkliste
+## 12. Privacy-Checkliste
 
 - Ingest-Endpoint nur über TLS + Secret-Header/Token erreichbar (HAE unterstützt Custom Headers).
 - DB nicht öffentlich exponiert; Grafana hinter Auth.
 - LLM rein lokal (Ollama, kein API-Key, kein Netzwerk-Egress).
 - Keine Telemetrie in den Komponenten aktivieren.
 
-## 10. Offene Punkte
+## 13. Offene Punkte
 
 ### Entschieden (diese Session)
 - Roh-Payload wird **verbatim archiviert** (`raw_ingest`, JSONB) — Replay-fähig.
@@ -263,6 +322,13 @@ Eigene Web-App im PocketLog-Stil.
 - Scheduler: **ein Container**, s6-overlay, uvicorn + APScheduler-Prozess, Analyse als Subprozess.
 - Container-Basis: **`python:3.12-slim` + s6-overlay v3**, PUID/PGID + `/config`.
 - LLM-Korridor: **8–14B** (32-GB-Mac), konkrete Wahl in Phase 4.
+- CI: drei Workflows nach PocketLog-Muster; Release per Tag, Gate auf grüne Tests.
+- CONTRIBUTING: `dev`-Entwicklung, PR gegen `dev`, Release per Tag auf `main`.
+
+### TODO (bewusst aufgeschoben)
+- **Docker Hub:** Workflows pushen vorerst nur nach GHCR; Docker-Hub-Login + Mirror-Tags
+  (+ `DOCKERHUB_*`-Secrets) später in `dev.yml`/`build.yml` ergänzen.
+- **arm64-Image** bei Bedarf (aktuell nur `linux/amd64`).
 
 ### Gated auf Phase 0 (Daten-Audit)
 - Detailgranularität pro Metrik (aggregiert vs. roh) und exakte Spaltenbelegung in `metric_samples`.
