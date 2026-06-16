@@ -66,6 +66,15 @@ docker compose exec healthlog healthlog backfill /config/import
 Each file is committed on its own; identical re-posts are skipped by content
 hash. Afterwards the nightly HAE automation takes over with deltas.
 
+### Analysis schedule
+
+The scheduler runs the statistical analysis nightly (`ANALYSIS_CRON`, a 5-field
+cron expression, default `30 3 * * *`). To recompute the findings on demand:
+
+```bash
+docker compose exec healthlog healthlog analyze
+```
+
 ## Configuration (environment)
 
 | Variable | Default | Purpose |
@@ -73,6 +82,7 @@ hash. Afterwards the nightly HAE automation takes over with deltas.
 | `DATABASE_URL` | `postgresql+psycopg://…` | TimescaleDB/Postgres connection |
 | `INGEST_SECRET` | *(required)* | shared secret for `X-Ingest-Token` |
 | `LOCAL_TZ` | `Europe/Vienna` | timezone for daily buckets |
+| `ANALYSIS_CRON` | `30 3 * * *` | when the nightly analysis runs (5-field cron, `LOCAL_TZ`) |
 | `PUID` / `PGID` | `1000` | ownership of `/config` |
 | `LOG_LEVEL` | `INFO` | log verbosity |
 | `LOG_FORMAT` | `text` | `text` or `json` |

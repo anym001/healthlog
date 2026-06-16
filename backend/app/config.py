@@ -39,10 +39,10 @@ class Settings(BaseSettings):
     # rests on the calendar-day grid, so this must match the user's locale.
     local_tz: str = Field(default="Europe/Vienna", alias="LOCAL_TZ")
 
-    # --- Scheduler (Phase 3 skeleton) -------------------------------------
-    # Cron-style hour:minute the nightly analysis runs at (local_tz).
-    analysis_hour: int = Field(default=3, alias="ANALYSIS_HOUR")
-    analysis_minute: int = Field(default=30, alias="ANALYSIS_MINUTE")
+    # --- Scheduler --------------------------------------------------------
+    # When the nightly analysis runs (in local_tz), as a 5-field cron
+    # expression. Default: 03:30 every day.
+    analysis_cron: str = Field(default="30 3 * * *", alias="ANALYSIS_CRON")
 
     # --- Logging -----------------------------------------------------------
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")

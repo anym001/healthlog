@@ -91,6 +91,11 @@ def test_cli_wires_backfill_subcommand():
     assert args.dry_run is True
 
 
+def test_cli_wires_analyze_subcommand():
+    args = cli.build_parser().parse_args(["analyze"])
+    assert args.func is cli._run_analyze
+
+
 def test_bad_file_is_skipped_run_continues(db, sample_payload, tmp_path):
     (tmp_path / "broken.json").write_text("{ not valid json")
     _write(tmp_path / "good.json", sample_payload)

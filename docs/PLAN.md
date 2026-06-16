@@ -301,7 +301,7 @@ dem Tag der Anomalie). Nicht zutreffende Felder bleiben NULL.
   Privilegien. `/config` hält Persistenz, die nicht in der DB liegt: Ingest-Secret,
   Logs, evtl. DB-Backups/Export.
 - **Env-getriebene Config:** `INGEST_SECRET`, `DATABASE_URL`, `TZ`,
-  `ANALYSIS_CRON`/Uhrzeit, `LOG_LEVEL`, `LOG_FORMAT` (text/json) — analog PocketLog.
+  `ANALYSIS_CRON` (5-Feld-Cron), `LOG_LEVEL`, `LOG_FORMAT` (text/json) — analog PocketLog.
 - **Compose:** `timescaledb` + `healthlog` + `grafana`; DB nicht öffentlich
   exponiert, Grafana hinter Auth, Reverse-Proxy/TLS vor dem Ingest.
 - **Public-Tauglichkeit:** README + Beispiel-`docker-compose.yml`, sinnvolle Defaults,
@@ -398,7 +398,9 @@ und Trend-Plots. Hier lernst du, was überhaupt aussagekräftig ist.
 
 ### Phase 3 – Automatische Pipeline (im App-Container) ✅ (umgesetzt)
 APScheduler triggert nachts den Analyse-Subprozess (`python -m app.analysis`,
-fault-isoliert). Serien sind die Core-Metriken (Tageswert nach `agg_default`) plus
+fault-isoliert). Zeitplan über `ANALYSIS_CRON` (5-Feld-Cron, Default `30 3 * * *`);
+manueller Lauf per `healthlog analyze`. Serien sind die Core-Metriken (Tageswert
+nach `agg_default`) plus
 abgeleitete Schlaf-Serien (`sleep_total_h`/`deep_h`/`rem_h`/`sleep_efficiency`).
 Befund-Typen (`findings`, Snapshot pro Lauf):
 - **correlation** — Spearman, Lags 0–3 Tage (beide Richtungen), FDR-`p_value_adj`.

@@ -5,6 +5,7 @@ instead of a module path::
 
     healthlog backfill /config/import
     healthlog backfill --dry-run /config/import
+    healthlog analyze                       # run the nightly analysis once now
 
 New operator commands are added as further subparsers here. The installed
 console script (see ``pyproject.toml``) maps ``healthlog`` to ``main``;
@@ -19,6 +20,14 @@ import sys
 from . import backfill
 
 
+def _run_analyze(_args: argparse.Namespace) -> int:
+    # Imported lazily so `healthlog backfill` doesn't pay the analysis import
+    # cost (pandas/statsmodels). Same code path as the scheduled subprocess.
+    from . import analysis
+
+    return analysis.main()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="healthlog", description="HealthLog operator CLI.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -26,6 +35,9 @@ def build_parser() -> argparse.ArgumentParser:
     bf = sub.add_parser("backfill", help="bulk-import Apple Health history from disk")
     backfill.add_arguments(bf)
     bf.set_defaults(func=backfill.run)
+
+    ana = sub.add_parser("analyze", help="run the nightly analysis once now")
+    ana.set_defaults(func=_run_analyze)
 
     return parser
 
