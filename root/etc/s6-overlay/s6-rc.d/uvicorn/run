@@ -1,0 +1,5 @@
+#!/command/with-contenv bash
+# Ingest API. Long-running, separate process from the scheduler so analysis
+# load never blocks the event loop.
+cd /app/backend
+exec s6-setuidgid healthlog python -m uvicorn app.main:app --host 0.0.0.0 --port 8000

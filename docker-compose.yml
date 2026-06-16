@@ -1,0 +1,51 @@
+# HealthLog — example deployment.
+# Put a reverse proxy (TLS) in front of the `healthlog` service for the HAE
+# automation. The DB is not exposed to the host; Grafana is optional.
+services:
+  timescaledb:
+    image: timescale/timescaledb:2.17.2-pg16
+    environment:
+      POSTGRES_USER: healthlog
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-healthlog}
+      POSTGRES_DB: healthlog
+    volumes:
+      - ./data/timescaledb:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U healthlog"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  healthlog:
+    image: ghcr.io/anym001/healthlog:dev
+    # For local builds use:  build: { context: ., dockerfile: backend/Dockerfile }
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://healthlog:${DB_PASSWORD:-healthlog}@timescaledb:5432/healthlog
+      INGEST_SECRET: ${INGEST_SECRET:?set a strong ingest secret}
+      LOCAL_TZ: ${LOCAL_TZ:-Europe/Vienna}
+      TZ: ${LOCAL_TZ:-Europe/Vienna}
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: ${LOG_FORMAT:-text}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./config:/config
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana-oss:11.4.0
+    depends_on:
+      - timescaledb
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+    volumes:
+      - ./data/grafana:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
