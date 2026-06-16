@@ -51,9 +51,10 @@ Health Auto Export **REST API** automation to POST JSON to
 
 A multi-year first export is too large for the HTTP endpoint (it exceeds
 `MAX_PAYLOAD_BYTES` and the proxy timeout). Export the full history from HAE to
-JSON file(s), copy them onto the server (e.g. into `/config/import`), and run
-the backfill CLI — it uses the same parse/store pipeline as the endpoint and is
-idempotent, so re-running is always safe:
+JSON file(s), copy them into the `import/` folder under `/config` (created
+automatically on first start), and run the backfill CLI — it uses the same
+parse/store pipeline as the endpoint and is idempotent, so re-running is always
+safe:
 
 ```bash
 # Inspect first (parses + reports counts, writes nothing):

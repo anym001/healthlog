@@ -225,13 +225,32 @@ class StoreResult:
     unknown_metrics: int = 0
 
 
+# Postgres caps a single statement at 65535 bound parameters; a metric row has
+# 9 columns, so a multi-year backfill (100k+ rows) must be inserted in chunks.
+_METRIC_INSERT_BATCH = 2000
+
+
+def _chunked(seq: list, size: int):
+    for i in range(0, len(seq), size):
+        yield seq[i : i + size]
+
+
+def _dedupe_metric_rows(rows: list[dict]) -> list[dict]:
+    """Last-wins de-dup on the (metric, time, source) key so a single INSERT
+    never upserts the same row twice ('ON CONFLICT ... affect row a second time')."""
+    by_key: dict[tuple, dict] = {}
+    for r in rows:
+        by_key[(r["metric"], r["time"], r["source"])] = r
+    return list(by_key.values())
+
+
 def store(db: Session, parsed: ParsedPayload) -> StoreResult:
     """Idempotent upsert of parsed rows. Safe to replay overlapping windows."""
     if parsed.unknown_metrics:
         _auto_register(db, parsed.unknown_metrics)
 
-    if parsed.metric_rows:
-        stmt = pg_insert(MetricSample).values(parsed.metric_rows)
+    for chunk in _chunked(_dedupe_metric_rows(parsed.metric_rows), _METRIC_INSERT_BATCH):
+        stmt = pg_insert(MetricSample).values(chunk)
         stmt = stmt.on_conflict_do_update(
             constraint="uq_metric_samples",
             set_={
