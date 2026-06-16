@@ -1,0 +1,5 @@
+#!/command/with-contenv bash
+# Nightly analysis scheduler. Its own process; launches the analysis as an
+# isolated subprocess (Phase 3) so a crash can't take down ingest.
+cd /app/backend
+exec s6-setuidgid healthlog python -m app.scheduler

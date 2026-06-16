@@ -1,0 +1,36 @@
+version: 2
+updates:
+  # GitHub Actions: keep the pinned SHAs in the three workflows fresh.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # PRs always target dev, never main (see CONTRIBUTING.md); main only
+    # updates via the dev -> main release PR.
+    target-branch: "dev"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  # Python dependencies (FastAPI, SQLAlchemy, Alembic, psycopg, APScheduler …).
+  - package-ecosystem: "pip"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+    target-branch: "dev"
+    groups:
+      python:
+        patterns:
+          - "*"
+
+  # Base image bumps (python:3.12-slim, s6-overlay is pinned via ARG).
+  - package-ecosystem: "docker"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+    target-branch: "dev"
+    groups:
+      docker:
+        patterns:
+          - "*"

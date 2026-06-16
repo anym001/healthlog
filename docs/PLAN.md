@@ -430,6 +430,17 @@ Eigene Web-App im PocketLog-Stil.
 - LLM-Korridor: **8–14B** (32-GB-Mac), konkrete Wahl in Phase 4.
 - CI: drei Workflows nach PocketLog-Muster; Release per Tag, Gate auf grüne Tests.
 - CONTRIBUTING: `dev`-Entwicklung, PR gegen `dev`, Release per Tag auf `main`.
+- **Single-tenant** (keine `user_id`/`subject_id`). Analyse ist pro Person; ein
+  späterer Multi-User-/Subjekt-Ausbau ist eine saubere Migration (Spalte nullable +
+  Default 1 + Backfill), da die Idempotenz-Keys schon stabil sind.
+
+### Phase 1 — Umsetzungsstand
+Gerüst steht und ist **lokal grün** (24 Tests, ruff): FastAPI-Ingest (`POST /api/ingest`,
+Secret-Header), Roh-Archiv + Parser + idempotenter Upsert, Auto-Registry-Stub für
+unbekannte Metriken, Alembic-Migration (Timescale-Hypertable extension-bedingt +
+lokaler Tages-View), s6-overlay-Image (PUID/PGID, uvicorn + scheduler), die drei
+Workflows (GHCR-only) + Dependabot + CONTRIBUTING. Offen: Bulk-Backfill, finale
+Registry-Kuratierung, dann Phase 2.
 
 ### TODO (bewusst aufgeschoben)
 - **Docker Hub:** Workflows pushen vorerst nur nach GHCR; Docker-Hub-Login + Mirror-Tags

@@ -1,0 +1,38 @@
+"""FastAPI application wiring.
+
+Holds only app-level concerns: logging bootstrap, security-headers middleware
+and router includes. Endpoints live in ``app/routers/*``.
+"""
+
+from __future__ import annotations
+
+from fastapi import FastAPI
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+
+from . import routers
+from .config import get_settings
+from .logging_config import configure_logging
+
+_settings = get_settings()
+configure_logging(_settings.log_level, _settings.log_format)
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        return response
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(title="HealthLog", version="0.1.0")
+    app.add_middleware(SecurityHeadersMiddleware)
+    app.include_router(routers.health.router)
+    app.include_router(routers.ingest.router)
+    return app
+
+
+app = create_app()
