@@ -10,5 +10,7 @@ echo "init-config: applying PUID=${PUID} PGID=${PGID}"
 groupmod -o -g "${PGID}" healthlog
 usermod -o -u "${PUID}" -g "${PGID}" healthlog
 
-mkdir -p /config /config/logs
+# /config/import is the drop folder for the bulk-backfill CLI; created up
+# front so operators never have to mkdir it by hand.
+mkdir -p /config /config/logs /config/import
 chown -R healthlog:healthlog /config
