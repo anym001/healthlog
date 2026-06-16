@@ -26,8 +26,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://healthlog:${DB_PASSWORD:-healthlog}@timescaledb:5432/healthlog
       INGEST_SECRET: ${INGEST_SECRET:?set a strong ingest secret}
-      LOCAL_TZ: ${LOCAL_TZ:-Europe/Vienna}
-      TZ: ${LOCAL_TZ:-Europe/Vienna}
+      TZ: ${TZ:-Europe/Vienna}
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
