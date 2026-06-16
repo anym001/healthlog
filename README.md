@@ -7,8 +7,9 @@ Data flows from **Health Auto Export** (iPhone) → a FastAPI ingest endpoint �
 **TimescaleDB**. A nightly job computes statistical findings; **Grafana**
 visualises them. An optional local LLM (Ollama) narrates the findings later.
 
-> **Status:** Phase 1 (ingestion + storage). The full design and roadmap live
-> in [`docs/PLAN.md`](docs/PLAN.md).
+> **Status:** ingestion + storage (Phase 1) and the nightly analysis pipeline
+> (Phase 3) are in place. The full design and roadmap live in
+> [`docs/PLAN.md`](docs/PLAN.md).
 
 ## Architecture
 
@@ -18,7 +19,8 @@ iPhone (Health Auto Export, nightly JSON POST)
         ▼
 healthlog container (s6-overlay: uvicorn + scheduler)
    ├─ POST /api/ingest  → archive raw → parse → idempotent upsert
-   └─ scheduler         → nightly analysis (Phase 3)
+   └─ scheduler         → nightly analysis → findings (correlations,
+                          anomalies, trends, seasonality, recovery alerts)
         ▼
 TimescaleDB  ──►  Grafana
 ```

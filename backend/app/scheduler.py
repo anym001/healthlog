@@ -1,9 +1,9 @@
-"""Nightly analysis scheduler (Phase 1 skeleton).
+"""Nightly analysis scheduler.
 
 Runs as its own process (s6 service), separate from uvicorn, so the heavy
-analysis never blocks the ingest event loop. At the scheduled time it will
-launch the analysis as a *subprocess* (Phase 3) so a crash in a C extension
-cannot take down the scheduler. For now it logs a placeholder.
+analysis never blocks the ingest event loop. At the scheduled time it launches
+the analysis as a *subprocess* (`python -m app.analysis`) so a crash in a C
+extension can take down neither the scheduler nor uvicorn.
 """
 
 from __future__ import annotations
@@ -25,9 +25,7 @@ def run_analysis() -> None:
     """Launch the analysis as an isolated subprocess (fault containment)."""
     log.info("nightly analysis trigger fired")
     try:
-        # Phase 3 will implement `python -m app.analysis`. The module is not
-        # present yet, so this is a no-op placeholder that fails softly.
-        subprocess.run([sys.executable, "-c", "print('healthlog analysis placeholder')"], check=True)
+        subprocess.run([sys.executable, "-m", "app.analysis"], check=True)
     except subprocess.CalledProcessError as exc:  # pragma: no cover - defensive
         log.error("analysis subprocess failed: %s", exc)
 

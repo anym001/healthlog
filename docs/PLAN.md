@@ -253,7 +253,7 @@ daily_metrics (day, metric, avg, vmin, vmax, sum, n)
 ### 4.7 Befunde der Pipeline (reine Statistik, kein LLM)
 
 ```sql
-findings (id, computed_at, kind TEXT,            -- 'correlation'|'anomaly'|'trend'
+findings (id, computed_at, kind TEXT,            -- correlation|anomaly|trend|seasonality|recovery_alert|consistency
           metric_a TEXT, metric_b TEXT,          -- metric_b nur bei correlation
           lag_days INT, coefficient DOUBLE PRECISION,
           p_value DOUBLE PRECISION, p_value_adj DOUBLE PRECISION,  -- FDR
@@ -396,11 +396,20 @@ und die ersten Parser-/Idempotenz-/TZ-Tests (§7), damit das Gate von Anfang an 
 Daten verstehen, Tagesaggregate (lokale TZ) prüfen, erste manuelle Korrelations-
 und Trend-Plots. Hier lernst du, was überhaupt aussagekräftig ist.
 
-### Phase 3 – Automatische Pipeline (im App-Container)
-APScheduler triggert nachts den Analyse-Subprozess: Lag-Korrelationen (Spearman,
-Lags 0–3 Tage) + Anomalie-Erkennung (28-Tage rolling Median + MAD) + Trends (STL),
-Befunde → `findings` (mit FDR-`p_value_adj`). Begleitend die Analyse-Mathematik-Tests
-gegen synthetische Reihen (§7).
+### Phase 3 – Automatische Pipeline (im App-Container) ✅ (umgesetzt)
+APScheduler triggert nachts den Analyse-Subprozess (`python -m app.analysis`,
+fault-isoliert). Serien sind die Core-Metriken (Tageswert nach `agg_default`) plus
+abgeleitete Schlaf-Serien (`sleep_total_h`/`deep_h`/`rem_h`/`sleep_efficiency`).
+Befund-Typen (`findings`, Snapshot pro Lauf):
+- **correlation** — Spearman, Lags 0–3 Tage (beide Richtungen), FDR-`p_value_adj`.
+- **anomaly** — 28-Tage trailing Median + MAD (robuster z), nur letzte 14 Tage.
+- **trend** — STL-Trendkomponente (Slope + Trendstärke).
+- **seasonality** — MSTL(7, 365): Jahresmuster (Amplitude + Hoch-/Tief-Monat), ab ≥2 Jahren.
+- **recovery_alert** — kombiniert: HRV auffällig niedrig **und** Ruhepuls hoch (+ optional kurzer Schlaf).
+- **consistency** — rollende Streuung von Schlafdauer und Zubettgeh-Zeit (Mitternachts-Wrap behandelt).
+
+Die reine Analyse-Mathematik ist DB-frei und gegen synthetische Reihen (bekannter
+Lag/Anomalie/Trend/Jahres-Saison) mit festem Seed getestet (§7); dazu ein DB-End-to-End-Test.
 
 ### Phase 4 – Visualisierung + optionales LLM
 Grafana-Dashboards (Trainingslast vs. HRV/Ruhepuls, Schlaf-Trends, `findings` als
@@ -466,8 +475,17 @@ Registry-Kuratierung, dann Phase 2.
   `[project.scripts]`; auch `python -m app backfill`), idempotent über dieselbe Pipeline
   wie der Endpoint, mit `--dry-run`; `test_backfill.py`.
 
+### Phase 3 — umgesetzt ✅
+Analyse-Pipeline (`app/analysis.py`) mit allen sechs Befund-Typen (correlation,
+anomaly, trend, seasonality via MSTL 7+365, recovery_alert, consistency),
+`findings`-Tabelle (Migration `0002_findings`), Scheduler verdrahtet
+(`python -m app.analysis`), Deps numpy/pandas/scipy/statsmodels gepinnt;
+reine Mathematik gegen synthetische Reihen + DB-End-to-End getestet.
+
 ### Noch offen (in einer späteren Phase)
 - **Workout-Typ-Normalisierung:** Mapping lokalisierter `name` → kanonischer Typ (§4.4).
+- **`daily_metrics`-View an `COALESCE(vavg,qty)` angleichen** (Phase 4/Grafana), damit
+  Dashboards dieselben Tageswerte sehen wie die Analyse (die View nutzt aktuell `vavg`/`vmin`).
 
 ### Optional „think bigger" — nicht aktivierte Health-Kategorien
 Im Sample bewusst aus (ECG/GPX) bzw. ungenutzt. Das Modell verträgt sie jederzeit ohne
