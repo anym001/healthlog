@@ -11,11 +11,12 @@ parties, no cloud, no telemetry.
 
 Your iPhone exports to your server and nothing leaves it: data flows from
 **Health Auto Export** (HAE) → a FastAPI ingest endpoint → **TimescaleDB**.
-A nightly job computes statistical findings; **Grafana** visualises them. An
-optional local LLM (Ollama) can narrate the findings later.
+A nightly job computes statistical findings and stores them back in the database,
+ready to chart with whatever dashboard you prefer. An optional local LLM (Ollama)
+can narrate the findings later.
 
 > **Status:** ingestion + storage (Phase 1) and the nightly analysis pipeline
-> (Phase 3) are in place; Grafana dashboards and the LLM narration are next.
+> (Phase 3) are in place; dashboards and the optional LLM narration are next.
 > The full design and roadmap live in [`docs/PLAN.md`](docs/PLAN.md).
 
 ## Contents
@@ -24,6 +25,7 @@ optional local LLM (Ollama) can narrate the findings later.
 - [What it computes](#what-it-computes)
 - [Requirements](#requirements)
 - [Quick start](#quick-start)
+- [Image](#image)
 - [Sending data from your iPhone](#sending-data-from-your-iphone)
 - [Bulk backfill (full history)](#bulk-backfill-full-history)
 - [Analysis schedule](#analysis-schedule)
@@ -31,7 +33,6 @@ optional local LLM (Ollama) can narrate the findings later.
 - [Operations](#operations)
 - [Reverse proxy](#reverse-proxy)
 - [Logging](#logging)
-- [Image](#image)
 - [Development](#development)
 - [License](#license)
 
@@ -46,8 +47,8 @@ healthlog container  (s6-overlay: uvicorn + scheduler)
         ├─ POST /api/ingest  → archive raw payload → parse → idempotent upsert
         └─ scheduler         → nightly analysis → findings
         ▼
-TimescaleDB  ───────────────►  Grafana
-   (raw samples + findings)       (dashboards)
+TimescaleDB  ───────────────►  dashboard of your choice (Grafana, …)
+   (raw samples + findings)
 ```
 
 The image runs two supervised processes — the ingest API and the analysis
@@ -60,7 +61,8 @@ writes are idempotent — re-sending an overlapping export never double-counts.
 
 ## What it computes
 
-The nightly pipeline writes **findings** to the database (visualised in Grafana):
+The nightly pipeline writes **findings** to the database, ready to query or chart
+in any dashboard tool:
 
 - **Lagged correlations** between metrics (Spearman, lags 0–3 days, both
   directions), filtered with a Benjamini–Hochberg false-discovery-rate control
@@ -79,100 +81,88 @@ for a Mac. The full method list and tuning live in [`docs/PLAN.md`](docs/PLAN.md
 
 ## Requirements
 
-- Docker (or Podman) with Compose
+- Docker (or Podman)
 - A reverse proxy with TLS in front of the ingest endpoint (HAE posts over the
   internet) — see [Reverse proxy](#reverse-proxy)
 - An iPhone with the **Health Auto Export** app
 
 ## Quick start
 
-HealthLog runs as a small stack: the app container, a TimescaleDB container, and
-(optionally) Grafana. There is no separate compose file to download — copy the
-two blocks below.
+HealthLog needs a TimescaleDB/Postgres database and the app container, joined on
+a private Docker network so the app can reach the database by name. No files to
+create — just run the containers.
 
-**1. Create `.env`** next to the compose file and set at least a database
-password and a strong ingest secret:
-
-```bash
-# .env
-INGEST_SECRET=replace-with-a-long-random-string   # e.g. `openssl rand -hex 32`
-DB_PASSWORD=replace-with-a-strong-password
-TZ=Europe/Vienna
-ANALYSIS_CRON=30 3 * * *
-PUID=1000
-PGID=1000
-GRAFANA_PASSWORD=replace-me
-```
-
-`INGEST_SECRET` is the shared secret HAE sends in the `X-Ingest-Token` header;
-any long random ASCII string works (`openssl rand -hex 32` is a good default).
-See [Configuration](#configuration) for every variable.
-
-**2. Create `docker-compose.yml`:**
-
-```yaml
-services:
-  healthlog-db:
-    image: timescale/timescaledb:2.17.2-pg16   # pin the exact tag — see Operations
-    container_name: healthlog-db
-    environment:
-      POSTGRES_USER: healthlog
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?set a database password}
-      POSTGRES_DB: healthlog
-    volumes:
-      - ./data/db:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U healthlog"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    restart: unless-stopped
-
-  healthlog:
-    image: ghcr.io/anym001/healthlog:latest
-    container_name: healthlog
-    depends_on:
-      healthlog-db:
-        condition: service_healthy
-    environment:
-      DATABASE_URL: postgresql+psycopg://healthlog:${DB_PASSWORD}@healthlog-db:5432/healthlog
-      INGEST_SECRET: ${INGEST_SECRET:?set a strong ingest secret}
-      TZ: ${TZ:-Europe/Vienna}
-      ANALYSIS_CRON: ${ANALYSIS_CRON:-30 3 * * *}
-      PUID: ${PUID:-1000}
-      PGID: ${PGID:-1000}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      LOG_FORMAT: ${LOG_FORMAT:-text}
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./config:/config
-    restart: unless-stopped
-
-  grafana:                       # optional — the findings dashboard
-    image: grafana/grafana-oss:11.4.0
-    container_name: healthlog-grafana
-    depends_on:
-      - healthlog-db
-    environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
-    volumes:
-      - ./data/grafana:/var/lib/grafana
-    ports:
-      - "3000:3000"
-    restart: unless-stopped
-```
-
-**3. Start it and check health:**
+**1. Create the network and start TimescaleDB:**
 
 ```bash
-docker compose up -d
+docker network create health
+
+docker run -d \
+  --name healthlog-db \
+  --network health \
+  -e POSTGRES_USER=healthlog \
+  -e POSTGRES_PASSWORD=change-me-strong \
+  -e POSTGRES_DB=healthlog \
+  -v /mnt/user/appdata/healthlog-db:/var/lib/postgresql/data \
+  --restart unless-stopped \
+  timescale/timescaledb:2.17.2-pg16     # pin the exact tag — see Operations
+```
+
+**2. Start HealthLog** once the database is up:
+
+```bash
+docker run -d \
+  --name healthlog \
+  --network health \
+  -p 8000:8000 \
+  -e DATABASE_URL='postgresql+psycopg://healthlog:change-me-strong@healthlog-db:5432/healthlog' \
+  -e INGEST_SECRET='replace-with-a-long-random-string' \
+  -e TZ=Europe/Vienna \
+  -e ANALYSIS_CRON='30 3 * * *' \
+  -e PUID=1000 -e PGID=1000 \
+  -v /mnt/user/appdata/healthlog:/config \
+  --restart unless-stopped \
+  ghcr.io/anym001/healthlog:latest
+```
+
+`INGEST_SECRET` is the shared secret HAE sends in the `X-Ingest-Token` header —
+any long random ASCII string (`openssl rand -hex 32` is a good default). The
+password in `DATABASE_URL` must match `POSTGRES_PASSWORD` above, and `PUID`/`PGID`
+decide who owns `/config` on the host (Unraid: `99` / `100`). See
+[Configuration](#configuration) for every variable.
+
+**3. Check health:**
+
+```bash
 curl -fsS http://localhost:8000/api/health     # → {"status":"ok"}
 ```
 
-The database is not published to the host (only reachable inside the compose
-network); Grafana listens on `:3000`. Put a TLS reverse proxy in front of the
-`healthlog` service before pointing HAE at it.
+The database has no published port — it's reachable only by the app over the
+`health` network. Put a TLS reverse proxy in front of the `healthlog` container
+before pointing HAE at it (see [Reverse proxy](#reverse-proxy)).
+
+> **Visualising the findings:** the analysis writes its results to the `findings`
+> table, so chart them with whatever you prefer — Grafana, Metabase, a notebook,
+> plain SQL. Attach that tool to the same `health` network and point it at
+> `healthlog-db`.
+
+## Image
+
+Published to the **GitHub Container Registry (GHCR)**:
+
+```bash
+docker pull ghcr.io/anym001/healthlog:<tag>
+```
+
+| Tag | Source | Purpose |
+|---|---|---|
+| `:X.Y.Z` | Release tag on `main` | **Production** — fixed version; update when ready |
+| `:latest` | Latest release | Tracks the newest production release |
+| `:dev` | Latest `dev` state | **Maintainers only** — pre-production/staging |
+
+**Recommendation:** pin production to a fixed `:X.Y.Z` tag so a new release does
+not silently update your instance, and rollback is just pointing back to the old
+tag.
 
 ## Sending data from your iPhone
 
@@ -197,10 +187,10 @@ safe:
 
 ```bash
 # Inspect first (parses + reports counts, writes nothing):
-docker compose exec healthlog healthlog backfill --dry-run /config/import
+docker exec healthlog healthlog backfill --dry-run /config/import
 
 # Then import a directory of *.json (or pass individual files):
-docker compose exec healthlog healthlog backfill /config/import
+docker exec healthlog healthlog backfill /config/import
 ```
 
 Each file is committed on its own; identical re-posts are skipped by content
@@ -213,7 +203,7 @@ cron expression interpreted in `TZ`, default `30 3 * * *` (03:30 local time). To
 recompute the findings on demand:
 
 ```bash
-docker compose exec healthlog healthlog analyze
+docker exec healthlog healthlog analyze
 ```
 
 ## Configuration
@@ -247,9 +237,9 @@ docker exec -t healthlog-db pg_dump -U healthlog -Fc healthlog > healthlog-$(dat
 cat healthlog-2026-06-16.dump | docker exec -i healthlog-db pg_restore -U healthlog -d healthlog --clean --if-exists
 ```
 
-The `./data/db` volume (the database files) and the `/config` mount (logs, the
-import drop folder) are the only state worth keeping; everything else is rebuilt
-from the image.
+The database volume (`/var/lib/postgresql/data`) and the `/config` mount (logs,
+the import drop folder) are the only state worth keeping; everything else is
+rebuilt from the image.
 
 ### Updating the database image
 
@@ -276,8 +266,8 @@ backup in hand. The app image (`healthlog`) is decoupled and can be updated free
 
 HealthLog's ingest endpoint is reached by HAE over the internet, so it belongs
 behind a TLS-terminating reverse proxy (nginx, Caddy, Traefik …). Only the
-`healthlog` service needs to be exposed; keep the database internal and put
-Grafana behind authentication. Nginx example:
+`healthlog` container needs to be exposed; the database has no published port and
+stays internal. Nginx example:
 
 ```nginx
 server {
@@ -300,24 +290,6 @@ for structured output suitable for aggregators (Loki, ELK). Persistence is an
 operations concern: use a Docker log driver, or mount `/config` and rely on your
 platform's log retention. Each ingest and the nightly analysis run are logged at
 `INFO`.
-
-## Image
-
-Published to the **GitHub Container Registry (GHCR)**:
-
-```bash
-docker pull ghcr.io/anym001/healthlog:<tag>
-```
-
-| Tag | Source | Purpose |
-|---|---|---|
-| `:X.Y.Z` | Release tag on `main` | **Production** — fixed version; update when ready |
-| `:latest` | Latest release | Tracks the newest production release |
-| `:dev` | Latest `dev` state | **Maintainers only** — pre-production/staging |
-
-**Recommendation:** pin production to a fixed `:X.Y.Z` tag so a new release does
-not silently update your instance, and rollback is just pointing back to the old
-tag.
 
 ## Development
 
