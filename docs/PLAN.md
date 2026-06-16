@@ -150,6 +150,12 @@ Verhindert, dass dieselbe physiologische Größe unter mehreren Namen/Einheiten
 zerfasert (kcal vs. kJ, `count/min`), und sagt der Analyse, **welcher** Tagesaggregat
 pro Metrik sinnvoll ist (Steps→Summe, RestingHR→Min, HRV→Avg).
 
+**Einheiten-Wächter:** HAE liefert die Einheit pro Wert mit (`"units": "kcal"`) und kann
+sie optional lokalisieren. `metric_registry.unit_canonical` ist die Soll-Einheit; beim
+Ingest wird die eingehende `unit` dagegen geprüft → bei Abweichung **konvertieren**
+(bekannter Faktor, z. B. kJ→kcal) **oder flaggen**, nie still übernehmen. Damit kippt
+eine versehentliche Einheiten-Umstellung in HAE die Historie nicht. Ein Test pinnt das.
+
 ### 4.6 Tagesaggregate (Continuous Aggregate)
 
 Ein einzelnes CA kann nicht "die richtige" Aggregation pro Metrik liefern, deshalb
@@ -193,6 +199,10 @@ dem Tag der Anomalie). Nicht zutreffende Felder bleiben NULL.
 - **Robustheit:** Payload-Größenlimit, Secret-Header in konstanter Zeit prüfen,
   unbekannte Metriken tolerieren (landen im Roh-Archiv, werden via Registry
   nachgezogen) statt den ganzen POST abzulehnen.
+- **Einheiten stabil halten:** HAE-seitig *„Use Localized Units" = OFF* und feste
+  Unit Preferences pro Metrik (metrisch: kcal/km/kg/°C, HR `count/min`, HRV `ms`,
+  SpO₂ `%`). Serverseitig greift zusätzlich der Einheiten-Wächter der Registry
+  (§4.5) — die App-Einstellung ist Vorsorge, die Registry ist die Absicherung.
 
 ## 6. Container-Topologie & Deployment
 
