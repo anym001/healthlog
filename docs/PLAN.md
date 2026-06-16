@@ -84,6 +84,30 @@ harter Crash in einer C-Extension nur diesen Subprozess killt — Scheduler **un
 > reale HAE-Payload-Struktur (Aggregation, Felder, Einheiten) entscheidet
 > die Details. Die folgende Skizze nimmt die bekannten HAE-Eigenheiten vorweg.
 
+### 4.0 Leitprinzip: Metriken jederzeit erweiterbar
+
+Das Datenmodell ist bewusst **metrik-agnostisch** — eine neue Metrik (heute unbekannt,
+in einem künftigen iOS/HAE-Update oder bei geändertem Tracking) erfordert **keine
+Schema-Änderung und keine Migration**. Getragen wird das von fünf Bausteinen:
+
+1. **Generische Werte-Tabelle** (`metric_samples`, §4.2): `metric` ist eine Spalte,
+   **keine** Metrik bekommt eigene Tabellen-Spalten. `qty`/`vmin`/`vavg`/`vmax` decken
+   beide HAE-Shapes ab.
+2. **Roh-Archiv** (§4.1): nimmt jede Payload verbatim — auch Felder, die der Parser
+   (noch) nicht kennt, gehen nie verloren und sind später nachparsbar.
+3. **Toleranter Ingest** (§5): unbekannte Metriken werden **angenommen, nicht
+   abgelehnt** — sie landen in `metric_samples` und legen automatisch einen
+   **Registry-Stub** an (`tier='secondary'`, Einheit aus der Payload), der nur noch
+   menschlich klassifiziert werden muss. Kein POST scheitert an einer neuen Metrik.
+4. **Registry statt Code** (§4.5): Verhalten einer Metrik (kanonische Einheit,
+   Tagesaggregat, Tier, Kategorie) ist **Daten, kein Code** — „adoptieren" = eine Zeile.
+5. **Generische Tagesaggregate** (§4.6): das CA bucketet per `(day, metric)`, ganz ohne
+   Metrik-Namen im Code — neue Metriken erscheinen automatisch.
+
+Konsequenz: „eine weitere Metrik mitnehmen" heißt im Normalfall **nur** den HAE-Export
+erweitern + ggf. eine Registry-Zeile pflegen. Spezialfälle mit eigener Struktur
+(Schlaf §4.3, Workouts §4.4) bleiben die einzigen Tabellen mit dediziertem Schema.
+
 ### 4.1 Roh-Archiv (Replay-fähig)
 
 ```sql
@@ -97,46 +121,76 @@ ohne Datenverlust. Volumen lokal vernachlässigbar.
 
 ### 4.2 Geparste Messwerte (Hypertable)
 
-HAE liefert die meisten Metriken **aggregiert in Buckets**, nicht roh — Herzfrequenz
-typischerweise als `{Min, Avg, Max}`, Schritte/Energie als `qty` (Summe). Daher
-**eine Zeile pro Metrik-Bucket** mit nullbaren Aggregat-Spalten (füllen, was HAE
-liefert), **nicht** ein einzelnes `value`:
+**An echter Payload (v2, 7 Tage, 30 Metriken) verifiziert.** HAE liefert pro Metrik
+ein `data`-Array von Buckets in genau **zwei Shapes**:
+- **`{Min, Avg, Max}`** — in der Praxis **nur `heart_rate`**.
+- **`{qty}`** — alle übrigen 29 Metriken (auch HRV, Ruhepuls, Atemfrequenz, SpO₂).
+
+Daher **eine Zeile pro Metrik-Bucket** mit nullbaren Aggregat-Spalten (füllen, was HAE
+liefert), **nicht** ein einzelnes `value`. Das Modell ist **generisch**: jede Metrik
+landet hier, ohne Schema-Änderung (siehe Inventar §4.7) — wir ingesten **alle**
+Metriken, die Registry klassifiziert sie:
 
 ```sql
 metric_samples (time TIMESTAMPTZ, metric TEXT, source TEXT, unit TEXT,
-                qty   DOUBLE PRECISION,   -- Summen/Punktwerte (Steps, Energy …)
-                vmin  DOUBLE PRECISION,   -- HAE "Min"
+                qty   DOUBLE PRECISION,   -- Punktwert/Summe (29 von 30 Metriken)
+                vmin  DOUBLE PRECISION,   -- HAE "Min" (real nur heart_rate)
                 vavg  DOUBLE PRECISION,   -- HAE "Avg"
                 vmax  DOUBLE PRECISION,   -- HAE "Max"
                 n     INTEGER,            -- Sample-Count im Bucket, falls vorhanden
                 UNIQUE (metric, time, source))   -- Idempotenz, siehe §5
-                -- Hypertable auf time; z.B. heart_rate, hrv, resting_hr,
-                --   step_count, active_energy
+                -- Hypertable auf time
 ```
+**Bestätigte Eigenheiten:** `date` = `'YYYY-MM-DD HH:MM:SS +0200'` (Leerzeichen,
+expliziter TZ-Offset pro Wert → sauber als `TIMESTAMPTZ`). `source` kann **leer
+(`''`)**, ein einzelnes Gerät oder **pipe-verkettet** sein
+(`'Apple Watch …|iPhone …'`) und enthält teils ein No-Break-Space — der
+Idempotenz-Schlüssel muss das vertragen (`source` nie NULL-only annehmen).
 
 ### 4.3 Schlaf (eigene Tabelle, intervallbasiert)
 
 Schlaf passt nicht in `metric_samples` — er ist ein Intervall mit Phasen:
 
 ```sql
-sleep_sessions (start_time TIMESTAMPTZ, end_time TIMESTAMPTZ, source TEXT,
-                sleep_date DATE,         -- ZUGEORDNET zum Aufwach-Tag (lokale TZ)
-                in_bed_s INTEGER, asleep_s INTEGER,
-                deep_s INTEGER, core_s INTEGER, rem_s INTEGER, awake_s INTEGER,
-                UNIQUE (start_time, source))
+sleep_sessions (sleep_start TIMESTAMPTZ, sleep_end TIMESTAMPTZ,        -- sleepStart/End
+                in_bed_start TIMESTAMPTZ, in_bed_end TIMESTAMPTZ,      -- inBedStart/End
+                source TEXT,
+                sleep_date DATE,         -- HAE-`date` = Mitternacht des Aufwach-Tags
+                total_sleep_h, deep_h, core_h, rem_h, awake_h,         -- Stunden, dezimal
+                asleep_h, in_bed_h DOUBLE PRECISION,
+                UNIQUE (sleep_start, source))
 ```
-**Konvention:** Eine Schlafsession wird dem **Kalendertag des Aufwachens** (lokale
-TZ) zugeordnet (`sleep_date`), damit "Schlaf in der Nacht auf Tag X" mit den
-Tagesmetriken von Tag X korreliert. Mitternachtsübergreifender Schlaf wird so
-nicht zerschnitten.
+**An echter Payload bestätigt:** HAE liefert pro Nacht ein Objekt mit `sleepStart`/
+`sleepEnd`/`inBedStart`/`inBedEnd`, den Phasen-**Stunden** (dezimal) `deep`/`core`/
+`rem`/`awake` und `totalSleep` (= `deep+core+rem`, verifiziert). `asleep`/`inBed` sind
+in dieser Payload `0` (Phasen separat aufgeschlüsselt) → nullable/0 tolerieren.
+**Tageszuordnung ist bereits HAEs Verhalten:** das Feld `date` steht auf
+**Mitternacht des Aufwach-Tags** (z. B. `date=06-09`, `sleepStart=06-08 20:56`,
+`sleepEnd=06-09 05:56`) → `sleep_date` 1:1 übernehmbar, deckt sich exakt mit unserer
+Korrelations-Konvention. Mitternachtsübergreifender Schlaf bleibt eine Zeile.
 
 ### 4.4 Workouts
 
+HAE liefert pro Workout ein **stabiles `id` (UUID)** — der bessere Idempotenz-Schlüssel
+als `(start, type, source)`. Skalare kommen als `{qty, units}`-Objekte, dazu eine
+`heartRate`-Summary `{min, avg, max}` und Intra-Workout-Zeitreihen (`heartRateData`,
+`stepCount`, `heartRateRecovery`, …), die nur ins Roh-Archiv gehen.
+
 ```sql
-workouts (start_time, end_time, type, duration_s, energy_kcal,
-          distance_m, avg_hr, max_hr, source,
-          UNIQUE (start_time, type, source))
+workouts (hae_id UUID PRIMARY KEY,        -- HAE `id`, stabil → Idempotenz
+          start_time TIMESTAMPTZ, end_time TIMESTAMPTZ,
+          name TEXT,                       -- HAE `name` (LOKALISIERT, s.u.)
+          location TEXT, is_indoor BOOL,
+          duration_s, total_energy_kcal, active_energy_kcal,
+          distance_km, avg_hr, max_hr, hr_recovery,   -- Erholungsindikator
+          intensity, elevation_up_m,
+          temperature_c, humidity_pct DOUBLE PRECISION,  -- Umgebungskontext
+          source TEXT)
 ```
+**Achtung Lokalisierung:** `name` ist sprachabhängig (`'Outdoor Spaziergang'`) — wie bei
+Einheiten brauchen Workout-Typen eine Normalisierung (Mapping lokalisiert→kanonisch),
+sonst zerfasern Typen über Sprachwechsel. `duration` in Sekunden, Energie in `kJ`
+(→ kcal normalisieren, §4.5).
 
 ### 4.5 Metrik-Registry (Normalisierung)
 
@@ -144,17 +198,44 @@ workouts (start_time, end_time, type, duration_s, energy_kcal,
 metric_registry (metric TEXT PRIMARY KEY, display_name TEXT,
                  unit_canonical TEXT,
                  agg_default TEXT,   -- 'avg'|'sum'|'min'|'max': welcher Tageswert zählt
-                 category TEXT)      -- 'activity'|'sleep'|'vital'
+                 category TEXT,      -- 'activity'|'sleep'|'vital'|'mobility'|'environment'
+                 tier TEXT)          -- 'core' (Korrelations-/Trend-Fokus) | 'secondary'
 ```
 Verhindert, dass dieselbe physiologische Größe unter mehreren Namen/Einheiten
 zerfasert (kcal vs. kJ, `count/min`), und sagt der Analyse, **welcher** Tagesaggregat
-pro Metrik sinnvoll ist (Steps→Summe, RestingHR→Min, HRV→Avg).
+pro Metrik sinnvoll ist (Steps→Summe, RestingHR→Min, HRV→Avg). Das **`tier`** trennt
+Analyse-Fokus (`core`) von „mitgenommen, aber sekundär" (`secondary`): wir ingesten
+**alles**, die Korrelations-/Anomalie-Pipeline läuft per Default nur über `core`
+(begrenzt die Multiple-Testing-Last, §11), `secondary` bleibt jederzeit abfragbar.
 
-**Einheiten-Wächter:** HAE liefert die Einheit pro Wert mit (`"units": "kcal"`) und kann
-sie optional lokalisieren. `metric_registry.unit_canonical` ist die Soll-Einheit; beim
-Ingest wird die eingehende `unit` dagegen geprüft → bei Abweichung **konvertieren**
-(bekannter Faktor, z. B. kJ→kcal) **oder flaggen**, nie still übernehmen. Damit kippt
-eine versehentliche Einheiten-Umstellung in HAE die Historie nicht. Ein Test pinnt das.
+**Einheiten-Wächter:** HAE liefert die Einheit pro Wert mit und kann sie lokalisieren.
+**Real bestätigt:** Energie kommt als **`kJ`** (nicht kcal), dazu `kcal/hr·kg`,
+`km/hr`, `m/s`, `degC`, `ml/(kg·min)`. `metric_registry.unit_canonical` ist die
+Soll-Einheit; beim Ingest wird die eingehende `unit` dagegen geprüft → bei Abweichung
+**konvertieren** (bekannter Faktor, kJ→kcal ×0.239006) **oder flaggen**, nie still
+übernehmen. Genau dieser Fall trat im echten Export auf — der Wächter ist kein
+Theoriekonstrukt. Ein Test pinnt das.
+
+### 4.7 Metrik-Inventar (aus echter Payload, Phase 0)
+
+30 Metriken im Export. Vorläufige Tier-Einteilung (Registry-Seed, in Phase 0 finalisiert):
+
+- **core – activity:** `step_count`, `active_energy` (kJ), `apple_exercise_time`,
+  `walking_running_distance`, `flights_climbed`, `physical_effort`, `apple_stand_time`
+- **core – sleep/recovery:** `sleep_analysis` (→ §4.3), `heart_rate_variability`,
+  `resting_heart_rate`, `respiratory_rate`, `apple_sleeping_wrist_temperature`,
+  `breathing_disturbances`, `time_in_daylight`
+- **core – vital:** `heart_rate` (Min/Avg/Max), `blood_oxygen_saturation`,
+  `walking_heart_rate_average`, `vo2_max`, `weight_body_mass`
+- **secondary – mobility:** `walking_speed`, `walking_step_length`,
+  `walking_asymmetry_percentage`, `walking_double_support_percentage`,
+  `stair_speed_up`, `stair_speed_down`, `six_minute_walking_test_distance`
+- **secondary – activity/environment:** `basal_energy_burned`, `apple_stand_hour`,
+  `environmental_audio_exposure`, `headphone_audio_exposure`
+
+Da das Modell generisch ist, kostet das Mitnehmen aller 30 praktisch nichts — neue
+Metriken in künftigen Exports landen automatisch im Roh-Archiv und in `metric_samples`
+und werden nur per Registry-Zeile „adoptiert".
 
 ### 4.6 Tagesaggregate (Continuous Aggregate)
 
@@ -196,9 +277,12 @@ dem Tag der Anomalie). Nicht zutreffende Felder bleiben NULL.
   **nächtliche Deltas**. Damit sind Korrelationen ab Tag 1 belastbar (≥6–8 Wochen).
 - **Zeitzone:** Speicherung in `TIMESTAMPTZ`; alle Tages-Buckets in **lokaler TZ
   (Europe/Vienna)**, da das Tagesraster die Basis aller Analysen ist.
-- **Robustheit:** Payload-Größenlimit, Secret-Header in konstanter Zeit prüfen,
-  unbekannte Metriken tolerieren (landen im Roh-Archiv, werden via Registry
-  nachgezogen) statt den ganzen POST abzulehnen.
+- **Robustheit & Erweiterbarkeit:** Payload-Größenlimit, Secret-Header in konstanter
+  Zeit prüfen. **Unbekannte Metriken werden angenommen, nie abgelehnt** (§4.0): sie
+  landen im Roh-Archiv **und** in `metric_samples` und legen automatisch einen
+  Registry-Stub an (`tier='secondary'`, Einheit aus der Payload, `agg_default` heuristisch
+  aus dem Shape: `qty`→`sum`, `Min/Avg/Max`→`avg`). Ein POST scheitert nie an einer
+  neuen Metrik; die Klassifizierung kann jederzeit nachgezogen werden.
 - **Einheiten stabil halten:** HAE-seitig *„Use Localized Units" = OFF* und feste
   Unit Preferences pro Metrik (metrisch: kcal/km/kg/°C, HR `count/min`, HRV `ms`,
   SpO₂ `%`). Serverseitig greift zusätzlich der Einheiten-Wächter der Registry
@@ -276,11 +360,12 @@ Drei Workflows, gespiegelt von PocketLog, mit gepinnten Action-SHAs:
 
 ## 10. Phasen-Fahrplan
 
-### Phase 0 – Daten-Audit (zuerst, klein) ← nächster Schritt nach Freigabe
-HAE-Export aktivieren, einmal manuell exportieren und die **reale Payload** prüfen:
-welche Metriken, welche Aggregation (Min/Avg/Max vs. qty), welche Einheiten, wie
-Schlaf strukturiert ist. **Entscheidet das endgültige Schema** (§4) und füllt die
-`metric_registry`.
+### Phase 0 – Daten-Audit ✅ (Sample ausgewertet)
+Reale HAE-Payload (v2, 7 Tage, 30 Metriken + 1 Workout) liegt vor und ist analysiert:
+zwei Bucket-Shapes, Datums-/TZ-Format, Schlafstruktur (Aufwach-Tag-Zuordnung),
+Workout-`id`, Einheiten-Realität (Energie in kJ) — alles in §4 eingearbeitet, Inventar
+in §4.7. **Offen für den Abschluss:** finale `metric_registry`-Befüllung (Tier/Einheit/
+agg pro Metrik) und der **Bulk-Backfill** (gesamte Historie) vor den nächtlichen Deltas.
 
 ### Phase 1 – Ingestion + Storage
 Docker-Compose mit TimescaleDB + dem `healthlog`-Image (uvicorn + Scheduler-Skelett),
@@ -340,10 +425,26 @@ Eigene Web-App im PocketLog-Stil.
   (+ `DOCKERHUB_*`-Secrets) später in `dev.yml`/`build.yml` ergänzen.
 - **arm64-Image** bei Bedarf (aktuell nur `linux/amd64`).
 
-### Gated auf Phase 0 (Daten-Audit)
-- Detailgranularität pro Metrik (aggregiert vs. roh) und exakte Spaltenbelegung in `metric_samples`.
-- Genaue Felder/Struktur von Schlaf und Workouts laut realer HAE-Payload.
-- Initiale Befüllung der `metric_registry` (Namen, Einheiten, `agg_default`).
+### Phase 0 – durch Sample geklärt ✅
+- Bucket-Shapes, Spaltenbelegung `metric_samples`, Datums-/TZ-Format → §4.2.
+- Schlaf- und Workout-Struktur (inkl. Workout-`id`, Aufwach-Tag-Zuordnung) → §4.3/§4.4.
+- Metrik-Inventar + vorläufige Tier-Einteilung → §4.7.
+
+### Noch offen (Abschluss Phase 0 / Start Phase 1)
+- **Finale `metric_registry`-Befüllung:** Tier/Einheit/`agg_default` pro der 30 Metriken
+  festzurren (Stub-Heuristik aus §5 als Startpunkt).
+- **Bulk-Backfill:** einmaliger Voll-Export der gesamten Apple-Health-Historie vor den
+  nächtlichen Deltas (HAE-Datumsbereich „Alle"/größtmöglich).
+- **Workout-Typ-Normalisierung:** Mapping lokalisierter `name` → kanonischer Typ (§4.4).
+
+### Optional „think bigger" — nicht aktivierte Health-Kategorien
+Im Sample bewusst aus (ECG/GPX) bzw. ungenutzt. Falls du sie **trackst**, lohnt das
+Mitnehmen für reichere Korrelationen — das Modell verträgt sie ohne Änderung (§4.0):
+- **Gemütszustand / State of Mind** (iOS 17+): Stimmung ↔ Schlaf/Aktivität wäre eine der
+  wertvollsten Korrelationen überhaupt — **nur sinnvoll, wenn du Mood regelmäßig loggst**.
+- **Medikamente, Symptome:** als Event-Marker für Anomalie-Kontext denkbar.
+- **ECG/GPX bleiben bewusst aus** (rohe Waveforms/Standortdaten, kein Analysenutzen,
+  Payload-/Privacy-Last).
 
 ### Gated auf Phase 4
 - Konkretes Ollama-Modell + Prompt-/Grounding-Design für die Report-Narration.
