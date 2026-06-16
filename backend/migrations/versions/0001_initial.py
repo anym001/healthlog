@@ -24,8 +24,8 @@ down_revision: str | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-# Daily buckets are computed in this timezone (matches LOCAL_TZ default).
-# Changing LOCAL_TZ later requires recreating the view in a follow-up migration.
+# Daily buckets are computed in this timezone (matches the TZ default).
+# Changing TZ later requires recreating the view in a follow-up migration.
 LOCAL_TZ = "Europe/Vienna"
 
 

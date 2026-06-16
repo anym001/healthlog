@@ -35,9 +35,11 @@ class Settings(BaseSettings):
     max_payload_bytes: int = Field(default=32 * 1024 * 1024, alias="MAX_PAYLOAD_BYTES")
 
     # --- Time --------------------------------------------------------------
-    # The local timezone all daily buckets are computed in. The whole analysis
-    # rests on the calendar-day grid, so this must match the user's locale.
-    local_tz: str = Field(default="Europe/Vienna", alias="LOCAL_TZ")
+    # Single timezone knob (the standard LinuxServer/Unraid `TZ`): it sets the
+    # container clock (so log timestamps read local) AND the timezone all daily
+    # buckets are computed in. The whole analysis rests on the calendar-day
+    # grid, so this must match the user's locale.
+    local_tz: str = Field(default="Europe/Vienna", alias="TZ")
 
     # --- Scheduler --------------------------------------------------------
     # When the nightly analysis runs (in local_tz), as a 5-field cron

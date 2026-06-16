@@ -10,7 +10,7 @@ from app.scheduler import build_trigger
 
 def _settings(monkeypatch, **env) -> config.Settings:
     monkeypatch.delenv("ANALYSIS_CRON", raising=False)
-    monkeypatch.setenv("LOCAL_TZ", "Europe/Vienna")
+    monkeypatch.setenv("TZ", "Europe/Vienna")
     for key, value in env.items():
         monkeypatch.setenv(key, value)
     config.get_settings.cache_clear()

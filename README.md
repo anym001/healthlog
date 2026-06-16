@@ -81,8 +81,8 @@ docker compose exec healthlog healthlog analyze
 |---|---|---|
 | `DATABASE_URL` | `postgresql+psycopg://…` | TimescaleDB/Postgres connection |
 | `INGEST_SECRET` | *(required)* | shared secret for `X-Ingest-Token` |
-| `LOCAL_TZ` | `Europe/Vienna` | timezone for daily buckets |
-| `ANALYSIS_CRON` | `30 3 * * *` | when the nightly analysis runs (5-field cron, `LOCAL_TZ`) |
+| `TZ` | `Europe/Vienna` | container clock (log timestamps) and the daily-bucket timezone |
+| `ANALYSIS_CRON` | `30 3 * * *` | when the nightly analysis runs (5-field cron, in `TZ`) |
 | `PUID` / `PGID` | `1000` | ownership of `/config` |
 | `LOG_LEVEL` | `INFO` | log verbosity |
 | `LOG_FORMAT` | `text` | `text` or `json` |
