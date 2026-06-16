@@ -103,7 +103,7 @@ Schema-Änderung und keine Migration**. Getragen wird das von fünf Bausteinen:
    menschlich klassifiziert werden muss. Kein POST scheitert an einer neuen Metrik.
 4. **Registry statt Code** (§4.5): Verhalten einer Metrik (kanonische Einheit,
    Tagesaggregat, Tier, Kategorie) ist **Daten, kein Code** — „adoptieren" = eine Zeile.
-5. **Generische Tagesaggregate** (§4.6): die View aggregiert per `(day, metric)`, ganz ohne
+5. **Generische Tagesaggregate** (§4.7): die View aggregiert per `(day, metric)`, ganz ohne
    Metrik-Namen im Code — neue Metriken erscheinen automatisch.
 
 Konsequenz: „eine weitere Metrik mitnehmen" heißt im Normalfall **nur** den HAE-Export
@@ -130,7 +130,7 @@ ein `data`-Array von Buckets in genau **zwei Shapes**:
 
 Daher **eine Zeile pro Metrik-Bucket** mit nullbaren Aggregat-Spalten (füllen, was HAE
 liefert), **nicht** ein einzelnes `value`. Das Modell ist **generisch**: jede Metrik
-landet hier, ohne Schema-Änderung (siehe Inventar §4.7) — wir ingesten **alle**
+landet hier, ohne Schema-Änderung (siehe Inventar §4.6) — wir ingesten **alle**
 Metriken, die Registry klassifiziert sie:
 
 ```sql
@@ -218,7 +218,7 @@ Soll-Einheit; beim Ingest wird die eingehende `unit` dagegen geprüft → bei Ab
 übernehmen. Genau dieser Fall trat im echten Export auf — der Wächter ist kein
 Theoriekonstrukt. Ein Test pinnt das.
 
-### 4.7 Metrik-Inventar (aus echter Payload, Phase 0)
+### 4.6 Metrik-Inventar (aus echter Payload, Phase 0)
 
 30 Metriken im Export. Vorläufige Tier-Einteilung (Registry-Seed, in Phase 0 finalisiert):
 
@@ -246,7 +246,7 @@ Da das Modell generisch ist, kostet das Mitnehmen aller 30 praktisch nichts — 
 Metriken in künftigen Exports landen automatisch im Roh-Archiv und in `metric_samples`
 und werden nur per Registry-Zeile „adoptiert".
 
-### 4.6 Tagesaggregate (View)
+### 4.7 Tagesaggregate (View)
 
 Aktuell eine **einfache SQL-View** (kein Timescale Continuous Aggregate — die Datenmenge
 erfordert es nicht; ein CA kann sie später ohne Schema-Bruch ersetzen). Sie berechnet
@@ -263,7 +263,7 @@ liefert sie daher NULL, wo die Analyse `qty` nutzt. Angleich offen (§13). Zudem
 ein ungewichtetes Mittel der Bucket-Mittel — für Tagesgranularität ausreichend, exakt
 über das Roh-Archiv nachrechenbar.
 
-### 4.7 Befunde der Pipeline (reine Statistik, kein LLM)
+### 4.8 Befunde der Pipeline (reine Statistik, kein LLM)
 
 ```sql
 findings (id, computed_at, kind TEXT,            -- correlation|anomaly|trend|seasonality|recovery_alert|consistency
@@ -394,10 +394,10 @@ Dependency-Bump, der die Suite rot macht, wird nicht gemergt.
 Reale HAE-Payload (v2, 7 Tage, 30 Metriken + 1 Workout) liegt vor und ist analysiert:
 zwei Bucket-Shapes, Datums-/TZ-Format, Schlafstruktur (Aufwach-Tag-Zuordnung),
 Workout-`id`, Einheiten-Realität (Energie in kJ) — alles in §4 eingearbeitet, Inventar
-in §4.7. **Abschluss erledigt:** die `metric_registry` ist kuratiert (Tier/Einheit/
+in §4.6. **Abschluss erledigt:** die `metric_registry` ist kuratiert (Tier/Einheit/
 `agg_default` pro Metrik, durch `test_registry.py` festgezurrt) und nach dem ersten
 Voll-Backfill um neun auto-registrierte Metriken erweitert (Migration `0003`,
-`cardio_recovery` → core; §4.7), und der **Bulk-Backfill** existiert als datei-basiertes
+`cardio_recovery` → core; §4.6), und der **Bulk-Backfill** existiert als datei-basiertes
 CLI (`python -m app.backfill`, §5) — selbe Pipeline wie der Endpoint, idempotent,
 mit `--dry-run`.
 
@@ -491,7 +491,7 @@ Dependabot + CONTRIBUTING. Bulk-Backfill und Registry-Kuratierung sind erledigt
 ### Phase 0 – durch Sample geklärt ✅
 - Bucket-Shapes, Spaltenbelegung `metric_samples`, Datums-/TZ-Format → §4.2.
 - Schlaf- und Workout-Struktur (inkl. Workout-`id`, Aufwach-Tag-Zuordnung) → §4.3/§4.4.
-- Metrik-Inventar + vorläufige Tier-Einteilung → §4.7.
+- Metrik-Inventar + vorläufige Tier-Einteilung → §4.6.
 
 ### Phase 0 — Abschluss erledigt ✅
 - **Finale `metric_registry`-Befüllung:** Tier/Einheit/`agg_default` pro der 30 Metriken
