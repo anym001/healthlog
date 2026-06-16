@@ -346,6 +346,17 @@ Drei Workflows, gespiegelt von PocketLog, mit gepinnten Action-SHAs:
 - **Tests blocken den Push:** ein roter Lauf verhindert `:dev`/`:vX.Y.Z` — ein kaputter
   Commit erreicht nie ein Image.
 
+**Dependabot** (`.github/dependabot.yml`) hält Abhängigkeiten aktuell — drei Ökosysteme,
+**wöchentlich**, PRs gegen **`dev`** (nie `main`, §9), je gruppiert (ein PR statt vieler,
+vermeidet gegenseitige Merge-Konflikte an den gepinnten SHA-Zeilen):
+- `github-actions` (`/`) — wie PocketLog; hält die SHA-Pins der drei Workflows frisch.
+- `pip` (`/backend`) — `requirements.txt` + `requirements-dev.txt` (FastAPI, SQLAlchemy,
+  Alembic, pandas/statsmodels/scipy …).
+- `docker` (`/backend`) — Base-Image-Bumps (`python:3.12-slim`, s6-overlay).
+
+Dependabot-PRs durchlaufen dasselbe `test.yml`-Gate wie jeder andere PR — ein
+Dependency-Bump, der die Suite rot macht, wird nicht gemergt.
+
 ## 9. Branching & Release (CONTRIBUTING)
 
 **Identisch zu PocketLog:**
@@ -438,11 +449,10 @@ Eigene Web-App im PocketLog-Stil.
 - **Workout-Typ-Normalisierung:** Mapping lokalisierter `name` → kanonischer Typ (§4.4).
 
 ### Optional „think bigger" — nicht aktivierte Health-Kategorien
-Im Sample bewusst aus (ECG/GPX) bzw. ungenutzt. Falls du sie **trackst**, lohnt das
-Mitnehmen für reichere Korrelationen — das Modell verträgt sie ohne Änderung (§4.0):
-- **Gemütszustand / State of Mind** (iOS 17+): Stimmung ↔ Schlaf/Aktivität wäre eine der
-  wertvollsten Korrelationen überhaupt — **nur sinnvoll, wenn du Mood regelmäßig loggst**.
+Im Sample bewusst aus (ECG/GPX) bzw. ungenutzt. Das Modell verträgt sie jederzeit ohne
+Änderung (§4.0), falls künftig relevant:
 - **Medikamente, Symptome:** als Event-Marker für Anomalie-Kontext denkbar.
+- **Gemütszustand / State of Mind:** entfällt — wird nicht getrackt.
 - **ECG/GPX bleiben bewusst aus** (rohe Waveforms/Standortdaten, kein Analysenutzen,
   Payload-/Privacy-Last).
 
