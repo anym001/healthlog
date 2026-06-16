@@ -14,7 +14,7 @@ from app.models import MetricRegistry
 from app.registry import METRIC_REGISTRY, SLEEP_METRIC
 
 VALID_AGG = {"sum", "min", "max", "avg"}
-VALID_CATEGORY = {"activity", "sleep", "vital", "mobility", "environment"}
+VALID_CATEGORY = {"activity", "sleep", "vital", "mobility", "environment", "mindfulness", "nutrition"}
 VALID_TIER = {"core", "secondary"}
 
 
@@ -46,6 +46,11 @@ def test_summing_metrics_use_sum_aggregate():
 
 def test_resting_heart_rate_uses_min_aggregate():
     assert METRIC_REGISTRY["resting_heart_rate"]["agg_default"] == "min"
+
+
+def test_cardio_recovery_promoted_to_core():
+    # Curated up from an auto-registered stub: it joins the default pipeline.
+    assert METRIC_REGISTRY["cardio_recovery"]["tier"] == "core"
 
 
 def test_migration_seeds_registry_from_the_curated_dict(db):

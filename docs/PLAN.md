@@ -5,8 +5,9 @@
 > Anbieter.
 >
 > **Projektname:** HealthLog (Repo-Slug `healthlog`)
-> **Status:** Plan-Entwurf, verfeinert. Noch nicht implementiert. Nächster
-> Schritt ist Phase 0 (Daten-Audit) — erst nach Freigabe.
+> **Status:** Phasen 0, 1 und 3 umgesetzt — Ingestion + Storage + nächtliche
+> Analyse-Pipeline laufen (live auf Unraid, erster Voll-Backfill eingespielt).
+> Nächster Schritt: Phase 4 (Visualisierung). Fortschritt je Phase in §10.
 
 ## 1. Grundentscheidungen
 
@@ -102,7 +103,7 @@ Schema-Änderung und keine Migration**. Getragen wird das von fünf Bausteinen:
    menschlich klassifiziert werden muss. Kein POST scheitert an einer neuen Metrik.
 4. **Registry statt Code** (§4.5): Verhalten einer Metrik (kanonische Einheit,
    Tagesaggregat, Tier, Kategorie) ist **Daten, kein Code** — „adoptieren" = eine Zeile.
-5. **Generische Tagesaggregate** (§4.6): das CA bucketet per `(day, metric)`, ganz ohne
+5. **Generische Tagesaggregate** (§4.7): die View aggregiert per `(day, metric)`, ganz ohne
    Metrik-Namen im Code — neue Metriken erscheinen automatisch.
 
 Konsequenz: „eine weitere Metrik mitnehmen" heißt im Normalfall **nur** den HAE-Export
@@ -129,7 +130,7 @@ ein `data`-Array von Buckets in genau **zwei Shapes**:
 
 Daher **eine Zeile pro Metrik-Bucket** mit nullbaren Aggregat-Spalten (füllen, was HAE
 liefert), **nicht** ein einzelnes `value`. Das Modell ist **generisch**: jede Metrik
-landet hier, ohne Schema-Änderung (siehe Inventar §4.7) — wir ingesten **alle**
+landet hier, ohne Schema-Änderung (siehe Inventar §4.6) — wir ingesten **alle**
 Metriken, die Registry klassifiziert sie:
 
 ```sql
@@ -217,7 +218,7 @@ Soll-Einheit; beim Ingest wird die eingehende `unit` dagegen geprüft → bei Ab
 übernehmen. Genau dieser Fall trat im echten Export auf — der Wächter ist kein
 Theoriekonstrukt. Ein Test pinnt das.
 
-### 4.7 Metrik-Inventar (aus echter Payload, Phase 0)
+### 4.6 Metrik-Inventar (aus echter Payload, Phase 0)
 
 30 Metriken im Export. Vorläufige Tier-Einteilung (Registry-Seed, in Phase 0 finalisiert):
 
@@ -234,24 +235,35 @@ Theoriekonstrukt. Ein Test pinnt das.
 - **secondary – activity/environment:** `basal_energy_burned`, `apple_stand_hour`,
   `environmental_audio_exposure`, `headphone_audio_exposure`
 
+**Aus dem ersten Voll-Backfill nachkuratiert** (neun zunächst auto-registrierte Metriken,
+Migration `0003_curate_metrics`): `cardio_recovery` als **core – vital**
+(1-Minuten-Herzfrequenz-Erholung, Cardio-Fitness-Marker → in der Pipeline); sekundär
+`waist_circumference`, `height`, `atrial_fibrillation_burden` (vital), `swimming_distance`,
+`swimming_stroke_count`, `handwashing` (activity), `mindful_minutes` (mindfulness),
+`dietary_water` (nutrition). Die Kategorien `mindfulness`/`nutrition` kamen damit neu hinzu.
+
 Da das Modell generisch ist, kostet das Mitnehmen aller 30 praktisch nichts — neue
 Metriken in künftigen Exports landen automatisch im Roh-Archiv und in `metric_samples`
 und werden nur per Registry-Zeile „adoptiert".
 
-### 4.6 Tagesaggregate (Continuous Aggregate)
+### 4.7 Tagesaggregate (View)
 
-Ein einzelnes CA kann nicht "die richtige" Aggregation pro Metrik liefern, deshalb
-berechnet es **alle** Aggregate pro `(day, metric)`; die Analyse pickt je Metrik die
-laut `metric_registry.agg_default` passende Spalte:
+Aktuell eine **einfache SQL-View** (kein Timescale Continuous Aggregate — die Datenmenge
+erfordert es nicht; ein CA kann sie später ohne Schema-Bruch ersetzen). Sie berechnet
+**alle** Aggregate pro `(day, metric)`; die Analyse pickt je Metrik die laut
+`metric_registry.agg_default` passende Spalte:
 
 ```sql
 daily_metrics (day, metric, avg, vmin, vmax, sum, n)
-  -- time_bucket('1 day', time, 'Europe/Vienna')  ← lokale TZ, NICHT UTC!
+  -- (time AT TIME ZONE 'Europe/Vienna')::date  ← lokaler Tag, NICHT UTC!
 ```
-**Caveat:** `avg` ist hier ein `avg(vavg)` (Mittel der Bucket-Mittel) ohne Gewichtung
-— für Tagesgranularität ausreichend; bei Bedarf exakt über das Roh-Archiv nachrechenbar.
+**Caveat:** Die View liest aktuell `avg(vavg)`/`min(vmin)`/`max(vmax)` — **nicht**
+`COALESCE(…, qty)` wie die Analyse (`load_daily_series`); für Metriken ohne Min/Avg/Max
+liefert sie daher NULL, wo die Analyse `qty` nutzt. Angleich offen (§13). Zudem ist `avg`
+ein ungewichtetes Mittel der Bucket-Mittel — für Tagesgranularität ausreichend, exakt
+über das Roh-Archiv nachrechenbar.
 
-### 4.7 Befunde der Pipeline (reine Statistik, kein LLM)
+### 4.8 Befunde der Pipeline (reine Statistik, kein LLM)
 
 ```sql
 findings (id, computed_at, kind TEXT,            -- correlation|anomaly|trend|seasonality|recovery_alert|consistency
@@ -382,10 +394,12 @@ Dependency-Bump, der die Suite rot macht, wird nicht gemergt.
 Reale HAE-Payload (v2, 7 Tage, 30 Metriken + 1 Workout) liegt vor und ist analysiert:
 zwei Bucket-Shapes, Datums-/TZ-Format, Schlafstruktur (Aufwach-Tag-Zuordnung),
 Workout-`id`, Einheiten-Realität (Energie in kJ) — alles in §4 eingearbeitet, Inventar
-in §4.7. **Abschluss erledigt:** die `metric_registry` ist final kuratiert (Tier/Einheit/
-`agg_default` pro der 30 Metriken, durch `test_registry.py` festgezurrt), und der
-**Bulk-Backfill** existiert als datei-basiertes CLI (`python -m app.backfill`, §5) —
-selbe Pipeline wie der Endpoint, idempotent, mit `--dry-run`.
+in §4.6. **Abschluss erledigt:** die `metric_registry` ist kuratiert (Tier/Einheit/
+`agg_default` pro Metrik, durch `test_registry.py` festgezurrt) und nach dem ersten
+Voll-Backfill um neun auto-registrierte Metriken erweitert (Migration `0003`,
+`cardio_recovery` → core; §4.6), und der **Bulk-Backfill** existiert als datei-basiertes
+CLI (`python -m app.backfill`, §5) — selbe Pipeline wie der Endpoint, idempotent,
+mit `--dry-run`.
 
 ### Phase 1 – Ingestion + Storage
 Docker-Compose mit TimescaleDB + dem `healthlog`-Image (uvicorn + Scheduler-Skelett),
@@ -408,10 +422,14 @@ manueller Lauf per `healthlog analyze`. Serien sind die Core-Metriken (Tageswert
 nach `agg_default`) plus
 abgeleitete Schlaf-Serien (`sleep_total_h`/`deep_h`/`rem_h`/`sleep_efficiency`).
 Befund-Typen (`findings`, Snapshot pro Lauf):
-- **correlation** — Spearman, Lags 0–3 Tage (beide Richtungen), FDR-`p_value_adj`.
+- **correlation** — Spearman auf **trendbereinigten** Reihen (Trendkomponente
+  subtrahiert, damit gegenläufige Langzeit-Trends keine Schein-Korrelation
+  erzeugen), Lags 0–3 Tage (beide Richtungen), FDR-`p_value_adj`; pro Metrik-Paar
+  nur der **stärkste** Lag/Richtung (Dedup).
 - **anomaly** — 28-Tage trailing Median + MAD (robuster z), nur letzte 14 Tage.
 - **trend** — STL-Trendkomponente (Slope + Trendstärke).
-- **seasonality** — MSTL(7, 365): Jahresmuster (Amplitude + Hoch-/Tief-Monat), ab ≥2 Jahren.
+- **seasonality** — MSTL(7, 365): Jahresmuster (Amplitude + Hoch-/Tief-Monat), ab ≥2 Jahren;
+  liegen Hoch/Tief <2 Monate auseinander, ist die Phase als unsicher geflaggt (`phase_confident`).
 - **recovery_alert** — kombiniert: HRV auffällig niedrig **und** Ruhepuls hoch (+ optional kurzer Schlaf).
 - **consistency** — rollende Streuung von Schlafdauer und Zubettgeh-Zeit (Mitternachts-Wrap behandelt).
 
@@ -457,13 +475,13 @@ Eigene Web-App im PocketLog-Stil.
   späterer Multi-User-/Subjekt-Ausbau ist eine saubere Migration (Spalte nullable +
   Default 1 + Backfill), da die Idempotenz-Keys schon stabil sind.
 
-### Phase 1 — Umsetzungsstand
-Gerüst steht und ist **lokal grün** (24 Tests, ruff): FastAPI-Ingest (`POST /api/ingest`,
-Secret-Header), Roh-Archiv + Parser + idempotenter Upsert, Auto-Registry-Stub für
-unbekannte Metriken, Alembic-Migration (Timescale-Hypertable extension-bedingt +
-lokaler Tages-View), s6-overlay-Image (PUID/PGID, uvicorn + scheduler), die drei
-Workflows (GHCR-only) + Dependabot + CONTRIBUTING. Offen: Bulk-Backfill, finale
-Registry-Kuratierung, dann Phase 2.
+### Phase 1 — Umsetzungsstand ✅
+Steht und ist grün: FastAPI-Ingest (`POST /api/ingest`, Secret-Header), Roh-Archiv +
+Parser + idempotenter Upsert (chunked, dedupt), Auto-Registry-Stub für unbekannte
+Metriken, Alembic-Migration (Timescale-Hypertable extension-bedingt + lokaler Tages-View),
+s6-overlay-Image (PUID/PGID, uvicorn + scheduler), die drei Workflows (GHCR-only) +
+Dependabot + CONTRIBUTING. Bulk-Backfill und Registry-Kuratierung sind erledigt
+(Phase-0-Abschluss); Phase 2 (Jupyter) bleibt optional/aufgeschoben.
 
 ### TODO (bewusst aufgeschoben)
 - **Docker Hub:** Workflows pushen vorerst nur nach GHCR; Docker-Hub-Login + Mirror-Tags
@@ -473,7 +491,7 @@ Registry-Kuratierung, dann Phase 2.
 ### Phase 0 – durch Sample geklärt ✅
 - Bucket-Shapes, Spaltenbelegung `metric_samples`, Datums-/TZ-Format → §4.2.
 - Schlaf- und Workout-Struktur (inkl. Workout-`id`, Aufwach-Tag-Zuordnung) → §4.3/§4.4.
-- Metrik-Inventar + vorläufige Tier-Einteilung → §4.7.
+- Metrik-Inventar + vorläufige Tier-Einteilung → §4.6.
 
 ### Phase 0 — Abschluss erledigt ✅
 - **Finale `metric_registry`-Befüllung:** Tier/Einheit/`agg_default` pro der 30 Metriken
@@ -488,6 +506,9 @@ anomaly, trend, seasonality via MSTL 7+365, recovery_alert, consistency),
 `findings`-Tabelle (Migration `0002_findings`), Scheduler verdrahtet
 (`python -m app.analysis`), Deps numpy/pandas/scipy/statsmodels gepinnt;
 reine Mathematik gegen synthetische Reihen + DB-End-to-End getestet.
+**Verfeinert nach dem ersten echten Lauf:** Korrelationen trendbereinigt (kein
+Schein-Zusammenhang aus gegenläufigen Langzeit-Trends) + Dedup auf den stärksten
+Lag/Richtung je Paar; Saisonalität mit `phase_confident`-Flag bei zu nahem Hoch/Tief.
 
 ### Noch offen (in einer späteren Phase)
 - **Workout-Typ-Normalisierung:** Mapping lokalisierter `name` → kanonischer Typ (§4.4).
