@@ -7,6 +7,7 @@ import json
 import pytest
 from sqlalchemy import func, select
 
+from app import backfill, cli
 from app.backfill import collect_files, run_backfill
 from app.models import MetricSample, RawIngest, SleepSession, Workout
 
@@ -81,6 +82,13 @@ def test_dry_run_writes_nothing(db, sample_payload, tmp_path):
     assert summary.metric_rows > 0  # reported
     assert _count(db, RawIngest) == 0  # but nothing persisted
     assert _count(db, MetricSample) == 0
+
+
+def test_cli_wires_backfill_subcommand():
+    args = cli.build_parser().parse_args(["backfill", "a.json", "b.json", "--dry-run"])
+    assert args.func is backfill.run
+    assert args.paths == ["a.json", "b.json"]
+    assert args.dry_run is True
 
 
 def test_bad_file_is_skipped_run_continues(db, sample_payload, tmp_path):

@@ -276,7 +276,7 @@ dem Tag der Anomalie). Nicht zutreffende Felder bleiben NULL.
   Apple-Health-Historie** (Jahre) einmal als Bulk-Backfill einspielen → danach
   **nächtliche Deltas**. Damit sind Korrelationen ab Tag 1 belastbar (≥6–8 Wochen).
   Der Voll-Export sprengt das HTTP-Limit (`MAX_PAYLOAD_BYTES`) und den Proxy-Timeout;
-  deshalb läuft er **datei-basiert** über das CLI `python -m app.backfill <pfad>`
+  deshalb läuft er **datei-basiert** über das CLI `healthlog backfill <pfad>`
   (Datei oder Verzeichnis, `--dry-run` zum Prüfen) — dieselbe `archive_raw → parse →
   store`-Pipeline wie der Endpoint, pro Datei committet, idempotent (Re-Run = No-Op
   dank `content_hash`-Dedup + Upsert).
@@ -462,8 +462,9 @@ Registry-Kuratierung, dann Phase 2.
 ### Phase 0 — Abschluss erledigt ✅
 - **Finale `metric_registry`-Befüllung:** Tier/Einheit/`agg_default` pro der 30 Metriken
   festgezurrt; Konsistenz + Seed-Migration durch `test_registry.py` gepinnt.
-- **Bulk-Backfill:** datei-basiertes CLI `python -m app.backfill` (Datei/Verzeichnis,
-  `--dry-run`), idempotent über dieselbe Pipeline wie der Endpoint; `test_backfill.py`.
+- **Bulk-Backfill:** datei-basiertes CLI `healthlog backfill` (Konsolen-Skript via
+  `[project.scripts]`; auch `python -m app backfill`), idempotent über dieselbe Pipeline
+  wie der Endpoint, mit `--dry-run`; `test_backfill.py`.
 
 ### Noch offen (in einer späteren Phase)
 - **Workout-Typ-Normalisierung:** Mapping lokalisierter `name` → kanonischer Typ (§4.4).

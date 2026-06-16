@@ -35,6 +35,9 @@ COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/ /app/backend/
+# Install the package (editable, deps already satisfied) for the `healthlog`
+# console script; the source stays at /app/backend (also on PYTHONPATH).
+RUN pip install --no-cache-dir --no-deps -e .
 COPY root/ /
 
 # Service run/up scripts must be executable.

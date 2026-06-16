@@ -55,10 +55,10 @@ idempotent, so re-running is always safe:
 
 ```bash
 # Inspect first (parses + reports counts, writes nothing):
-docker compose exec healthlog python -m app.backfill --dry-run /config/import
+docker compose exec healthlog healthlog backfill --dry-run /config/import
 
 # Then import a directory of *.json (or pass individual files):
-docker compose exec healthlog python -m app.backfill /config/import
+docker compose exec healthlog healthlog backfill /config/import
 ```
 
 Each file is committed on its own; identical re-posts are skipped by content

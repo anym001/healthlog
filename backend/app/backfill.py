@@ -10,9 +10,11 @@ endpoint and the result is idempotent — re-running is always safe.
 
 Usage (one-shot, typically via ``docker exec``)::
 
-    python -m app.backfill /config/import/export.json
-    python -m app.backfill /config/import           # a directory of *.json
-    python -m app.backfill --dry-run /config/import  # parse + report, no writes
+    healthlog backfill /config/import/export.json
+    healthlog backfill /config/import            # a directory of *.json
+    healthlog backfill --dry-run /config/import  # parse + report, no writes
+
+(equivalently ``python -m app backfill …`` or ``python -m app.backfill …``.)
 
 Each file is committed on its own: a failure midway keeps already-imported
 files persisted, and the dedup (``content_hash``) + upsert make a re-run a
@@ -151,16 +153,15 @@ def _log_summary(summary: BackfillSummary, dry_run: bool) -> None:
     )
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        prog="python -m app.backfill",
-        description="Bulk-import Apple Health history exported by Health Auto Export.",
-    )
+def add_arguments(parser: argparse.ArgumentParser) -> None:
+    """Register the backfill arguments on ``parser`` (shared by the CLI)."""
     parser.add_argument("paths", nargs="+", help="JSON file(s) or directory(ies) to import")
     parser.add_argument("--glob", default="*.json", help="glob for files inside a directory (default: *.json)")
     parser.add_argument("--dry-run", action="store_true", help="parse and report counts without writing")
-    args = parser.parse_args(argv)
 
+
+def run(args: argparse.Namespace) -> int:
+    """Execute a parsed backfill invocation. Returns a process exit code."""
     settings = get_settings()
     configure_logging(settings.log_level, settings.log_format)
 
@@ -186,6 +187,15 @@ def main(argv: list[str] | None = None) -> int:
 
     _log_summary(summary, args.dry_run)
     return 1 if summary.failures else 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="python -m app.backfill",
+        description="Bulk-import Apple Health history exported by Health Auto Export.",
+    )
+    add_arguments(parser)
+    return run(parser.parse_args(argv))
 
 
 if __name__ == "__main__":
