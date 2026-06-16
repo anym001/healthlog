@@ -1,6 +1,7 @@
 # HealthLog
 
 [![Tests](https://img.shields.io/github/actions/workflow/status/anym001/healthlog/test.yml?label=Tests)](https://github.com/anym001/healthlog/actions/workflows/test.yml)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://github.com/anym001/healthlog/blob/HEAD/LICENSE)
 [![Release](https://img.shields.io/github/v/release/anym001/healthlog?label=Release)](https://github.com/anym001/healthlog/releases)
 [![GHCR](https://img.shields.io/badge/GHCR-healthlog-2496ED?logo=docker&logoColor=white)](https://github.com/anym001/healthlog/pkgs/container/healthlog)
 
@@ -32,6 +33,7 @@ optional local LLM (Ollama) can narrate the findings later.
 - [Logging](#logging)
 - [Image](#image)
 - [Development](#development)
+- [License](#license)
 
 ## How it works
 
@@ -323,6 +325,16 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md). TL;DR: feature branch → PR against
 `dev`; a release is a `vX.Y.Z` tag on `main`, which builds and publishes the
 versioned image to GHCR. The test suite (`ruff` + `pytest` against a real
 TimescaleDB + a Docker smoke boot) gates every PR.
+
+## License
+
+HealthLog is released under the **GNU Affero General Public License v3.0**
+(AGPL-3.0). You may use, redistribute, and modify the software — but if you
+offer a (modified) version as a networked service, you must make the complete
+source code available (AGPL §13). The full text is in
+[`LICENSE`](https://github.com/anym001/healthlog/blob/HEAD/LICENSE).
+
+Copyright (C) 2026 anym001
 
 ---
 
