@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from .. import ingest as ingest_svc
 from .. import notify
+from ..appconfig import get_app_config
 from ..config import get_settings
 from ..database import get_db
 from ..deps import ingest_auth
@@ -87,7 +88,7 @@ async def ingest_payload(
     # Best-effort push after the response is sent (never blocks the HAE sync).
     background_tasks.add_task(
         notify.notify_ingest,
-        settings,
+        get_app_config().notify,
         metric_rows=result.metric_rows,
         sleep_rows=result.sleep_rows,
         workout_rows=result.workout_rows,

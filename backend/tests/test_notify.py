@@ -14,7 +14,7 @@ import httpx
 import pytest
 
 from app import notify
-from app.config import Settings
+from app.appconfig import NotifyConfig
 from app.notify import (
     PRIORITY_INFO,
     PRIORITY_PROBLEM,
@@ -33,10 +33,10 @@ from app.notify import (
 _NOTE = Notification("t", "m", PRIORITY_INFO, False)
 
 
-def _settings(**kw) -> Settings:
-    base = {"notify_url": "https://push.example.com", "notify_token": "pb_token"}
+def _notify(**kw) -> NotifyConfig:
+    base = {"url": "https://push.example.com", "token": "pb_token"}
     base.update(kw)
-    return Settings(**base)
+    return NotifyConfig(**base)
 
 
 def _result(**kw):
@@ -119,12 +119,12 @@ def test_send_is_best_effort_on_network_error():
 
 
 def test_build_notifier_off_without_url():
-    assert build_notifier(Settings(notify_url="")) is None
+    assert build_notifier(NotifyConfig(url=None)) is None
 
 
 def test_build_notifier_requires_token():
     with pytest.raises(ValueError, match="NOTIFY_TOKEN"):
-        build_notifier(Settings(notify_url="https://push.example.com", notify_token=""))
+        build_notifier(NotifyConfig(url="https://push.example.com", token=None))
 
 
 # --- Composers -------------------------------------------------------------
@@ -170,32 +170,32 @@ def test_compose_ingest_messages():
 
 
 def test_notify_analysis_problems_level_suppresses_clean_summary(recorder):
-    notify_analysis(_settings(notify_events="analysis,findings", notify_level="problems"), _result(correlations=4))
+    notify_analysis(_notify(events=["analysis", "findings"], level="problems"), _result(correlations=4))
     assert recorder.sent == []
 
 
 def test_notify_analysis_problems_level_still_sends_alerts(recorder):
-    notify_analysis(_settings(notify_events="analysis,findings", notify_level="problems"), _result(anomalies=2))
+    notify_analysis(_notify(events=["analysis", "findings"], level="problems"), _result(anomalies=2))
     assert len(recorder.sent) == 1
     assert recorder.sent[0].title == "HealthLog: health alerts"
 
 
 def test_notify_analysis_always_level_sends_summary_and_alerts(recorder):
-    notify_analysis(_settings(notify_events="analysis,findings", notify_level="always"), _result(anomalies=1))
+    notify_analysis(_notify(events=["analysis", "findings"], level="always"), _result(anomalies=1))
     titles = [n.title for n in recorder.sent]
     assert titles == ["HealthLog: analysis OK", "HealthLog: health alerts"]
 
 
 def test_notify_analysis_respects_disabled_sources(recorder):
     # Only findings enabled: a clean run with no alerts sends nothing.
-    notify_analysis(_settings(notify_events="findings", notify_level="always"), _result(correlations=3))
+    notify_analysis(_notify(events=["findings"], level="always"), _result(correlations=3))
     assert recorder.sent == []
 
 
 def test_notify_analysis_crash_gated_on_analysis_source(recorder):
-    notify_analysis_crash(_settings(notify_events="findings"), RuntimeError("boom"))
+    notify_analysis_crash(_notify(events=["findings"]), RuntimeError("boom"))
     assert recorder.sent == []
-    notify_analysis_crash(_settings(notify_events="analysis"), RuntimeError("boom"))
+    notify_analysis_crash(_notify(events=["analysis"]), RuntimeError("boom"))
     assert len(recorder.sent) == 1
     assert recorder.sent[0].problem is True
 
@@ -204,24 +204,21 @@ def test_notify_analysis_crash_gated_on_analysis_source(recorder):
 
 
 def test_notify_ingest_empty_is_a_problem_at_any_level(recorder):
-    settings = _settings(notify_events="ingest", notify_level="problems")
-    notify_ingest(settings, metric_rows=0, sleep_rows=0, workout_rows=0)
+    notify_ingest(_notify(events=["ingest"], level="problems"), metric_rows=0, sleep_rows=0, workout_rows=0)
     assert len(recorder.sent) == 1
     assert recorder.sent[0].title == "HealthLog: empty ingest"
 
 
 def test_notify_ingest_success_only_at_always_level(recorder):
-    s_problems = _settings(notify_events="ingest", notify_level="problems")
-    notify_ingest(s_problems, metric_rows=10, sleep_rows=1, workout_rows=0)
+    notify_ingest(_notify(events=["ingest"], level="problems"), metric_rows=10, sleep_rows=1, workout_rows=0)
     assert recorder.sent == []
-    s_always = _settings(notify_events="ingest", notify_level="always")
-    notify_ingest(s_always, metric_rows=10, sleep_rows=1, workout_rows=0)
+    notify_ingest(_notify(events=["ingest"], level="always"), metric_rows=10, sleep_rows=1, workout_rows=0)
     assert len(recorder.sent) == 1
     assert recorder.sent[0].title == "HealthLog: data ingested"
 
 
 def test_notify_ingest_disabled_source(recorder):
-    notify_ingest(_settings(notify_events="analysis"), metric_rows=0, sleep_rows=0, workout_rows=0)
+    notify_ingest(_notify(events=["analysis"]), metric_rows=0, sleep_rows=0, workout_rows=0)
     assert recorder.sent == []
 
 
@@ -231,10 +228,10 @@ def test_notify_ingest_disabled_source(recorder):
 def test_dispatch_swallows_missing_token():
     # URL set, token missing => build_notifier raises ValueError; the dispatcher
     # must swallow it so a misconfigured notifier never breaks a run.
-    settings = Settings(notify_url="https://push.example.com", notify_token="", notify_events="analysis")
-    notify_analysis_crash(settings, RuntimeError("boom"))  # no exception
+    cfg = NotifyConfig(url="https://push.example.com", token=None, events=["analysis"])
+    notify_analysis_crash(cfg, RuntimeError("boom"))  # no exception
 
 
 def test_dispatch_noop_when_notifications_off():
-    settings = Settings(notify_url="", notify_events="analysis,findings")
-    notify_analysis(settings, _result(anomalies=5))  # no exception, nothing sent
+    cfg = NotifyConfig(url=None, events=["analysis", "findings"])
+    notify_analysis(cfg, _result(anomalies=5))  # no exception, nothing sent

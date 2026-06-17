@@ -6,6 +6,8 @@ psycopg[binary]==3.3.4
 pydantic==2.13.4
 pydantic-settings==2.14.1
 apscheduler==3.11.2
+# Structured config.yaml (behaviour/profile/tunables).
+pyyaml==6.0.2
 # Push notifications (run outcomes / health alerts) to a Gotify-compatible API.
 httpx==0.28.1
 

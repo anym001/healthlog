@@ -1,0 +1,64 @@
+# HealthLog structured configuration (optional).
+#
+# This file holds BEHAVIOUR and PROFILE — things that are structured and
+# hand-edited. SECRETS and INFRASTRUCTURE stay in environment variables
+# (INGEST_SECRET, DATABASE_URL, TZ, PUID/PGID, LOG_*, ANALYSIS_CRON,
+# NOTIFY_TOKEN); never put secrets here.
+#
+# Everything below is OPTIONAL and shown commented out with its default. A
+# missing or fully-commented file means "use all defaults" — identical to the
+# behaviour before this file existed. Copy this to /config/config.yaml and
+# uncomment only what you want to change. Path override: CONFIG_FILE.
+
+# --- Physiological profile -------------------------------------------------
+# Optional; sharpens HR-based training load (TRIMP) once the workout analysis
+# lands (see docs/workout-analysis.md). Without it, HR_max is derived from your
+# data and a generic TRIMP weighting is used. These are personal but NOT secret
+# and never leave your hardware.
+# profile:
+#   birth_year: 1990          # enables age-based HR_max (Tanaka: 208 - 0.7*age)
+#   sex: unspecified          # male | female | unspecified  (TRIMP weighting)
+#   hr_max:                   # optional explicit override (e.g. from a max test)
+#   hr_rest:                  # optional override; normally measured from data
+
+# --- Workout analysis ------------------------------------------------------
+# workouts:
+#   load_metric: both         # trimp | energy | both
+#   type_map:                 # localised HAE workout name -> canonical type
+#     Laufen: running
+#     Radfahren: cycling
+#     Krafttraining: strength
+
+# --- Analysis tunables -----------------------------------------------------
+# Retune the nightly pipeline without rebuilding the image. Defaults shown.
+# analysis:
+#   # Correlation (Spearman, FDR-controlled)
+#   max_lag: 3                # lag range in days (both directions)
+#   min_overlap: 42           # min paired days before a correlation is trusted
+#   corr_keep_alpha: 0.10     # keep a correlation when FDR-adjusted p <= this
+#   fdr_alpha: 0.05
+#   # Anomaly (robust rolling median + MAD)
+#   anomaly_window: 28        # trailing days for the baseline
+#   anomaly_threshold: 3.5    # robust z above which a day is flagged
+#   anomaly_recent_days: 14   # only report anomalies this recent
+#   # Trend / seasonality (STL/MSTL strength)
+#   trend_strength_min: 0.30
+#   seasonality_strength_min: 0.20
+#   # Recovery early-warning (HRV low AND resting HR high)
+#   recovery_recent_days: 14
+#   recovery_z: 1.5
+#   recovery_sleep_z: -1.0    # short sleep that reinforces the alert
+#   # Consistency (rolling variability of sleep)
+#   consistency_window: 28
+#   consistency_duration_std: 1.0   # hours; above => "irregular" duration
+#   consistency_bedtime_std: 1.0    # hours; above => "irregular" bedtime
+
+# --- Notifications ---------------------------------------------------------
+# Push run outcomes / health alerts to a Gotify-compatible endpoint (Gotify or
+# PushBits). The behaviour lives here; the SECRET token does NOT — set it via
+# the NOTIFY_TOKEN environment variable. Off until a url is set. Defaults shown.
+# notify:
+#   url: https://push.example.com   # Gotify/PushBits base URL
+#   events: [analysis, findings]    # any of: ingest, analysis, findings
+#   level: problems                 # problems | always
+#   verify_tls: true

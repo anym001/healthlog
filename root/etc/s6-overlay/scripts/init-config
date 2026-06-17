@@ -13,4 +13,13 @@ usermod -o -u "${PUID}" -g "${PGID}" healthlog
 # /config/import is the drop folder for the bulk-backfill CLI; created up
 # front so operators never have to mkdir it by hand.
 mkdir -p /config /config/logs /config/import
+
+# Seed the (optional, fully-commented) config.yaml so operators can discover the
+# available knobs. It parses to all-defaults until something is uncommented, so
+# seeding never changes behaviour. Never overwrite an existing file.
+if [ ! -e /config/config.yaml ] && [ -f /app/backend/config.example.yaml ]; then
+  cp /app/backend/config.example.yaml /config/config.yaml
+  echo "init-config: seeded /config/config.yaml from example"
+fi
+
 chown -R healthlog:healthlog /config
