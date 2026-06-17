@@ -12,6 +12,12 @@ import pytest
 from app.appconfig import AnalysisConfig, AppConfig, load_config
 
 
+@pytest.fixture(autouse=True)
+def _no_notify_token(monkeypatch):
+    # load_config injects NOTIFY_TOKEN; clear it so tests are env-independent.
+    monkeypatch.delenv("NOTIFY_TOKEN", raising=False)
+
+
 def test_missing_file_yields_defaults(tmp_path):
     cfg = load_config(tmp_path / "nope.yaml")
     assert cfg == AppConfig()
@@ -84,6 +90,45 @@ def test_hr_max_must_exceed_hr_rest(tmp_path):
     p = tmp_path / "config.yaml"
     p.write_text("profile:\n  hr_max: 120\n  hr_rest: 120\n")  # equal => invalid
     with pytest.raises(ValueError, match="hr_max must be greater"):
+        load_config(p)
+
+
+def test_notify_defaults(tmp_path):
+    n = load_config(tmp_path / "nope.yaml").notify
+    assert n.url is None
+    assert n.event_set() == {"analysis", "findings"}
+    assert n.level == "problems"
+    assert n.verify_tls is True
+    assert n.token is None
+
+
+def test_notify_behaviour_from_yaml(tmp_path):
+    p = tmp_path / "config.yaml"
+    p.write_text("notify:\n  url: https://push.example.com\n  events: [ingest]\n  level: always\n  verify_tls: false\n")
+    n = load_config(p).notify
+    assert n.url == "https://push.example.com"
+    assert n.event_set() == {"ingest"}
+    assert n.level == "always"
+    assert n.verify_tls is False
+
+
+def test_notify_token_comes_from_env_not_yaml(tmp_path, monkeypatch):
+    monkeypatch.setenv("NOTIFY_TOKEN", "pb_secret")
+    cfg = load_config(tmp_path / "nope.yaml")  # missing file, token still injected
+    assert cfg.notify.token == "pb_secret"
+
+
+def test_notify_token_in_yaml_is_rejected(tmp_path):
+    p = tmp_path / "config.yaml"
+    p.write_text("notify:\n  url: https://push.example.com\n  token: leaked\n")
+    with pytest.raises(ValueError, match="NOTIFY_TOKEN"):
+        load_config(p)
+
+
+def test_notify_unknown_event_is_rejected(tmp_path):
+    p = tmp_path / "config.yaml"
+    p.write_text("notify:\n  events: [bogus]\n")
+    with pytest.raises(ValueError):
         load_config(p)
 
 

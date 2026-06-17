@@ -52,3 +52,13 @@
 #   consistency_window: 28
 #   consistency_duration_std: 1.0   # hours; above => "irregular" duration
 #   consistency_bedtime_std: 1.0    # hours; above => "irregular" bedtime
+
+# --- Notifications ---------------------------------------------------------
+# Push run outcomes / health alerts to a Gotify-compatible endpoint (Gotify or
+# PushBits). The behaviour lives here; the SECRET token does NOT — set it via
+# the NOTIFY_TOKEN environment variable. Off until a url is set. Defaults shown.
+# notify:
+#   url: https://push.example.com   # Gotify/PushBits base URL
+#   events: [analysis, findings]    # any of: ingest, analysis, findings
+#   level: problems                 # problems | always
+#   verify_tls: true

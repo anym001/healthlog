@@ -687,7 +687,7 @@ def main() -> int:
 
     from .notify import notify_analysis
 
-    notify_analysis(settings, result)
+    notify_analysis(app_config.notify, result)
     return 0
 
 

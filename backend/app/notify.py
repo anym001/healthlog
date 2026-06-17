@@ -34,7 +34,7 @@ from .logging_config import safe
 
 if TYPE_CHECKING:
     from .analysis import AnalysisResult
-    from .config import Settings
+    from .appconfig import NotifyConfig
 
 log = logging.getLogger("healthlog.notify")
 
@@ -98,19 +98,15 @@ class GotifyNotifier:
         self._client.close()
 
 
-def build_notifier(settings: Settings) -> GotifyNotifier | None:
+def build_notifier(notify: NotifyConfig) -> GotifyNotifier | None:
     """Create the configured notifier, or None when notifications are off.
 
     Raises ``ValueError`` when a URL is configured without a token — callers in
     a request/run path use the best-effort dispatchers below, which swallow it.
     """
-    if not settings.notify_url:
+    if not notify.url:
         return None
-    return GotifyNotifier(
-        settings.notify_url,
-        settings.notify_token,
-        verify_tls=settings.notify_verify_tls,
-    )
+    return GotifyNotifier(notify.url, notify.token or "", verify_tls=notify.verify_tls)
 
 
 # ---------------------------------------------------------------------------
@@ -175,14 +171,14 @@ def compose_ingest_message(kind: str, metric_rows: int, sleep_rows: int, workout
 # ---------------------------------------------------------------------------
 
 
-def _send_all(settings: Settings, messages: list[Notification | None]) -> None:
+def _send_all(notify: NotifyConfig, messages: list[Notification | None]) -> None:
     """Build the notifier once and push every (non-None) message; swallow all
     errors so a notification can never break the surrounding run."""
     pending = [m for m in messages if m is not None]
     if not pending:
         return
     try:
-        notifier = build_notifier(settings)
+        notifier = build_notifier(notify)
     except ValueError as exc:
         log.warning("notifications disabled: %s", safe(exc))
         return
@@ -195,34 +191,34 @@ def _send_all(settings: Settings, messages: list[Notification | None]) -> None:
         notifier.close()
 
 
-def notify_analysis(settings: Settings, result: AnalysisResult) -> None:
+def notify_analysis(notify: NotifyConfig, result: AnalysisResult) -> None:
     """Dispatch the run summary (``analysis``) and health alerts (``findings``)
     after a successful nightly analysis."""
-    events = settings.notify_event_set()
+    events = notify.event_set()
     messages: list[Notification | None] = []
-    if "analysis" in events and settings.notify_level == "always":
+    if "analysis" in events and notify.level == "always":
         messages.append(compose_analysis_run_message(result))
     if "findings" in events:
         messages.append(compose_findings_message(result))
-    _send_all(settings, messages)
+    _send_all(notify, messages)
 
 
-def notify_analysis_crash(settings: Settings, exc: Exception) -> None:
+def notify_analysis_crash(notify: NotifyConfig, exc: Exception) -> None:
     """Alert that the nightly analysis crashed (``analysis`` source, any level)."""
-    if "analysis" not in settings.notify_event_set():
+    if "analysis" not in notify.event_set():
         return
-    _send_all(settings, [compose_analysis_crash_message(exc)])
+    _send_all(notify, [compose_analysis_crash_message(exc)])
 
 
-def notify_ingest(settings: Settings, *, metric_rows: int, sleep_rows: int, workout_rows: int) -> None:
+def notify_ingest(notify: NotifyConfig, *, metric_rows: int, sleep_rows: int, workout_rows: int) -> None:
     """Notify on an ingest outcome (``ingest`` source). An empty ingest is a
     problem (any level); a non-empty one is routine info (``always`` only)."""
-    if "ingest" not in settings.notify_event_set():
+    if "ingest" not in notify.event_set():
         return
     if metric_rows + sleep_rows + workout_rows == 0:
         message = compose_ingest_message("empty", metric_rows, sleep_rows, workout_rows)
-    elif settings.notify_level == "always":
+    elif notify.level == "always":
         message = compose_ingest_message("stored", metric_rows, sleep_rows, workout_rows)
     else:
         return
-    _send_all(settings, [message])
+    _send_all(notify, [message])

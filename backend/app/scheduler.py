@@ -31,9 +31,10 @@ def run_analysis() -> None:
         # The crashed subprocess can't notify about its own death; the scheduler
         # owns the crash alert (the success/findings notifications are sent from
         # inside the analysis run, which has the result).
+        from .appconfig import get_app_config
         from .notify import notify_analysis_crash
 
-        notify_analysis_crash(get_settings(), exc)
+        notify_analysis_crash(get_app_config().notify, exc)
 
 
 DEFAULT_CRON = "30 3 * * *"

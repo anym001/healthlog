@@ -18,6 +18,7 @@ derives its module constants from :class:`AnalysisConfig`.
 from __future__ import annotations
 
 import datetime as dt
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -97,6 +98,33 @@ class AnalysisConfig(BaseModel):
     consistency_bedtime_std: float = Field(default=1.0, ge=0.0)
 
 
+NotifyEvent = Literal["ingest", "analysis", "findings"]
+
+
+class NotifyConfig(BaseModel):
+    """Push notifications (behaviour). The endpoint, event filter and verbosity
+    live in YAML; the secret ``token`` comes from ``NOTIFY_TOKEN`` (never YAML)
+    and is injected at load time.
+    """
+
+    # validate_assignment so the token injection in load_config is still checked.
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
+
+    url: str | None = None
+    # Which sources may notify (subset of ingest/analysis/findings).
+    events: list[NotifyEvent] = Field(default_factory=lambda: ["analysis", "findings"])
+    # "problems" => failures + empty ingests + health alerts; "always" => also
+    # routine OK summaries.
+    level: Literal["problems", "always"] = "problems"
+    verify_tls: bool = True
+    # Secret, from NOTIFY_TOKEN at load time. Must NOT appear in config.yaml.
+    token: str | None = None
+
+    def event_set(self) -> set[str]:
+        """The enabled notification sources as a set."""
+        return set(self.events)
+
+
 class AppConfig(BaseModel):
     """Root of ``config.yaml``."""
 
@@ -105,24 +133,34 @@ class AppConfig(BaseModel):
     profile: ProfileConfig = Field(default_factory=ProfileConfig)
     workouts: WorkoutConfig = Field(default_factory=WorkoutConfig)
     analysis: AnalysisConfig = Field(default_factory=AnalysisConfig)
+    notify: NotifyConfig = Field(default_factory=NotifyConfig)
 
 
 def load_config(path: str | Path) -> AppConfig:
     """Load and validate ``config.yaml``. A missing file yields all defaults.
 
+    The notify ``token`` is never read from the file — it is injected from the
+    ``NOTIFY_TOKEN`` environment variable (secrets stay in the environment).
     Raises ``ValueError`` on malformed YAML or schema violations so the caller
     can fail with a clean message instead of an opaque traceback.
     """
     p = Path(path)
-    if not p.exists():
-        return AppConfig()
-    try:
-        data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError as exc:
-        raise ValueError(f"invalid YAML in {p}: {exc}") from exc
-    if not isinstance(data, dict):
-        raise ValueError(f"{p}: config root must be a mapping, got {type(data).__name__}")
-    return AppConfig.model_validate(data)
+    if p.exists():
+        try:
+            data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+        except yaml.YAMLError as exc:
+            raise ValueError(f"invalid YAML in {p}: {exc}") from exc
+        if not isinstance(data, dict):
+            raise ValueError(f"{p}: config root must be a mapping, got {type(data).__name__}")
+    else:
+        data = {}
+
+    if isinstance(data.get("notify"), dict) and "token" in data["notify"]:
+        raise ValueError("notify.token must not be set in config.yaml; use the NOTIFY_TOKEN environment variable")
+
+    config = AppConfig.model_validate(data)
+    config.notify.token = os.getenv("NOTIFY_TOKEN") or None
+    return config
 
 
 @lru_cache
