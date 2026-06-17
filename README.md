@@ -208,9 +208,27 @@ recovery-alert findings.
 
 **Workouts (optional):** the Health-Metrics automation does not include
 workouts. To capture them, add a **second** REST API automation with the same
-URL and header but **Data type = Workouts**. The nightly analysis folds them in
-as daily training-load series (TRIMP / active-energy) for correlation and ACWR
-findings — set a `profile` in `config.yaml` to sharpen the HR-based load.
+URL, header and timeout, changing only the workout-specific settings:
+
+| Setting | Value | Why |
+|---|---|---|
+| Automation type | **REST API** | same endpoint as above |
+| URL | `https://<your-host>/api/ingest` | the ingest endpoint |
+| Header | key `X-Ingest-Token`, value `<INGEST_SECRET>` | authentication (the exact `INGEST_SECRET` env value) |
+| Timeout | `60` | |
+| Data type | **Workouts** | this is what makes it a workout export |
+| Include Workout Metrics | **on** | delivers the intra-workout heart-rate series — required for zone-based Edwards TRIMP |
+| Time grouping | **minutes** | per-minute HR buckets are the shape the Edwards parser expects |
+| Export format | **JSON** | CSV is **not** parsed |
+| Export version | **v2** | the parser targets HAE v2 payloads |
+| Date range | **Since Last Sync** | sends only new workouts; server-side dedup makes overlap safe |
+| Sync cadence | **every 1 hour** | matches the metrics automation; the analysis runs nightly |
+
+The nightly analysis folds workouts in as daily training-load series (TRIMP /
+active-energy) for correlation and ACWR findings — set a `profile` in
+`config.yaml` to sharpen the HR-based load. When **Include Workout Metrics** is
+on, a zone-based **Edwards TRIMP** series (`workout_edwards`) runs in parallel;
+it self-gates off when no HR series is present.
 
 To confirm data is arriving, trigger a **Manual Export** and check the logs for
 an `ingest.stored …` audit line. For a push confirmation, temporarily set
