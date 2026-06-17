@@ -24,13 +24,15 @@
 # --- Workout analysis ------------------------------------------------------
 # Folds workouts into the nightly pipeline as daily-load series (workout_trimp /
 # workout_load), so training-load correlations, anomalies and ACWR fall out of
-# the existing machinery.
+# the existing machinery. With a type_map, an extra per-sport load series is
+# emitted for each mapped type (workout_trimp_running, workout_load_cycling, …)
+# so one sport's effect on recovery can be told apart from another's.
 # workouts:
 #   load_metric: both         # trimp | energy | both (which load series to build)
 #   type_map:                 # localised HAE workout name -> canonical type
-#     Laufen: running         #   (reserved for the upcoming type-split load)
-#     Radfahren: cycling
-#     Krafttraining: strength
+#     Outdoor Run: running     #   unmapped workouts still feed the aggregate
+#     Outdoor Cycle: cycling
+#     Traditional Strength Training: strength
 
 # --- Analysis tunables -----------------------------------------------------
 # Retune the nightly pipeline without rebuilding the image. Defaults shown.

@@ -1,9 +1,10 @@
 # Workout-Analyse & strukturierte Konfiguration
 
-> **Status:** **Iteration 1 implementiert** (typ-agnostische Tageslast:
-> `workout_trimp` + `workout_load`, ACWR, Profil via `config.yaml`). Iteration 2
-> (typ-getrennte Last über `workouts.type_map`) und zonenbasiertes Edwards-TRIMP
-> bleiben offen (siehe §9). Ergänzt `PLAN.md` (Phase 3) um Trainingsdaten.
+> **Status:** **Iteration 1 + 2 implementiert** — typ-agnostische Tageslast
+> (`workout_trimp` + `workout_load`, ACWR, Profil via `config.yaml`) **und**
+> typ-getrennte Last pro Sportart über `workouts.type_map`
+> (`workout_trimp_running` …). Zonenbasiertes Edwards-TRIMP bleibt offen
+> (siehe §9). Ergänzt `PLAN.md` (Phase 3) um Trainingsdaten.
 
 ## 1. Motivation
 
@@ -219,11 +220,17 @@ Sobald die Serien im Dict liegen, fallen u. a. heraus:
 
 ## 9. Phasenplan
 
-- **Iteration 1 (typ-agnostisch):** alle Workouts in eine Tageslast
+- **Iteration 1 (typ-agnostisch, erledigt):** alle Workouts in eine Tageslast
   (`workout_trimp` + `workout_load`), ACWR, Profil via `config.yaml`. Umgeht das
   `name`-Typ-Mapping komplett.
-- **Iteration 2 (typ-getrennt):** `workouts.type_map` aus der YAML nutzen → Last
-  pro Sportart (running/cycling/strength …).
+- **Iteration 2 (typ-getrennt, erledigt):** `workouts.type_map` (lokalisierter
+  `name` → kanonischer Typ, case-insensitiv) erzeugt **zusätzlich** je Sportart
+  eine Lastserie (`workout_trimp_<typ>` / `workout_load_<typ>`, gated über
+  `load_metric`). Nicht gemappte Workouts speisen weiterhin nur das Aggregat.
+  Korrelationen zwischen einem Aggregat und seiner eigenen Sport-Komponente sind
+  mechanisch und werden ausgeschlossen (`_is_workout_aggregate_child`);
+  Sport↔Sport und Sport↔andere Metrik bleiben. ACWR läuft weiterhin auf dem
+  Aggregat (typ-getrennte ACWR ist eine mögliche spätere Verfeinerung).
 - **Später (optional):** zonenbasiertes Edwards-TRIMP aus der Intra-Workout-HR
   im `raw_ingest`-Archiv. Bewusster Architektur-Bruch (Raw = Cold Storage) →
   separat entscheiden.

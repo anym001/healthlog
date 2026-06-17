@@ -372,6 +372,28 @@ def aggregate_workout_daily(
     )
 
 
+def _slug(value: str) -> str:
+    """Lowercase the canonical type to a safe series-name suffix (``a-z0-9_``)."""
+    out = "".join(c if c.isalnum() else "_" for c in value.strip().lower())
+    while "__" in out:
+        out = out.replace("__", "_")
+    return out.strip("_")
+
+
+def canonical_workout_type(name: str | None, type_map: dict[str, str]) -> str | None:
+    """Map a localised HAE workout ``name`` to its canonical type slug.
+
+    Matching is case-insensitive on the configured keys. Returns None for an
+    unmapped (or missing) name — those workouts still feed the type-agnostic
+    aggregate, they just don't get a per-type series.
+    """
+    if not name or not type_map:
+        return None
+    lookup = {k.strip().lower(): v for k, v in type_map.items()}
+    mapped = lookup.get(name.strip().lower())
+    return _slug(mapped) if mapped else None
+
+
 def acute_chronic_ratio(s: pd.Series) -> tuple[float, float, float] | None:
     """ACWR = mean(last 7d) / mean(last 28d) on a dense daily load series.
 
@@ -480,7 +502,7 @@ def load_workout_frame(db: Session, tz: str) -> pd.DataFrame:
         text(
             """
             SELECT (start_time AT TIME ZONE :tz)::date AS day,
-                   duration_s, active_energy_kcal, avg_hr, max_hr, intensity
+                   name, duration_s, active_energy_kcal, avg_hr, max_hr, intensity
             FROM workouts
             WHERE start_time IS NOT NULL
             ORDER BY start_time
@@ -493,6 +515,7 @@ def load_workout_frame(db: Session, tz: str) -> pd.DataFrame:
     records = [
         {
             "day": pd.Timestamp(r.day),
+            "name": r.name,
             "duration_s": r.duration_s,
             "active_energy_kcal": r.active_energy_kcal,
             "avg_hr": r.avg_hr,
@@ -565,7 +588,12 @@ def build_workout_series(
     series is densified over its observed span with ``fill_zero_within_span``.
     ``workout_trimp`` (HR-based) and ``workout_load`` (kcal) run in parallel and
     are gated by ``workouts.load_metric``; duration/count always come along.
-    Empty when there are no workouts.
+
+    When ``workouts.type_map`` is set, an additional per-sport load series is
+    emitted for each mapped type (``workout_trimp_running``,
+    ``workout_load_cycling`` …) so a sport's lagged effect on recovery can be
+    told apart from another's. Unmapped workouts still feed the type-agnostic
+    aggregate; they just get no per-type series. Empty when there are no workouts.
     """
     sessions = load_workout_frame(db, tz)
     if sessions.empty:
@@ -578,25 +606,40 @@ def build_workout_series(
         return {}
 
     out: dict[str, pd.Series] = {}
-    columns = {"workout_duration": "duration_h", "workout_count": "count"}
-    if workouts.load_metric in ("trimp", "both"):
-        columns["workout_trimp"] = "trimp"
-    if workouts.load_metric in ("energy", "both"):
-        columns["workout_load"] = "load"
-    for name, col in columns.items():
-        s = fill_zero_within_span(daily[col])
-        # Only a non-empty check (matching the core/sleep series): a constant
-        # series is harmless downstream (spearman_lag returns None on zero
-        # variance, decompose/robust_z degrade to no findings) and a std>0 guard
-        # would be float-fragile (an exact-valued constant has std 0, an
-        # inexact one ~1e-16).
-        if not s.dropna().empty:
-            out[name] = s
+    # Type-agnostic aggregate (Iteration 1): load series + duration/count.
+    for name, col in _load_columns(workouts.load_metric).items():
+        out[name] = fill_zero_within_span(daily[col])
+    for name, col in {"workout_duration": "duration_h", "workout_count": "count"}.items():
+        out[name] = fill_zero_within_span(daily[col])
     # Intensity is an average (NaN where absent), not a load total -> no 0-fill.
     intensity = _reindex_full(daily["intensity"])
     if not intensity.dropna().empty:
         out["workout_intensity"] = intensity
-    return out
+
+    # Per-sport load (Iteration 2): only when a type map is configured.
+    if workouts.type_map:
+        types = sessions["name"].map(lambda n: canonical_workout_type(n, workouts.type_map))
+        for wtype in sorted({t for t in types if t}):
+            subset = sessions[types == wtype]
+            sub_daily = aggregate_workout_daily(subset, hr_rest, hr_rest_default, hr_max, profile.sex)
+            if sub_daily.empty:
+                continue
+            for name, col in _load_columns(workouts.load_metric).items():
+                out[f"{name}_{wtype}"] = fill_zero_within_span(sub_daily[col])
+
+    # Drop any series that ended up empty (matching the core/sleep series; a
+    # constant series is harmless downstream, so no std>0 guard).
+    return {name: s for name, s in out.items() if not s.dropna().empty}
+
+
+def _load_columns(load_metric: str) -> dict[str, str]:
+    """Series-name -> aggregate-column for the load metrics enabled by config."""
+    columns: dict[str, str] = {}
+    if load_metric in ("trimp", "both"):
+        columns["workout_trimp"] = "trimp"
+    if load_metric in ("energy", "both"):
+        columns["workout_load"] = "load"
+    return columns
 
 
 def build_series(
@@ -652,6 +695,18 @@ def _detrend_for_correlation(series: dict[str, pd.Series]) -> dict[str, pd.Serie
     return out
 
 
+_WORKOUT_AGGREGATES = ("workout_trimp", "workout_load")
+
+
+def _is_workout_aggregate_child(a: str, b: str) -> bool:
+    """True when one name is a workout load aggregate and the other its own
+    per-sport series (e.g. ``workout_trimp`` vs ``workout_trimp_running``); their
+    correlation is mechanical, not informative. Sport-vs-sport and sport-vs-other
+    pairs are kept."""
+    lo, hi = sorted((a, b), key=len)
+    return lo in _WORKOUT_AGGREGATES and hi.startswith(lo + "_")
+
+
 def _correlation_findings(
     series: dict[str, pd.Series], computed_at: dt.datetime, cfg: AnalysisConfig | None = None
 ) -> list[Finding]:
@@ -662,6 +717,8 @@ def _correlation_findings(
     for i in range(len(names)):
         for j in range(i + 1, len(names)):
             a, b = names[i], names[j]
+            if _is_workout_aggregate_child(a, b):
+                continue  # a per-sport series vs its own aggregate is trivially correlated
             c0 = spearman_lag(detrended[a], detrended[b], 0, min_overlap=cfg.min_overlap)
             if c0:
                 candidates.append((a, b, 0, c0))

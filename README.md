@@ -76,9 +76,10 @@ in any dashboard tool:
 - **Sleep insights** — sleep efficiency and consistency (rolling variability of
   duration and bedtime).
 - **Training load** — workouts become daily-load series (HR-based Banister TRIMP
-  and active-energy), so their lagged effect on recovery and sleep falls out of
-  the correlation engine, plus an ACWR (acute:chronic) load-spike / detraining
-  alert. HR_max/zone weighting sharpen with an optional `profile` (see below).
+  and active-energy; optionally split per sport), so their lagged effect on
+  recovery and sleep falls out of the correlation engine, plus an ACWR
+  (acute:chronic) load-spike / detraining alert. HR_max/zone weighting sharpen
+  with an optional `profile` (see below).
 
 All statistics run on the server; only the optional LLM narration is intended
 for a Mac. The full method list and tuning live in [`docs/PLAN.md`](docs/PLAN.md).
@@ -280,7 +281,10 @@ It holds:
   in the workout analysis (see [`docs/workout-analysis.md`](docs/workout-analysis.md)).
   Without it, HR_max is derived from your data and a generic weighting is used.
 - **`workouts`** — `load_metric` (which load series to build: `trimp`/`energy`/
-  `both`) and the type map reserved for the upcoming type-split load.
+  `both`) and a `type_map` (localised HAE workout name → canonical sport). With a
+  map, an extra per-sport load series is analysed for each mapped type, so one
+  sport's lagged effect on recovery is told apart from another's; unmapped
+  workouts still feed the type-agnostic aggregate.
 - **`notify`** — push notifications (see below).
 
 Malformed YAML or an out-of-range value fails fast with a clear message. See the

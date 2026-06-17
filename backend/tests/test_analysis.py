@@ -16,6 +16,7 @@ from app.analysis import (
     aggregate_workout_daily,
     annual_seasonality,
     banister_trimp,
+    canonical_workout_type,
     circular_bedtime_offset,
     decompose,
     fdr_adjust,
@@ -452,16 +453,47 @@ def test_training_load_prefers_trimp_over_energy():
     assert analysis._training_load_findings(series, dt.datetime.now(UTC)) == []
 
 
+# --- Per-sport type mapping (Iteration 2) ----------------------------------
+
+
+def test_canonical_workout_type_maps_case_insensitively():
+    tmap = {"Outdoor Run": "running", "Traditional Strength Training": "strength"}
+    assert canonical_workout_type("Outdoor Run", tmap) == "running"
+    assert canonical_workout_type("outdoor run", tmap) == "running"  # case-insensitive
+    # Multi-word canonical types are slugged into safe series-name suffixes.
+    assert canonical_workout_type("Traditional Strength Training", tmap) == "strength"
+
+
+def test_canonical_workout_type_unmapped_is_none():
+    tmap = {"Outdoor Run": "running"}
+    assert canonical_workout_type("Pool Swim", tmap) is None  # not in the map
+    assert canonical_workout_type(None, tmap) is None
+    assert canonical_workout_type("Outdoor Run", {}) is None  # no map -> aggregate only
+
+
+def test_canonical_workout_type_slugs_spaces():
+    assert canonical_workout_type("X", {"X": "Trail Running"}) == "trail_running"
+
+
+def test_is_workout_aggregate_child():
+    assert analysis._is_workout_aggregate_child("workout_trimp", "workout_trimp_running")
+    assert analysis._is_workout_aggregate_child("workout_load_cycling", "workout_load")
+    # Different families / two aggregates / two sports are NOT mechanical pairs.
+    assert not analysis._is_workout_aggregate_child("workout_trimp", "workout_load")
+    assert not analysis._is_workout_aggregate_child("workout_trimp_running", "workout_trimp_cycling")
+    assert not analysis._is_workout_aggregate_child("workout_trimp", "resting_heart_rate")
+
+
 # --- Workout series: DB end-to-end -----------------------------------------
 
 
-def _add_workout(db, start: dt.datetime, *, duration_s, avg_hr, max_hr, energy):
+def _add_workout(db, start: dt.datetime, *, duration_s, avg_hr, max_hr, energy, name="Outdoor Run"):
     db.add(
         Workout(
             hae_id=uuid.uuid4(),
             start_time=start,
             end_time=start + dt.timedelta(seconds=duration_s),
-            name="Outdoor Run",
+            name=name,
             duration_s=float(duration_s),
             active_energy_kcal=float(energy),
             avg_hr=float(avg_hr),
@@ -522,3 +554,63 @@ def test_run_with_workouts_is_clean_and_snapshots(db):
     first = db.execute(select(func.count()).select_from(Finding)).scalar_one()
     analysis.run(db, "Europe/Vienna", AppConfig())
     assert db.execute(select(func.count()).select_from(Finding)).scalar_one() == first
+
+
+def test_build_series_splits_load_by_sport(db):
+    start = dt.date(2026, 1, 1)
+    for i in range(35):
+        day = start + dt.timedelta(days=i)
+        when = dt.datetime(day.year, day.month, day.day, 18, tzinfo=UTC)
+        _add_workout(db, when, duration_s=2400, avg_hr=150, max_hr=180, energy=400, name="Outdoor Run")
+        if i % 3 == 0:  # cycling every third day
+            _add_workout(
+                db,
+                when + dt.timedelta(hours=2),
+                duration_s=3600,
+                avg_hr=135,
+                max_hr=170,
+                energy=500,
+                name="Outdoor Cycle",
+            )
+        if i % 5 == 0:  # an unmapped sport
+            _add_workout(
+                db, when + dt.timedelta(hours=4), duration_s=1800, avg_hr=120, max_hr=150, energy=200, name="Pool Swim"
+            )
+    db.flush()
+
+    workouts = WorkoutConfig(type_map={"Outdoor Run": "running", "Outdoor Cycle": "cycling"})
+    series = analysis.build_series(db, "Europe/Vienna", workouts=workouts)
+
+    # Type-agnostic aggregate stays; per-sport series are added for mapped types.
+    assert "workout_trimp" in series and "workout_load" in series
+    assert "workout_trimp_running" in series and "workout_load_running" in series
+    assert "workout_trimp_cycling" in series and "workout_load_cycling" in series
+    # The unmapped sport feeds only the aggregate, never its own series.
+    assert not any("swim" in name for name in series)
+
+
+def test_build_series_no_type_split_without_map(db):
+    start = dt.date(2026, 1, 1)
+    for i in range(30):
+        day = start + dt.timedelta(days=i)
+        when = dt.datetime(day.year, day.month, day.day, 18, tzinfo=UTC)
+        _add_workout(db, when, duration_s=2400, avg_hr=150, max_hr=180, energy=400, name="Outdoor Run")
+    db.flush()
+
+    series = analysis.build_series(db, "Europe/Vienna")  # default: empty type_map
+    assert "workout_trimp" in series
+    assert not any(name.startswith("workout_trimp_") for name in series)  # no per-sport split
+
+
+def test_build_series_per_sport_respects_load_metric(db):
+    start = dt.date(2026, 1, 1)
+    for i in range(30):
+        day = start + dt.timedelta(days=i)
+        when = dt.datetime(day.year, day.month, day.day, 18, tzinfo=UTC)
+        _add_workout(db, when, duration_s=2400, avg_hr=150, max_hr=180, energy=400, name="Outdoor Run")
+    db.flush()
+
+    workouts = WorkoutConfig(load_metric="energy", type_map={"Outdoor Run": "running"})
+    series = analysis.build_series(db, "Europe/Vienna", workouts=workouts)
+    assert "workout_load_running" in series
+    assert "workout_trimp_running" not in series  # trimp gated off by load_metric
