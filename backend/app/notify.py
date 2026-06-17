@@ -123,6 +123,7 @@ def compose_analysis_run_message(result: AnalysisResult) -> Notification:
         f"seasonality: {result.seasonality}",
         f"recovery alerts: {result.recovery_alerts}",
         f"consistency: {result.consistency}",
+        f"training load: {result.training_load}",
     ]
     return Notification("HealthLog: analysis OK", "\n".join(lines), PRIORITY_INFO, False)
 
@@ -134,17 +135,21 @@ def compose_analysis_crash_message(exc: Exception) -> Notification:
 
 
 def compose_findings_message(result: AnalysisResult) -> Notification | None:
-    """Health alert for a run that surfaced recent anomalies / recovery alerts.
+    """Health alert for a run that surfaced recent anomalies / recovery /
+    training-load alerts.
 
     Returns None when nothing alert-worthy came out of the run. Correlations,
     trends, seasonality and consistency are background analytics, not alerts.
+    Training-load findings are only emitted when the ACWR leaves the safe band,
+    so any count here is genuinely alert-worthy.
     """
-    alerts = result.anomalies + result.recovery_alerts
+    alerts = result.anomalies + result.recovery_alerts + result.training_load
     if alerts == 0:
         return None
     lines = [
         f"anomalies: {result.anomalies}",
         f"recovery alerts: {result.recovery_alerts}",
+        f"training load alerts: {result.training_load}",
     ]
     return Notification("HealthLog: health alerts", "\n".join(lines), PRIORITY_PROBLEM, True)
 

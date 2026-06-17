@@ -96,6 +96,10 @@ class AnalysisConfig(BaseModel):
     consistency_window: int = Field(default=28, ge=2)
     consistency_duration_std: float = Field(default=1.0, ge=0.0)
     consistency_bedtime_std: float = Field(default=1.0, ge=0.0)
+    # Training load (ACWR = acute 7-day mean / chronic 28-day mean of workout
+    # load); flagged only when the ratio leaves the safe band.
+    acwr_high: float = Field(default=1.5, gt=0.0)
+    acwr_low: float = Field(default=0.8, gt=0.0)
 
 
 NotifyEvent = Literal["ingest", "analysis", "findings"]

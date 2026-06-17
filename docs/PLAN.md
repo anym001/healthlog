@@ -266,7 +266,7 @@ ein ungewichtetes Mittel der Bucket-Mittel — für Tagesgranularität ausreiche
 ### 4.8 Befunde der Pipeline (reine Statistik, kein LLM)
 
 ```sql
-findings (id, computed_at, kind TEXT,            -- correlation|anomaly|trend|seasonality|recovery_alert|consistency
+findings (id, computed_at, kind TEXT,            -- correlation|anomaly|trend|seasonality|recovery_alert|consistency|training_load
           metric_a TEXT, metric_b TEXT,          -- metric_b nur bei correlation
           lag_days INT, coefficient DOUBLE PRECISION,
           p_value DOUBLE PRECISION, p_value_adj DOUBLE PRECISION,  -- FDR
@@ -432,6 +432,10 @@ Befund-Typen (`findings`, Snapshot pro Lauf):
   liegen Hoch/Tief <2 Monate auseinander, ist die Phase als unsicher geflaggt (`phase_confident`).
 - **recovery_alert** — kombiniert: HRV auffällig niedrig **und** Ruhepuls hoch (+ optional kurzer Schlaf).
 - **consistency** — rollende Streuung von Schlafdauer und Zubettgeh-Zeit (Mitternachts-Wrap behandelt).
+- **training_load** — ACWR (akut 7-Tage / chronisch 28-Tage) auf der Tages-Trainingslast
+  (`workout_trimp`, HR-basiert via Banister; sonst `workout_load` in kcal); nur geflaggt bei
+  Lastspitze (Überlastung) oder Detraining. Workouts werden dafür als Tagesserien eingespeist
+  und durchlaufen so auch Korrelation/Anomalie/Trend (siehe [`workout-analysis.md`](workout-analysis.md)).
 
 Die reine Analyse-Mathematik ist DB-frei und gegen synthetische Reihen (bekannter
 Lag/Anomalie/Trend/Jahres-Saison) mit festem Seed getestet (§7); dazu ein DB-End-to-End-Test.

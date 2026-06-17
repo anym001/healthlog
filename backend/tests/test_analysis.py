@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import uuid
 
 import numpy as np
 import pandas as pd
@@ -11,15 +12,22 @@ from sqlalchemy import func, select
 from app import analysis
 from app.analysis import (
     AnalysisResult,
+    acute_chronic_ratio,
+    aggregate_workout_daily,
     annual_seasonality,
+    banister_trimp,
     circular_bedtime_offset,
     decompose,
     fdr_adjust,
+    fill_zero_within_span,
+    resolve_hr_max,
+    resolve_hr_rest,
     rolling_mad_anomalies,
     spearman_lag,
     trend_slope,
 )
-from app.models import Finding, MetricSample, SleepSession
+from app.appconfig import AppConfig, ProfileConfig, WorkoutConfig
+from app.models import Finding, MetricSample, SleepSession, Workout
 
 UTC = dt.UTC
 
@@ -305,3 +313,212 @@ def test_run_with_no_data_is_clean(db):
     result = analysis.run(db)
     assert result.total() == 0
     assert db.execute(select(func.count()).select_from(Finding)).scalar_one() == 0
+
+
+# --- Workout training load: Banister TRIMP ---------------------------------
+
+
+def test_banister_trimp_female_weight_exceeds_male_at_same_load():
+    male = banister_trimp(3600, 150, 60, 180, "male")
+    female = banister_trimp(3600, 150, 60, 180, "female")
+    assert male > 0 and female > male  # female weighting is steeper
+
+
+def test_banister_trimp_zero_without_usable_inputs():
+    assert banister_trimp(3600, None, 60, 180) == 0.0  # no avg_hr (e.g. strength)
+    assert banister_trimp(0, 150, 60, 180) == 0.0  # zero duration
+    assert banister_trimp(3600, 150, 180, 150) == 0.0  # hr_max <= hr_rest
+
+
+def test_banister_trimp_clamps_hr_reserve_to_one():
+    # avg_hr above hr_max -> HRr clamps at 1.0, not >1.
+    capped = banister_trimp(3600, 250, 60, 180, "male")
+    at_max = banister_trimp(3600, 180, 60, 180, "male")
+    assert capped == at_max
+
+
+# --- HR_max / HR_rest fallback chains --------------------------------------
+
+
+def test_resolve_hr_max_prefers_profile_override():
+    assert resolve_hr_max(ProfileConfig(hr_max=200), pd.Series([195.0, 205.0])) == 200.0
+
+
+def test_resolve_hr_max_uses_tanaka_from_birth_year():
+    age = dt.date.today().year - 1990
+    assert resolve_hr_max(ProfileConfig(birth_year=1990), None) == 208.0 - 0.7 * age
+
+
+def test_resolve_hr_max_data_driven_is_clamped():
+    assert resolve_hr_max(ProfileConfig(), pd.Series([250.0])) == 210.0  # ceil
+    assert resolve_hr_max(ProfileConfig(), pd.Series([130.0])) == 160.0  # floor
+    assert resolve_hr_max(ProfileConfig(), None) == 190.0  # nothing -> constant
+
+
+def test_resolve_hr_rest_default_chain():
+    # profile override wins
+    series, default = resolve_hr_rest(_daily([50.0] * 40), ProfileConfig(hr_rest=55))
+    assert default == 55.0
+    # no profile, data present -> measured median
+    series, default = resolve_hr_rest(_daily([48.0] * 40), ProfileConfig())
+    assert default == 48.0
+    assert not series.dropna().empty
+    # nothing at all -> constant fallback
+    series, default = resolve_hr_rest(None, ProfileConfig())
+    assert default == 60.0 and series.empty
+
+
+# --- Zero-fill + daily aggregation -----------------------------------------
+
+
+def test_fill_zero_within_span_fills_rest_days_with_zero():
+    s = pd.Series([5.0, 3.0], index=pd.to_datetime(["2026-01-01", "2026-01-04"]))
+    filled = fill_zero_within_span(s)
+    assert list(filled.index) == list(pd.date_range("2026-01-01", "2026-01-04", freq="D"))
+    assert filled.loc["2026-01-02"] == 0.0 and filled.loc["2026-01-03"] == 0.0
+
+
+def test_aggregate_workout_daily_sums_sessions_per_day():
+    d1, d2 = pd.Timestamp("2026-01-01"), pd.Timestamp("2026-01-02")
+    sessions = pd.DataFrame.from_records(
+        [
+            {
+                "day": d1,
+                "duration_s": 3600,
+                "active_energy_kcal": 500.0,
+                "avg_hr": 150.0,
+                "max_hr": 170.0,
+                "intensity": 6.0,
+            },
+            {
+                "day": d1,
+                "duration_s": 1800,
+                "active_energy_kcal": 300.0,
+                "avg_hr": 140.0,
+                "max_hr": 160.0,
+                "intensity": 5.0,
+            },
+            {
+                "day": d2,
+                "duration_s": 3600,
+                "active_energy_kcal": 400.0,
+                "avg_hr": 120.0,
+                "max_hr": 150.0,
+                "intensity": 4.0,
+            },
+        ]
+    )
+    daily = aggregate_workout_daily(sessions, pd.Series(dtype="float64"), 60.0, 180.0, "male")
+    assert daily.loc[d1, "count"] == 2
+    assert daily.loc[d1, "load"] == 800.0
+    assert daily.loc[d1, "duration_h"] == 1.5
+    assert daily.loc[d1, "trimp"] > daily.loc[d2, "trimp"]  # harder day -> more load
+    assert daily.loc[d1, "intensity"] == 5.5  # mean of the two sessions
+
+
+# --- ACWR / training-load finding ------------------------------------------
+
+
+def test_acute_chronic_ratio_detects_spike():
+    s = _daily([10.0] * 21 + [30.0] * 7)  # 28 days, recent week 3x baseline
+    acwr = acute_chronic_ratio(s)
+    assert acwr is not None
+    _, _, ratio = acwr
+    assert ratio == 2.0  # acute 30 / chronic 15
+
+
+def test_acute_chronic_ratio_needs_history():
+    assert acute_chronic_ratio(_daily([10.0] * 20)) is None  # < 28 days
+    assert acute_chronic_ratio(_daily([0.0] * 30)) is None  # chronic load 0
+
+
+def test_training_load_finding_flags_spike_only_outside_band():
+    spike = analysis._training_load_findings({"workout_trimp": _daily([10.0] * 21 + [30.0] * 7)}, dt.datetime.now(UTC))
+    assert len(spike) == 1
+    assert spike[0].kind == "training_load"
+    assert spike[0].metric_a == "workout_trimp"
+    assert spike[0].severity == 2.0
+
+    detrain = analysis._training_load_findings({"workout_trimp": _daily([30.0] * 21 + [5.0] * 7)}, dt.datetime.now(UTC))
+    assert len(detrain) == 1 and "detraining" in detrain[0].note
+
+    balanced = analysis._training_load_findings({"workout_trimp": _daily([20.0] * 28)}, dt.datetime.now(UTC))
+    assert balanced == []  # inside the safe band -> no finding
+
+
+def test_training_load_prefers_trimp_over_energy():
+    series = {"workout_trimp": _daily([20.0] * 28), "workout_load": _daily([10.0] * 21 + [40.0] * 7)}
+    # trimp is balanced -> no finding even though energy would spike.
+    assert analysis._training_load_findings(series, dt.datetime.now(UTC)) == []
+
+
+# --- Workout series: DB end-to-end -----------------------------------------
+
+
+def _add_workout(db, start: dt.datetime, *, duration_s, avg_hr, max_hr, energy):
+    db.add(
+        Workout(
+            hae_id=uuid.uuid4(),
+            start_time=start,
+            end_time=start + dt.timedelta(seconds=duration_s),
+            name="Outdoor Run",
+            duration_s=float(duration_s),
+            active_energy_kcal=float(energy),
+            avg_hr=float(avg_hr),
+            max_hr=float(max_hr),
+            source="",
+        )
+    )
+
+
+def test_build_series_includes_workout_load_series(db):
+    rng = np.random.default_rng(30)
+    start = dt.date(2026, 1, 1)
+    for i in range(35):
+        day = start + dt.timedelta(days=i)
+        when = dt.datetime(day.year, day.month, day.day, 18, tzinfo=UTC)
+        _add_workout(
+            db,
+            when,
+            duration_s=1800 + 600 * (i % 3),
+            avg_hr=130 + rng.integers(-5, 15),
+            max_hr=170,
+            energy=300 + 50 * (i % 4),
+        )
+    db.flush()
+
+    series = analysis.build_series(db, "Europe/Vienna")
+    assert "workout_trimp" in series
+    assert "workout_load" in series
+    # Workout series are densified: a continuous daily index, no gaps.
+    trimp = series["workout_trimp"]
+    assert (trimp.index == pd.date_range(trimp.index.min(), trimp.index.max(), freq="D")).all()
+
+
+def test_build_series_load_metric_energy_only(db):
+    start = dt.date(2026, 1, 1)
+    for i in range(35):
+        day = start + dt.timedelta(days=i)
+        when = dt.datetime(day.year, day.month, day.day, 18, tzinfo=UTC)
+        _add_workout(db, when, duration_s=2400, avg_hr=140, max_hr=175, energy=350)
+    db.flush()
+
+    series = analysis.build_series(db, "Europe/Vienna", workouts=WorkoutConfig(load_metric="energy"))
+    assert "workout_load" in series
+    assert "workout_trimp" not in series  # gated off by load_metric
+
+
+def test_run_with_workouts_is_clean_and_snapshots(db):
+    start = dt.date(2026, 1, 1)
+    for i in range(35):
+        day = start + dt.timedelta(days=i)
+        when = dt.datetime(day.year, day.month, day.day, 18, tzinfo=UTC)
+        _add_workout(db, when, duration_s=2400, avg_hr=140, max_hr=175, energy=350)
+    db.flush()
+
+    result = analysis.run(db, "Europe/Vienna", AppConfig())
+    assert isinstance(result, AnalysisResult)
+    # Re-running replaces, never accumulates (snapshot semantics).
+    first = db.execute(select(func.count()).select_from(Finding)).scalar_one()
+    analysis.run(db, "Europe/Vienna", AppConfig())
+    assert db.execute(select(func.count()).select_from(Finding)).scalar_one() == first
