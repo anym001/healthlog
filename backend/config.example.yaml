@@ -57,9 +57,11 @@
 #   consistency_window: 28
 #   consistency_duration_std: 1.0   # hours; above => "irregular" duration
 #   consistency_bedtime_std: 1.0    # hours; above => "irregular" bedtime
-#   # Training load (ACWR = 7-day acute / 28-day chronic workout load)
+#   # Training load (ACWR = 7-day acute / 28-day chronic workout load); assessed
+#   # on the overall load and, with a type_map, per sport.
 #   acwr_high: 1.5            # above => load spike flagged (overload risk)
 #   acwr_low: 0.8             # below => detraining flagged
+#   acwr_min_active_days: 8   # min training days in 28 before a (per-sport) ratio is trusted
 
 # --- Notifications ---------------------------------------------------------
 # Push run outcomes / health alerts to a Gotify-compatible endpoint (Gotify or

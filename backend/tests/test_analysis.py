@@ -27,7 +27,7 @@ from app.analysis import (
     spearman_lag,
     trend_slope,
 )
-from app.appconfig import AppConfig, ProfileConfig, WorkoutConfig
+from app.appconfig import AnalysisConfig, AppConfig, ProfileConfig, WorkoutConfig
 from app.models import Finding, MetricSample, SleepSession, Workout
 
 UTC = dt.UTC
@@ -451,6 +451,40 @@ def test_training_load_prefers_trimp_over_energy():
     series = {"workout_trimp": _daily([20.0] * 28), "workout_load": _daily([10.0] * 21 + [40.0] * 7)}
     # trimp is balanced -> no finding even though energy would spike.
     assert analysis._training_load_findings(series, dt.datetime.now(UTC)) == []
+
+
+def test_training_load_targets_aggregate_and_per_sport():
+    series = {
+        "workout_trimp": _daily([1.0]),
+        "workout_load": _daily([1.0]),
+        "workout_trimp_running": _daily([1.0]),
+        "workout_load_running": _daily([1.0]),
+        "workout_load_cycling": _daily([1.0]),  # cycling has only the kcal series
+    }
+    targets = analysis._training_load_targets(series)
+    assert targets[0] == "workout_trimp"  # aggregate first, prefers TRIMP
+    # one target per family, TRIMP preferred where available
+    assert set(targets) == {"workout_trimp", "workout_trimp_running", "workout_load_cycling"}
+
+
+def test_training_load_per_sport_with_activity_guard():
+    series = {
+        "workout_trimp": _daily([20.0] * 28),  # aggregate: balanced -> no finding
+        "workout_trimp_running": _daily([10.0] * 21 + [30.0] * 7),  # spike, trains daily
+        "workout_trimp_cycling": _daily([0.0] * 26 + [50.0, 50.0]),  # only 2 active days
+    }
+    findings = analysis._training_load_findings(series, dt.datetime.now(UTC), AnalysisConfig())
+    # Running spikes and is trained enough; cycling is too sparse to trust.
+    assert {f.metric_a for f in findings} == {"workout_trimp_running"}
+
+
+def test_training_load_activity_guard_is_configurable():
+    series = {"workout_trimp_cycling": _daily([0.0] * 26 + [50.0, 50.0])}  # 2 active days
+    # Default guard (8 active days) suppresses the sparse sport.
+    assert analysis._training_load_findings(series, dt.datetime.now(UTC), AnalysisConfig()) == []
+    # Relaxing the guard lets the (genuine) spike through.
+    relaxed = analysis._training_load_findings(series, dt.datetime.now(UTC), AnalysisConfig(acwr_min_active_days=1))
+    assert [f.metric_a for f in relaxed] == ["workout_trimp_cycling"]
 
 
 # --- Per-sport type mapping (Iteration 2) ----------------------------------

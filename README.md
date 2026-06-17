@@ -78,8 +78,8 @@ in any dashboard tool:
 - **Training load** — workouts become daily-load series (HR-based Banister TRIMP
   and active-energy; optionally split per sport), so their lagged effect on
   recovery and sleep falls out of the correlation engine, plus an ACWR
-  (acute:chronic) load-spike / detraining alert. HR_max/zone weighting sharpen
-  with an optional `profile` (see below).
+  (acute:chronic) load-spike / detraining alert — overall and, with a type map,
+  per sport. HR_max/zone weighting sharpen with an optional `profile` (see below).
 
 All statistics run on the server; only the optional LLM narration is intended
 for a Mac. The full method list and tuning live in [`docs/PLAN.md`](docs/PLAN.md).
@@ -242,6 +242,13 @@ recompute the findings on demand:
 
 ```bash
 docker exec healthlog healthlog analyze
+```
+
+To check whether the raw archive carries the intra-workout heart-rate series
+needed for future zone-based training load:
+
+```bash
+docker exec healthlog healthlog check-workout-hr
 ```
 
 ## Configuration

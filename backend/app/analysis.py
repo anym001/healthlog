@@ -17,8 +17,9 @@ Findings (PLAN.md §4.7), all derived, never medical advice:
                  with a phase-confidence flag when peak/trough are too close).
 - recovery_alert composite early warning: HRV low AND resting HR high together.
 - consistency    rolling variability of sleep duration and bedtime.
-- training_load  ACWR (acute:chronic workload ratio) on daily workout load;
-                 flagged on a load spike or detraining (Banister TRIMP / kcal).
+- training_load  ACWR (acute:chronic workload ratio) on daily workout load,
+                 overall and per sport; flagged on a load spike or detraining
+                 (Banister TRIMP / kcal).
 
 Workouts are folded in as daily-load *series* (build_workout_series): once
 ``workout_trimp``/``workout_load`` sit on the series grid they flow through the
@@ -927,48 +928,82 @@ def _consistency_findings(
     return findings
 
 
+def _training_load_targets(series: dict[str, pd.Series]) -> list[str]:
+    """Series to assess for ACWR: the type-agnostic aggregate plus one per sport.
+
+    Each "family" contributes a single series, preferring TRIMP (HR-based, the
+    better signal) over the kcal load. Returns e.g.
+    ``["workout_trimp", "workout_trimp_cycling", "workout_trimp_running"]``.
+    """
+    targets: list[str] = []
+    if "workout_trimp" in series:
+        targets.append("workout_trimp")
+    elif "workout_load" in series:
+        targets.append("workout_load")
+    sports = {
+        key[len(prefix) :] for key in series for prefix in ("workout_trimp_", "workout_load_") if key.startswith(prefix)
+    }
+    for sport in sorted(sports):
+        if f"workout_trimp_{sport}" in series:
+            targets.append(f"workout_trimp_{sport}")
+        elif f"workout_load_{sport}" in series:
+            targets.append(f"workout_load_{sport}")
+    return targets
+
+
+def _active_days(s: pd.Series, window: int) -> int:
+    """Training days (load > 0) within the trailing ``window`` of a dense series."""
+    return int((s.dropna().tail(window) > 0).sum())
+
+
 def _training_load_findings(
     series: dict[str, pd.Series], computed_at: dt.datetime, cfg: AnalysisConfig | None = None
 ) -> list[Finding]:
     """ACWR on the daily workout load; flagged only when it leaves the safe band.
 
-    Computed on ``workout_trimp`` when available (HR-based, the better signal),
-    else ``workout_load`` (kcal). A ratio above ``acwr_high`` is a load spike
-    (overload risk), below ``acwr_low`` is detraining; inside the band is normal
-    and yields no finding (mirrors anomalies/recovery — only alerts are stored).
+    Assessed on the type-agnostic aggregate and, when a type map produced them,
+    on each per-sport series (``workout_trimp_running`` …) — preferring TRIMP
+    over kcal per family. A ratio above ``acwr_high`` is a load spike (overload
+    risk), below ``acwr_low`` is detraining; inside the band yields no finding
+    (mirrors anomalies/recovery — only alerts are stored). A series with fewer
+    than ``acwr_min_active_days`` training days in the chronic window is skipped,
+    so a rarely-practised sport can't spike the ratio off a single session.
     """
     cfg = cfg or _DEFAULTS
-    name = "workout_trimp" if "workout_trimp" in series else "workout_load" if "workout_load" in series else None
-    if name is None:
-        return []
-    acwr = acute_chronic_ratio(series[name])
-    if acwr is None:
-        return []
-    acute, chronic, ratio = acwr
-    if cfg.acwr_low <= ratio <= cfg.acwr_high:
-        return []
-    note = (
-        "training load spike (acute load high vs. chronic)"
-        if ratio > cfg.acwr_high
-        else "detraining (acute load low vs. chronic)"
-    )
-    return [
-        Finding(
-            computed_at=computed_at,
-            kind="training_load",
-            metric_a=name,
-            ref_date=series[name].dropna().index.max().date(),
-            severity=round(ratio, 4),
-            note=note,
-            details={
-                "acute": round(acute, 4),
-                "chronic": round(chronic, 4),
-                "ratio": round(ratio, 4),
-                "acute_days": ACWR_ACUTE_DAYS,
-                "chronic_days": ACWR_CHRONIC_DAYS,
-            },
+    findings: list[Finding] = []
+    for name in _training_load_targets(series):
+        s = series[name]
+        if _active_days(s, ACWR_CHRONIC_DAYS) < cfg.acwr_min_active_days:
+            continue
+        acwr = acute_chronic_ratio(s)
+        if acwr is None:
+            continue
+        acute, chronic, ratio = acwr
+        if cfg.acwr_low <= ratio <= cfg.acwr_high:
+            continue
+        note = (
+            "training load spike (acute load high vs. chronic)"
+            if ratio > cfg.acwr_high
+            else "detraining (acute load low vs. chronic)"
         )
-    ]
+        findings.append(
+            Finding(
+                computed_at=computed_at,
+                kind="training_load",
+                metric_a=name,
+                ref_date=s.dropna().index.max().date(),
+                severity=round(ratio, 4),
+                note=note,
+                details={
+                    "acute": round(acute, 4),
+                    "chronic": round(chronic, 4),
+                    "ratio": round(ratio, 4),
+                    "acute_days": ACWR_ACUTE_DAYS,
+                    "chronic_days": ACWR_CHRONIC_DAYS,
+                },
+            )
+        )
+    return findings
 
 
 def run(db: Session, tz: str | None = None, config: AppConfig | None = None) -> AnalysisResult:

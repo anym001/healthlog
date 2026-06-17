@@ -229,8 +229,18 @@ Sobald die Serien im Dict liegen, fallen u. a. heraus:
   `load_metric`). Nicht gemappte Workouts speisen weiterhin nur das Aggregat.
   Korrelationen zwischen einem Aggregat und seiner eigenen Sport-Komponente sind
   mechanisch und werden ausgeschlossen (`_is_workout_aggregate_child`);
-  Sport↔Sport und Sport↔andere Metrik bleiben. ACWR läuft weiterhin auf dem
-  Aggregat (typ-getrennte ACWR ist eine mögliche spätere Verfeinerung).
-- **Später (optional):** zonenbasiertes Edwards-TRIMP aus der Intra-Workout-HR
-  im `raw_ingest`-Archiv. Bewusster Architektur-Bruch (Raw = Cold Storage) →
-  separat entscheiden.
+  Sport↔Sport und Sport↔andere Metrik bleiben.
+- **ACWR pro Sportart (erledigt):** ACWR läuft auf dem Aggregat **und** je
+  Sportart (`_training_load_targets`, TRIMP bevorzugt). Schutz gegen Fehlalarme
+  bei selten betriebenen Sportarten: eine Serie mit weniger als
+  `analysis.acwr_min_active_days` (Default 8) Trainingstagen in den 28 Chronic-
+  Tagen wird übersprungen.
+- **Später (optional): zonenbasiertes Edwards-TRIMP** aus der Intra-Workout-HR.
+  **Vorbedingung:** die HR-Zeitreihe (`heartRateData`) muss im Export ankommen —
+  im Sample-Payload fehlt sie (nur `heartRate {min,avg,max}`). Prüfbar mit
+  `healthlog check-workout-hr` (scannt das `raw_ingest`-Archiv). Zonengrenzen
+  hängen von HR_max/HR_rest (config-/datengetrieben) ab → Zonen **zur
+  Analysezeit** rechnen, nicht beim Ingest einfrieren. Speichert man die Serie
+  (neue Tabelle beim Ingest, Historie via Backfill-Replay) oder liest sie zur
+  Analysezeit aus dem Roh-Archiv (bewusster Bruch „Raw = Cold Storage")? →
+  separat entscheiden, sobald die Datenfrage geklärt ist.
