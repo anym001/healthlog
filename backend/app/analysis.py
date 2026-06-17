@@ -585,11 +585,16 @@ def build_workout_series(
         columns["workout_load"] = "load"
     for name, col in columns.items():
         s = fill_zero_within_span(daily[col])
-        if not s.dropna().empty and s.std() > 0:
+        # Only a non-empty check (matching the core/sleep series): a constant
+        # series is harmless downstream (spearman_lag returns None on zero
+        # variance, decompose/robust_z degrade to no findings) and a std>0 guard
+        # would be float-fragile (an exact-valued constant has std 0, an
+        # inexact one ~1e-16).
+        if not s.dropna().empty:
             out[name] = s
     # Intensity is an average (NaN where absent), not a load total -> no 0-fill.
     intensity = _reindex_full(daily["intensity"])
-    if not intensity.dropna().empty and intensity.std() > 0:
+    if not intensity.dropna().empty:
         out["workout_intensity"] = intensity
     return out
 
