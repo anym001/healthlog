@@ -100,6 +100,10 @@ class AnalysisConfig(BaseModel):
     # load); flagged only when the ratio leaves the safe band.
     acwr_high: float = Field(default=1.5, gt=0.0)
     acwr_low: float = Field(default=0.8, gt=0.0)
+    # Minimum training days within the chronic window before an ACWR is trusted;
+    # guards per-sport ratios for rarely-practised sports (a sparse series makes
+    # the ratio jump on a single session).
+    acwr_min_active_days: int = Field(default=8, ge=1, le=28)
 
 
 NotifyEvent = Literal["ingest", "analysis", "findings"]
