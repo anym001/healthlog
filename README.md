@@ -218,6 +218,7 @@ URL, header and timeout, changing only the workout-specific settings:
 | Timeout | `60` | |
 | Data type | **Workouts** | this is what makes it a workout export |
 | Include Workout Metrics | **on** | delivers the intra-workout heart-rate series — required for zone-based Edwards TRIMP |
+| Include Route Data | **off** | GPS routes are never parsed or stored; leaving them out keeps payloads small and location data off the server |
 | Time grouping | **minutes** | per-minute HR buckets are the shape the Edwards parser expects |
 | Export format | **JSON** | CSV is **not** parsed |
 | Export version | **v2** | the parser targets HAE v2 payloads |
