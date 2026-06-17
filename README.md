@@ -167,14 +167,46 @@ tag.
 ## Sending data from your iPhone
 
 In **Health Auto Export**, create a **REST API** automation that POSTs to
-`https://<your-host>/api/ingest` with the header `X-Ingest-Token: <INGEST_SECRET>`.
+`https://<your-host>/api/ingest`. See the app's own
+[REST API automation guide](https://help.healthyapps.dev/de/health-auto-export/automations/rest-api/)
+for where each setting lives; the table below maps them to what this endpoint
+expects.
 
-Recommended export settings:
+> **Do the one-time [bulk backfill](#bulk-backfill-full-history) first**, *then*
+> enable the automation. A multi-year first export is too large for the HTTP
+> endpoint, and a "Since Last Sync" automation started on an empty database
+> would never carry your history.
 
-- Format **JSON**, export format **v2**, *Aggregate Data* **on**, hourly grouping.
-- *Use Localized Units* **off** (fixed metric units keep the data consistent).
-- First run: export your **full history** once via the bulk backfill below, then
-  let the automation send nightly deltas.
+| Setting | Value | Why |
+|---|---|---|
+| Automation type | **REST API** | |
+| URL | `https://<your-host>/api/ingest` | the ingest endpoint |
+| Header | key `X-Ingest-Token`, value `<INGEST_SECRET>` | authentication (the exact `INGEST_SECRET` env value) |
+| Timeout | `60` | |
+| Data type | **Health Metrics** | workouts need a second automation (below) |
+| Health metrics | *All* is fine | unknown metrics are accepted and auto-registered as `secondary` |
+| Export format | **JSON** | CSV is **not** parsed |
+| Export version | **v2** | the parser targets HAE v2 payloads |
+| Aggregate Data | **on** | drastically reduces payload size |
+| Time grouping | **hourly** | the analysis runs on a daily grid, so sub-hourly detail isn't needed |
+| Batch Requests | **off** | deltas are small; large one-offs go through the backfill CLI instead |
+| Date range | **Since Last Sync** | sends only new data; server-side dedup makes overlap safe |
+| Sync cadence | **every 1 hour** | plenty — the analysis runs nightly (`ANALYSIS_CRON`); 5-minute syncs work but are overkill |
+| *Use Localized Units* | **off** | HealthLog normalises units itself; localized units only get flagged |
+
+Make sure **Sleep Analysis**, **Heart Rate Variability** and **Resting Heart
+Rate** are among the selected metrics — they drive the sleep, consistency and
+recovery-alert findings.
+
+**Workouts (optional):** the Health-Metrics automation does not include
+workouts. To capture them, add a **second** REST API automation with the same
+URL and header but **Data type = Workouts**. They are stored for later; the
+current analysis pipeline does not use them yet.
+
+To confirm data is arriving, trigger a **Manual Export** and check the logs for
+an `ingest.stored …` audit line. For a push confirmation, temporarily set
+`NOTIFY_EVENTS=ingest,analysis,findings` and `NOTIFY_LEVEL=always` (see
+[Notifications](#notifications)).
 
 ## Bulk backfill (full history)
 
