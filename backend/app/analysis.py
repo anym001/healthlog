@@ -34,6 +34,7 @@ from sqlalchemy.orm import Session
 from statsmodels.stats.multitest import multipletests
 from statsmodels.tsa.seasonal import MSTL, STL
 
+from .appconfig import AnalysisConfig, load_config
 from .config import get_settings
 from .logging_config import configure_logging
 from .models import Finding
@@ -41,30 +42,38 @@ from .registry import METRIC_REGISTRY
 
 log = logging.getLogger("healthlog.analysis")
 
-# --- Tunables (deliberately module-level so they are easy to revisit) ------
-MAX_LAG = 3  # Spearman lag range in days
-MIN_OVERLAP = 42  # >= ~6 weeks of paired days before a correlation is trusted
-CORR_KEEP_ALPHA = 0.10  # keep a correlation when its FDR-adjusted p <= this
-FDR_ALPHA = 0.05
+# --- Tunables ---------------------------------------------------------------
+# The single source of truth for these defaults is app/appconfig.py
+# (AnalysisConfig); config.yaml (analysis.*) overrides them per deployment. The
+# module constants below mirror those defaults and serve as the back-compatible
+# function defaults (used whenever no config is threaded in).
+_DEFAULTS = AnalysisConfig()
 
-ANOMALY_WINDOW = 28  # trailing days for the median + MAD baseline
-ANOMALY_THRESHOLD = 3.5  # robust z (|0.6745 * (x - median) / MAD|)
-ANOMALY_RECENT_DAYS = 14  # only report anomalies within this recent window
+MAX_LAG = _DEFAULTS.max_lag  # Spearman lag range in days
+MIN_OVERLAP = _DEFAULTS.min_overlap  # >= ~6 weeks of paired days before trusted
+CORR_KEEP_ALPHA = _DEFAULTS.corr_keep_alpha  # keep when FDR-adjusted p <= this
+FDR_ALPHA = _DEFAULTS.fdr_alpha
 
+ANOMALY_WINDOW = _DEFAULTS.anomaly_window  # trailing days for median + MAD baseline
+ANOMALY_THRESHOLD = _DEFAULTS.anomaly_threshold  # robust z (|0.6745*(x-med)/MAD|)
+ANOMALY_RECENT_DAYS = _DEFAULTS.anomaly_recent_days  # only report recent anomalies
+
+# Structural periods are domain constants, not operator tunables.
 WEEK_PERIOD = 7
 SEASONAL_PERIOD = 365
-TREND_STRENGTH_MIN = 0.30  # report a trend only above this strength
-SEASONALITY_STRENGTH_MIN = 0.20  # report annual seasonality only above this
 SEASONAL_MIN_PEAK_TROUGH_GAP = 2  # months; a near-adjacent peak/trough means the
 #                                   annual phase estimate is unreliable (flagged)
 
-RECOVERY_RECENT_DAYS = 14
-RECOVERY_Z = 1.5  # both HRV (low) and resting HR (high) must exceed this
-RECOVERY_SLEEP_Z = -1.0  # short sleep that reinforces the alert (not required)
+TREND_STRENGTH_MIN = _DEFAULTS.trend_strength_min  # report a trend above this
+SEASONALITY_STRENGTH_MIN = _DEFAULTS.seasonality_strength_min  # annual seasonality
 
-CONSISTENCY_WINDOW = 28  # days over which sleep variability is measured
-CONSISTENCY_DURATION_STD = 1.0  # hours; above => "irregular" duration
-CONSISTENCY_BEDTIME_STD = 1.0  # hours; above => "irregular" bedtime
+RECOVERY_RECENT_DAYS = _DEFAULTS.recovery_recent_days
+RECOVERY_Z = _DEFAULTS.recovery_z  # both HRV (low) and resting HR (high) exceed this
+RECOVERY_SLEEP_Z = _DEFAULTS.recovery_sleep_z  # short sleep reinforces (optional)
+
+CONSISTENCY_WINDOW = _DEFAULTS.consistency_window  # days of sleep variability
+CONSISTENCY_DURATION_STD = _DEFAULTS.consistency_duration_std  # hours; above => irregular
+CONSISTENCY_BEDTIME_STD = _DEFAULTS.consistency_bedtime_std  # hours; above => irregular
 
 
 # ===========================================================================
@@ -86,7 +95,7 @@ def _mad(x: np.ndarray) -> float:
     return float(np.median(np.abs(x - np.median(x))))
 
 
-def spearman_lag(a: pd.Series, b: pd.Series, lag: int) -> Corr | None:
+def spearman_lag(a: pd.Series, b: pd.Series, lag: int, *, min_overlap: int = MIN_OVERLAP) -> Corr | None:
     """Spearman correlation of ``a[t]`` with ``b[t + lag]`` on common days.
 
     Both series must be on a complete daily index so the positional shift is
@@ -97,7 +106,7 @@ def spearman_lag(a: pd.Series, b: pd.Series, lag: int) -> Corr | None:
         return None
     paired = pd.concat([a, b.shift(-lag)], axis=1, join="inner").dropna()
     n = len(paired)
-    if n < MIN_OVERLAP:
+    if n < min_overlap:
         return None
     x = paired.iloc[:, 0].to_numpy()
     y = paired.iloc[:, 1].to_numpy()
@@ -110,11 +119,11 @@ def spearman_lag(a: pd.Series, b: pd.Series, lag: int) -> Corr | None:
     return Corr(coef=coef, p=p, n=n, start=paired.index.min().date(), end=paired.index.max().date())
 
 
-def fdr_adjust(pvalues: list[float]) -> list[float]:
+def fdr_adjust(pvalues: list[float], *, alpha: float = FDR_ALPHA) -> list[float]:
     """Benjamini-Hochberg adjusted p-values (empty in -> empty out)."""
     if not pvalues:
         return []
-    _, p_adj, _, _ = multipletests(pvalues, alpha=FDR_ALPHA, method="fdr_bh")
+    _, p_adj, _, _ = multipletests(pvalues, alpha=alpha, method="fdr_bh")
     return [float(p) for p in p_adj]
 
 
@@ -398,34 +407,37 @@ def _detrend_for_correlation(series: dict[str, pd.Series]) -> dict[str, pd.Serie
     return out
 
 
-def _correlation_findings(series: dict[str, pd.Series], computed_at: dt.datetime) -> list[Finding]:
+def _correlation_findings(
+    series: dict[str, pd.Series], computed_at: dt.datetime, cfg: AnalysisConfig | None = None
+) -> list[Finding]:
+    cfg = cfg or _DEFAULTS
     detrended = _detrend_for_correlation(series)
     names = list(detrended)
     candidates: list[tuple[str, str, int, Corr]] = []
     for i in range(len(names)):
         for j in range(i + 1, len(names)):
             a, b = names[i], names[j]
-            c0 = spearman_lag(detrended[a], detrended[b], 0)
+            c0 = spearman_lag(detrended[a], detrended[b], 0, min_overlap=cfg.min_overlap)
             if c0:
                 candidates.append((a, b, 0, c0))
-            for lag in range(1, MAX_LAG + 1):
-                cab = spearman_lag(detrended[a], detrended[b], lag)  # a leads b
+            for lag in range(1, cfg.max_lag + 1):
+                cab = spearman_lag(detrended[a], detrended[b], lag, min_overlap=cfg.min_overlap)  # a leads b
                 if cab:
                     candidates.append((a, b, lag, cab))
-                cba = spearman_lag(detrended[b], detrended[a], lag)  # b leads a
+                cba = spearman_lag(detrended[b], detrended[a], lag, min_overlap=cfg.min_overlap)  # b leads a
                 if cba:
                     candidates.append((b, a, lag, cba))
 
     if not candidates:
         return []
-    adj = fdr_adjust([c.p for *_, c in candidates])
+    adj = fdr_adjust([c.p for *_, c in candidates], alpha=cfg.fdr_alpha)
 
     # FDR sees every lag/direction we tested (multiple-testing honesty); for
     # presentation keep only the single strongest lag/direction per unordered
     # metric pair, so a slow pair isn't listed 5x across lags and directions.
     best: dict[frozenset[str], tuple[str, str, int, Corr, float]] = {}
     for (a, b, lag, c), p_adj in zip(candidates, adj, strict=True):
-        if p_adj > CORR_KEEP_ALPHA:
+        if p_adj > cfg.corr_keep_alpha:
             continue
         key = frozenset((a, b))
         prev = best.get(key)
@@ -453,14 +465,17 @@ def _correlation_findings(series: dict[str, pd.Series], computed_at: dt.datetime
     return findings
 
 
-def _anomaly_findings(series: dict[str, pd.Series], computed_at: dt.datetime) -> list[Finding]:
+def _anomaly_findings(
+    series: dict[str, pd.Series], computed_at: dt.datetime, cfg: AnalysisConfig | None = None
+) -> list[Finding]:
+    cfg = cfg or _DEFAULTS
     findings = []
     for name, s in series.items():
         s = s.dropna()
         if s.empty:
             continue
-        cutoff = s.index.max() - pd.Timedelta(days=ANOMALY_RECENT_DAYS)
-        anomalies = rolling_mad_anomalies(s)
+        cutoff = s.index.max() - pd.Timedelta(days=cfg.anomaly_recent_days)
+        anomalies = rolling_mad_anomalies(s, window=cfg.anomaly_window, threshold=cfg.anomaly_threshold)
         for ts, row in anomalies.iterrows():
             if ts < cutoff:
                 continue
@@ -477,7 +492,10 @@ def _anomaly_findings(series: dict[str, pd.Series], computed_at: dt.datetime) ->
     return findings
 
 
-def _trend_and_seasonality_findings(series: dict[str, pd.Series], computed_at: dt.datetime) -> tuple[list, list]:
+def _trend_and_seasonality_findings(
+    series: dict[str, pd.Series], computed_at: dt.datetime, cfg: AnalysisConfig | None = None
+) -> tuple[list, list]:
+    cfg = cfg or _DEFAULTS
     trends, seasons = [], []
     for name, s in series.items():
         decomp = decompose(s)
@@ -486,7 +504,7 @@ def _trend_and_seasonality_findings(series: dict[str, pd.Series], computed_at: d
         start, end = decomp.trend.index.min().date(), decomp.trend.index.max().date()
 
         strength = _component_strength(decomp.trend, decomp.resid)
-        if strength >= TREND_STRENGTH_MIN:
+        if strength >= cfg.trend_strength_min:
             slope = trend_slope(decomp.trend)
             trends.append(
                 Finding(
@@ -501,7 +519,7 @@ def _trend_and_seasonality_findings(series: dict[str, pd.Series], computed_at: d
             )
 
         annual = annual_seasonality(decomp)
-        if annual and annual["strength"] >= SEASONALITY_STRENGTH_MIN:
+        if annual and annual["strength"] >= cfg.seasonality_strength_min:
             seasons.append(
                 Finding(
                     computed_at=computed_at,
@@ -523,7 +541,10 @@ def _trend_and_seasonality_findings(series: dict[str, pd.Series], computed_at: d
     return trends, seasons
 
 
-def _recovery_findings(series: dict[str, pd.Series], computed_at: dt.datetime) -> list[Finding]:
+def _recovery_findings(
+    series: dict[str, pd.Series], computed_at: dt.datetime, cfg: AnalysisConfig | None = None
+) -> list[Finding]:
+    cfg = cfg or _DEFAULTS
     rhr = series.get("resting_heart_rate")
     hrv = series.get("heart_rate_variability")
     if rhr is None or hrv is None:
@@ -535,13 +556,13 @@ def _recovery_findings(series: dict[str, pd.Series], computed_at: dt.datetime) -
     paired = pd.concat([rhr_z.rename("rhr"), hrv_z.rename("hrv")], axis=1, join="inner").dropna()
     if paired.empty:
         return []
-    cutoff = paired.index.max() - pd.Timedelta(days=RECOVERY_RECENT_DAYS)
+    cutoff = paired.index.max() - pd.Timedelta(days=cfg.recovery_recent_days)
     findings = []
     for ts, row in paired.iterrows():
         if ts < cutoff:
             continue
-        if row["rhr"] >= RECOVERY_Z and row["hrv"] <= -RECOVERY_Z:
-            short_sleep = bool(sleep_z is not None and ts in sleep_z.index and sleep_z.loc[ts] <= RECOVERY_SLEEP_Z)
+        if row["rhr"] >= cfg.recovery_z and row["hrv"] <= -cfg.recovery_z:
+            short_sleep = bool(sleep_z is not None and ts in sleep_z.index and sleep_z.loc[ts] <= cfg.recovery_sleep_z)
             severity = (row["rhr"] - row["hrv"]) / 2.0
             findings.append(
                 Finding(
@@ -561,57 +582,66 @@ def _recovery_findings(series: dict[str, pd.Series], computed_at: dt.datetime) -
     return findings
 
 
-def _consistency_findings(db: Session, tz: str, computed_at: dt.datetime) -> list[Finding]:
+def _consistency_findings(
+    db: Session, tz: str, computed_at: dt.datetime, cfg: AnalysisConfig | None = None
+) -> list[Finding]:
+    cfg = cfg or _DEFAULTS
     sleep = load_sleep_frame(db, tz)
     if sleep.empty:
         return []
     findings = []
 
     duration = _reindex_full(sleep["total_sleep_h"]).dropna()
-    if len(duration) >= CONSISTENCY_WINDOW:
-        std = float(duration.tail(CONSISTENCY_WINDOW).std())
+    if len(duration) >= cfg.consistency_window:
+        std = float(duration.tail(cfg.consistency_window).std())
         findings.append(
             Finding(
                 computed_at=computed_at,
                 kind="consistency",
                 metric_a="sleep_total_h",
-                window_start=duration.index[-CONSISTENCY_WINDOW].date(),
+                window_start=duration.index[-cfg.consistency_window].date(),
                 window_end=duration.index[-1].date(),
                 severity=round(std, 4),
-                note="irregular sleep duration" if std > CONSISTENCY_DURATION_STD else "stable sleep duration",
-                details={"std_hours": round(std, 4), "threshold": CONSISTENCY_DURATION_STD},
+                note="irregular sleep duration" if std > cfg.consistency_duration_std else "stable sleep duration",
+                details={"std_hours": round(std, 4), "threshold": cfg.consistency_duration_std},
             )
         )
 
     bedtime = circular_bedtime_offset(_reindex_full(sleep["bedtime"]).dropna())
-    if len(bedtime) >= CONSISTENCY_WINDOW:
-        std = float(bedtime.tail(CONSISTENCY_WINDOW).std())
+    if len(bedtime) >= cfg.consistency_window:
+        std = float(bedtime.tail(cfg.consistency_window).std())
         findings.append(
             Finding(
                 computed_at=computed_at,
                 kind="consistency",
                 metric_a="bedtime",
-                window_start=bedtime.index[-CONSISTENCY_WINDOW].date(),
+                window_start=bedtime.index[-cfg.consistency_window].date(),
                 window_end=bedtime.index[-1].date(),
                 severity=round(std, 4),
-                note="irregular bedtime" if std > CONSISTENCY_BEDTIME_STD else "stable bedtime",
-                details={"std_hours": round(std, 4), "threshold": CONSISTENCY_BEDTIME_STD},
+                note="irregular bedtime" if std > cfg.consistency_bedtime_std else "stable bedtime",
+                details={"std_hours": round(std, 4), "threshold": cfg.consistency_bedtime_std},
             )
         )
     return findings
 
 
-def run(db: Session, tz: str | None = None) -> AnalysisResult:
-    """Compute all findings and write them as a fresh snapshot (flush only)."""
+def run(db: Session, tz: str | None = None, config: AnalysisConfig | None = None) -> AnalysisResult:
+    """Compute all findings and write them as a fresh snapshot (flush only).
+
+    ``config`` supplies the analysis tunables; when omitted the built-in
+    defaults (``AnalysisConfig()``) are used, so callers that don't care about
+    config (e.g. tests) behave exactly as before.
+    """
     tz = tz or get_settings().local_tz
+    cfg = config or _DEFAULTS
     computed_at = dt.datetime.now(dt.UTC)
     series = build_series(db, tz)
 
-    correlations = _correlation_findings(series, computed_at)
-    anomalies = _anomaly_findings(series, computed_at)
-    trends, seasons = _trend_and_seasonality_findings(series, computed_at)
-    recovery = _recovery_findings(series, computed_at)
-    consistency = _consistency_findings(db, tz, computed_at)
+    correlations = _correlation_findings(series, computed_at, cfg)
+    anomalies = _anomaly_findings(series, computed_at, cfg)
+    trends, seasons = _trend_and_seasonality_findings(series, computed_at, cfg)
+    recovery = _recovery_findings(series, computed_at, cfg)
+    consistency = _consistency_findings(db, tz, computed_at, cfg)
 
     db.execute(delete(Finding))  # snapshot: replace the previous run
     db.add_all([*correlations, *anomalies, *trends, *seasons, *recovery, *consistency])
@@ -630,12 +660,13 @@ def run(db: Session, tz: str | None = None) -> AnalysisResult:
 def main() -> int:
     settings = get_settings()
     configure_logging(settings.log_level, settings.log_format)
+    app_config = load_config(settings.config_file)
 
     from .database import SessionLocal
 
     db = SessionLocal()
     try:
-        result = run(db, settings.local_tz)
+        result = run(db, settings.local_tz, app_config.analysis)
         db.commit()
     except Exception:
         db.rollback()

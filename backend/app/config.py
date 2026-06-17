@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     log_format: str = Field(default="text", alias="LOG_FORMAT")  # text | json
 
+    # --- Structured config (config.yaml) -----------------------------------
+    # Path to the YAML file holding behaviour/profile/tunables (see
+    # app/appconfig.py). Optional — a missing file means all-default behaviour.
+    config_file: str = Field(default="/config/config.yaml", alias="CONFIG_FILE")
+
     # --- Notifications -----------------------------------------------------
     # Push run outcomes and health alerts to a Gotify-compatible endpoint
     # (Gotify or PushBits). Off unless NOTIFY_URL is set. The token is a secret

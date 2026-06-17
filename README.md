@@ -250,6 +250,7 @@ docker exec healthlog healthlog analyze
 | `PUID` / `PGID` | `1000` | host user/group that owns `/config` (Unraid: `99` / `100`) |
 | `LOG_LEVEL` | `INFO` | log verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 | `LOG_FORMAT` | `text` | `text` (human-readable) or `json` (one object per line, for Loki/ELK) |
+| `CONFIG_FILE` | `/config/config.yaml` | path to the optional structured config (see [config.yaml](#tunables--profile-configyaml)) |
 | `NOTIFY_URL` | *(empty)* | Gotify/PushBits base URL; notifications are off until this is set |
 | `NOTIFY_TOKEN` | *(empty)* | Gotify/PushBits application token (secret; never logged) |
 | `NOTIFY_EVENTS` | `analysis,findings` | which sources may notify: any of `ingest`, `analysis`, `findings` |
@@ -275,6 +276,31 @@ never logged. Three independent sources can notify, chosen via `NOTIFY_EVENTS`:
 Messages carry only counters and metric kinds — never raw health values.
 Notifications are strictly best-effort: a failed or misconfigured push is
 logged and ignored, and never affects ingestion or analysis.
+
+### Tunables & profile (config.yaml)
+
+Two configuration homes, deliberately split:
+
+- **Environment variables** (the table above) — secrets and infrastructure.
+- **`config.yaml`** (mounted at `/config/config.yaml`) — structured, non-secret
+  *behaviour* and *profile*. **Entirely optional**: a missing or fully-commented
+  file means all-default behaviour. The container seeds a fully-commented
+  example on first start, so you can discover the knobs and uncomment what you
+  want — never put secrets here.
+
+It currently holds:
+
+- **`analysis`** — the nightly pipeline's tunables (correlation lag range and
+  FDR alpha, anomaly window/threshold, trend/seasonality strengths, recovery and
+  consistency thresholds). Retune without rebuilding the image.
+- **`profile`** — your `birth_year`/`sex` (and optional `hr_max`/`hr_rest`).
+  Personal but not secret; used to sharpen HR-based training load once the
+  workout analysis lands (see [`docs/workout-analysis.md`](docs/workout-analysis.md)).
+- **`workouts`** — the workout type map, for the same upcoming feature.
+
+Malformed YAML or an out-of-range value fails fast with a clear message. See the
+seeded `/config/config.yaml` (or `backend/config.example.yaml`) for every option
+with its default.
 
 ## Operations
 
