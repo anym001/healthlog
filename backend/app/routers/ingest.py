@@ -12,10 +12,11 @@ import ipaddress
 import json
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from .. import ingest as ingest_svc
+from .. import notify
 from ..config import get_settings
 from ..database import get_db
 from ..deps import ingest_auth
@@ -40,7 +41,11 @@ def _client_ip(request: Request) -> str | None:
 
 
 @router.post("/api/ingest", response_model=IngestResponse, dependencies=[Depends(ingest_auth)])
-async def ingest_payload(request: Request, db: Session = Depends(get_db)) -> IngestResponse:
+async def ingest_payload(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+) -> IngestResponse:
     settings = get_settings()
     body = await request.body()
 
@@ -78,6 +83,14 @@ async def ingest_payload(request: Request, db: Session = Depends(get_db)) -> Ing
         result.sleep_rows,
         result.workout_rows,
         result.unknown_metrics,
+    )
+    # Best-effort push after the response is sent (never blocks the HAE sync).
+    background_tasks.add_task(
+        notify.notify_ingest,
+        settings,
+        metric_rows=result.metric_rows,
+        sleep_rows=result.sleep_rows,
+        workout_rows=result.workout_rows,
     )
     return IngestResponse(
         status="stored",

@@ -49,3 +49,17 @@ def configure_logging(level: str = "INFO", fmt: str = "text") -> None:
     # uvicorn access logs are noise per-request; pin to WARNING. Errors still
     # surface through uvicorn.error.
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+
+
+def safe(value: object, *, max_len: int = 256) -> str:
+    """Sanitise an externally-influenced value for plain-text logging.
+
+    Strips CR/LF and other control characters so a crafted error string can't
+    forge extra log lines, and bounds the length. Mirrors PocketLog's logging
+    hardening.
+    """
+    s = "" if value is None else str(value)
+    s = "".join(" " if (c == "\n" or c == "\r" or ord(c) < 32) else c for c in s)
+    if len(s) > max_len:
+        s = s[:max_len] + "…"
+    return s

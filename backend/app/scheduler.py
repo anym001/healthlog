@@ -28,6 +28,12 @@ def run_analysis() -> None:
         subprocess.run([sys.executable, "-m", "app.analysis"], check=True)
     except subprocess.CalledProcessError as exc:  # pragma: no cover - defensive
         log.error("analysis subprocess failed: %s", exc)
+        # The crashed subprocess can't notify about its own death; the scheduler
+        # owns the crash alert (the success/findings notifications are sent from
+        # inside the analysis run, which has the result).
+        from .notify import notify_analysis_crash
+
+        notify_analysis_crash(get_settings(), exc)
 
 
 DEFAULT_CRON = "30 3 * * *"
