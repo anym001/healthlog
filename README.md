@@ -75,6 +75,10 @@ in any dashboard tool:
   heart rate runs high at the same time.
 - **Sleep insights** — sleep efficiency and consistency (rolling variability of
   duration and bedtime).
+- **Training load** — workouts become daily-load series (HR-based Banister TRIMP
+  and active-energy), so their lagged effect on recovery and sleep falls out of
+  the correlation engine, plus an ACWR (acute:chronic) load-spike / detraining
+  alert. HR_max/zone weighting sharpen with an optional `profile` (see below).
 
 All statistics run on the server; only the optional LLM narration is intended
 for a Mac. The full method list and tuning live in [`docs/PLAN.md`](docs/PLAN.md).
@@ -200,8 +204,9 @@ recovery-alert findings.
 
 **Workouts (optional):** the Health-Metrics automation does not include
 workouts. To capture them, add a **second** REST API automation with the same
-URL and header but **Data type = Workouts**. They are stored for later; the
-current analysis pipeline does not use them yet.
+URL and header but **Data type = Workouts**. The nightly analysis folds them in
+as daily training-load series (TRIMP / active-energy) for correlation and ACWR
+findings — set a `profile` in `config.yaml` to sharpen the HR-based load.
 
 To confirm data is arriving, trigger a **Manual Export** and check the logs for
 an `ingest.stored …` audit line. For a push confirmation, temporarily set
@@ -268,11 +273,14 @@ It holds:
 
 - **`analysis`** — the nightly pipeline's tunables (correlation lag range and
   FDR alpha, anomaly window/threshold, trend/seasonality strengths, recovery and
-  consistency thresholds). Retune without rebuilding the image.
+  consistency thresholds, ACWR load-spike/detraining bands). Retune without
+  rebuilding the image.
 - **`profile`** — your `birth_year`/`sex` (and optional `hr_max`/`hr_rest`).
-  Personal but not secret; used to sharpen HR-based training load once the
-  workout analysis lands (see [`docs/workout-analysis.md`](docs/workout-analysis.md)).
-- **`workouts`** — the workout type map, for the same upcoming feature.
+  Personal but not secret; sharpens the HR-based training load (Banister TRIMP)
+  in the workout analysis (see [`docs/workout-analysis.md`](docs/workout-analysis.md)).
+  Without it, HR_max is derived from your data and a generic weighting is used.
+- **`workouts`** — `load_metric` (which load series to build: `trimp`/`energy`/
+  `both`) and the type map reserved for the upcoming type-split load.
 - **`notify`** — push notifications (see below).
 
 Malformed YAML or an out-of-range value fails fast with a clear message. See the

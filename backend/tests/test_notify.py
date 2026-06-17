@@ -48,6 +48,7 @@ def _result(**kw):
         "seasonality": 0,
         "recovery_alerts": 0,
         "consistency": 0,
+        "training_load": 0,
     }
     counts.update(kw)
     return SimpleNamespace(**counts)
@@ -155,6 +156,14 @@ def test_compose_findings_message_reports_alerts():
     assert note.priority == PRIORITY_PROBLEM
     assert "anomalies: 2" in note.message
     assert "recovery alerts: 1" in note.message
+
+
+def test_compose_findings_message_reports_training_load_alone():
+    # A training-load alert with no anomaly/recovery still triggers a findings push.
+    note = compose_findings_message(_result(training_load=1))
+    assert note is not None
+    assert note.problem is True
+    assert "training load alerts: 1" in note.message
 
 
 def test_compose_ingest_messages():

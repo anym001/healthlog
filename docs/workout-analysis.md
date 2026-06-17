@@ -1,8 +1,9 @@
-# Workout-Analyse & strukturierte Konfiguration (Entwurf)
+# Workout-Analyse & strukturierte Konfiguration
 
-> **Status:** Design / Vorschlag — noch nicht implementiert. Ergänzt `PLAN.md`
-> (Phase 3) um Trainingsdaten und führt eine `config.yaml` als Heimat für
-> strukturierte Konfiguration ein.
+> **Status:** **Iteration 1 implementiert** (typ-agnostische Tageslast:
+> `workout_trimp` + `workout_load`, ACWR, Profil via `config.yaml`). Iteration 2
+> (typ-getrennte Last über `workouts.type_map`) und zonenbasiertes Edwards-TRIMP
+> bleiben offen (siehe §9). Ergänzt `PLAN.md` (Phase 3) um Trainingsdaten.
 
 ## 1. Motivation
 

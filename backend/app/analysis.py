@@ -17,6 +17,12 @@ Findings (PLAN.md §4.7), all derived, never medical advice:
                  with a phase-confidence flag when peak/trough are too close).
 - recovery_alert composite early warning: HRV low AND resting HR high together.
 - consistency    rolling variability of sleep duration and bedtime.
+- training_load  ACWR (acute:chronic workload ratio) on daily workout load;
+                 flagged on a load spike or detraining (Banister TRIMP / kcal).
+
+Workouts are folded in as daily-load *series* (build_workout_series): once
+``workout_trimp``/``workout_load`` sit on the series grid they flow through the
+same correlation/anomaly/trend machinery as every other metric.
 """
 
 from __future__ import annotations
@@ -34,7 +40,7 @@ from sqlalchemy.orm import Session
 from statsmodels.stats.multitest import multipletests
 from statsmodels.tsa.seasonal import MSTL, STL
 
-from .appconfig import AnalysisConfig, load_config
+from .appconfig import AnalysisConfig, AppConfig, ProfileConfig, WorkoutConfig, load_config
 from .config import get_settings
 from .logging_config import configure_logging
 from .models import Finding
@@ -48,6 +54,9 @@ log = logging.getLogger("healthlog.analysis")
 # module constants below mirror those defaults and serve as the back-compatible
 # function defaults (used whenever no config is threaded in).
 _DEFAULTS = AnalysisConfig()
+# The full default config drives the back-compatible ``run``/``build_series``
+# behaviour (profile + workout knobs) when no config is threaded in.
+_DEFAULT_APP_CONFIG = AppConfig()
 
 MAX_LAG = _DEFAULTS.max_lag  # Spearman lag range in days
 MIN_OVERLAP = _DEFAULTS.min_overlap  # >= ~6 weeks of paired days before trusted
@@ -74,6 +83,19 @@ RECOVERY_SLEEP_Z = _DEFAULTS.recovery_sleep_z  # short sleep reinforces (optiona
 CONSISTENCY_WINDOW = _DEFAULTS.consistency_window  # days of sleep variability
 CONSISTENCY_DURATION_STD = _DEFAULTS.consistency_duration_std  # hours; above => irregular
 CONSISTENCY_BEDTIME_STD = _DEFAULTS.consistency_bedtime_std  # hours; above => irregular
+
+# Training load (workout pipeline). Structural windows, not operator tunables:
+# ACWR is conventionally a 7-day acute over a 28-day chronic mean.
+ACWR_ACUTE_DAYS = 7
+ACWR_CHRONIC_DAYS = 28
+# HR_rest is the trailing-median resting heart rate; HR_max / HR_rest fall back
+# along the chains documented in docs/workout-analysis.md §3.1.
+HR_REST_WINDOW = 28
+HR_REST_MIN_PERIODS = 7
+HR_REST_FALLBACK = 60.0  # last-resort resting HR when no data and no profile
+HR_MAX_FALLBACK = 190.0  # last-resort max HR when neither profile nor data give one
+HR_MAX_DATA_FLOOR = 160.0  # clamp for the data-driven HR_max estimate
+HR_MAX_DATA_CEIL = 210.0
 
 
 # ===========================================================================
@@ -236,6 +258,135 @@ def circular_bedtime_offset(local_hours: pd.Series) -> pd.Series:
     return (local_hours - 18.0) % 24.0
 
 
+# --- Workout training load (Banister TRIMP) --------------------------------
+
+
+def banister_trimp(
+    duration_s: float | None,
+    avg_hr: float | None,
+    hr_rest: float,
+    hr_max: float,
+    sex: str = "unspecified",
+) -> float:
+    """Banister TRIMP for one session from a single average heart rate.
+
+    ``TRIMP = minutes * HRr * y`` with ``HRr`` the heart-rate reserve fraction
+    and ``y`` a sex-specific exponential weight (Banister 1991). Returns 0.0 for
+    a session without a usable ``avg_hr`` or duration — those carry no HR-based
+    load (the kcal fallback series covers them). ``sex`` other than ``female``
+    uses the male weighting (the documented default).
+    """
+    if duration_s is None or avg_hr is None or hr_max <= hr_rest:
+        return 0.0
+    if not np.isfinite(duration_s) or not np.isfinite(avg_hr) or duration_s <= 0:
+        return 0.0
+    minutes = duration_s / 60.0
+    hrr = (avg_hr - hr_rest) / (hr_max - hr_rest)
+    hrr = float(min(1.0, max(0.0, hrr)))
+    if sex == "female":
+        weight = 0.86 * np.exp(1.67 * hrr)
+    else:
+        weight = 0.64 * np.exp(1.92 * hrr)
+    return float(minutes * hrr * weight)
+
+
+def resolve_hr_max(profile: ProfileConfig, observed_max_hr: pd.Series | None) -> float:
+    """HR_max along the fallback chain (profile override -> Tanaka age formula ->
+    data-driven -> constant). Always returns a usable number."""
+    if profile.hr_max is not None:
+        return float(profile.hr_max)
+    if profile.birth_year is not None:
+        age = dt.date.today().year - profile.birth_year
+        return float(208.0 - 0.7 * age)  # Tanaka (more accurate than 220 - age)
+    if observed_max_hr is not None:
+        peak = observed_max_hr.dropna()
+        if not peak.empty:
+            return float(min(HR_MAX_DATA_CEIL, max(HR_MAX_DATA_FLOOR, float(peak.max()))))
+    return HR_MAX_FALLBACK
+
+
+def resolve_hr_rest(rhr: pd.Series | None, profile: ProfileConfig) -> tuple[pd.Series, float]:
+    """A per-day resting-HR series (trailing median, personalised, time-varying)
+    plus a scalar fallback for days outside the measured span.
+
+    The fallback is the profile override, else the overall measured median, else
+    a constant — so a workout day always resolves to *some* HR_rest.
+    """
+    if profile.hr_rest is not None:
+        default = float(profile.hr_rest)
+    elif rhr is not None and not rhr.dropna().empty:
+        default = float(rhr.dropna().median())
+    else:
+        default = HR_REST_FALLBACK
+    if rhr is None or rhr.dropna().empty:
+        return pd.Series(dtype="float64"), default
+    rolling = rhr.rolling(HR_REST_WINDOW, min_periods=HR_REST_MIN_PERIODS).median()
+    return rolling.fillna(default), default
+
+
+def fill_zero_within_span(s: pd.Series) -> pd.Series:
+    """Reindex to a complete daily grid over the observed span, filling gaps with
+    0.0 (not interpolated): a day without a workout is a real zero of load, not a
+    missing measurement. Edges outside the first/last observed day stay absent."""
+    s = s.dropna()
+    if s.empty:
+        return s
+    full = pd.date_range(s.index.min(), s.index.max(), freq="D")
+    return s.reindex(full).fillna(0.0)
+
+
+def aggregate_workout_daily(
+    sessions: pd.DataFrame, hr_rest: pd.Series, hr_rest_default: float, hr_max: float, sex: str
+) -> pd.DataFrame:
+    """Per-local-day workout features from a per-session frame.
+
+    ``sessions`` columns: ``day`` (Timestamp), ``duration_s``, ``active_energy_kcal``,
+    ``avg_hr``, ``max_hr``, ``intensity``. Returns a frame indexed by day with
+    ``trimp`` (Banister sum), ``load`` (active-energy sum), ``duration_h``,
+    ``count`` and ``intensity`` (mean). Empty in -> empty out.
+    """
+    if sessions.empty:
+        return pd.DataFrame()
+    rows = []
+    for r in sessions.itertuples(index=False):
+        day = r.day
+        rest = float(hr_rest.get(day, hr_rest_default)) if len(hr_rest) else hr_rest_default
+        trimp = banister_trimp(r.duration_s, r.avg_hr, rest, hr_max, sex)
+        rows.append(
+            {
+                "day": day,
+                "trimp": trimp,
+                "load": float(r.active_energy_kcal) if r.active_energy_kcal is not None else 0.0,
+                "duration_h": (float(r.duration_s) / 3600.0) if r.duration_s is not None else 0.0,
+                "count": 1,
+                "intensity": r.intensity,
+            }
+        )
+    df = pd.DataFrame.from_records(rows).set_index("day")
+    return df.groupby(level=0).agg(
+        trimp=("trimp", "sum"),
+        load=("load", "sum"),
+        duration_h=("duration_h", "sum"),
+        count=("count", "sum"),
+        intensity=("intensity", "mean"),
+    )
+
+
+def acute_chronic_ratio(s: pd.Series) -> tuple[float, float, float] | None:
+    """ACWR = mean(last 7d) / mean(last 28d) on a dense daily load series.
+
+    Returns ``(acute, chronic, ratio)`` or None when there is too little history
+    or the chronic load is zero (ratio undefined / meaningless)."""
+    s = s.dropna()
+    if len(s) < ACWR_CHRONIC_DAYS:
+        return None
+    acute = float(s.tail(ACWR_ACUTE_DAYS).mean())
+    chronic = float(s.tail(ACWR_CHRONIC_DAYS).mean())
+    if chronic <= 0:
+        return None
+    return acute, chronic, acute / chronic
+
+
 # ===========================================================================
 # DB loaders.
 # ===========================================================================
@@ -317,6 +468,42 @@ def load_sleep_frame(db: Session, tz: str) -> pd.DataFrame:
     return agg
 
 
+def load_workout_frame(db: Session, tz: str) -> pd.DataFrame:
+    """One row per workout session, tagged with its local calendar day.
+
+    Returns the raw per-session fields the workout aggregation needs; TRIMP and
+    HR_max/HR_rest are computed downstream (pure helpers) because they depend on
+    the profile and the measured resting-HR series, not just the row. Empty
+    frame when there are no workouts.
+    """
+    rows = db.execute(
+        text(
+            """
+            SELECT (start_time AT TIME ZONE :tz)::date AS day,
+                   duration_s, active_energy_kcal, avg_hr, max_hr, intensity
+            FROM workouts
+            WHERE start_time IS NOT NULL
+            ORDER BY start_time
+            """
+        ),
+        {"tz": tz},
+    ).all()
+    if not rows:
+        return pd.DataFrame()
+    records = [
+        {
+            "day": pd.Timestamp(r.day),
+            "duration_s": r.duration_s,
+            "active_energy_kcal": r.active_energy_kcal,
+            "avg_hr": r.avg_hr,
+            "max_hr": r.max_hr,
+            "intensity": r.intensity,
+        }
+        for r in rows
+    ]
+    return pd.DataFrame.from_records(records)
+
+
 def _series_from_rows(rows) -> pd.Series:
     if not rows:
         return pd.Series(dtype="float64")
@@ -347,6 +534,7 @@ class AnalysisResult:
     seasonality: int = 0
     recovery_alerts: int = 0
     consistency: int = 0
+    training_load: int = 0
 
     def total(self) -> int:
         return (
@@ -356,6 +544,7 @@ class AnalysisResult:
             + self.seasonality
             + self.recovery_alerts
             + self.consistency
+            + self.training_load
         )
 
 
@@ -363,8 +552,62 @@ def core_metrics() -> list[str]:
     return [m for m, spec in METRIC_REGISTRY.items() if spec["tier"] == "core"]
 
 
-def build_series(db: Session, tz: str) -> dict[str, pd.Series]:
-    """All analysis series: core metrics + derived sleep series."""
+def build_workout_series(
+    db: Session,
+    tz: str,
+    profile: ProfileConfig,
+    workouts: WorkoutConfig,
+    rhr: pd.Series | None,
+) -> dict[str, pd.Series]:
+    """Daily workout-load series (training-load features as 0-filled series).
+
+    Workouts are events, so a training-free day is a real 0 (not a gap): every
+    series is densified over its observed span with ``fill_zero_within_span``.
+    ``workout_trimp`` (HR-based) and ``workout_load`` (kcal) run in parallel and
+    are gated by ``workouts.load_metric``; duration/count always come along.
+    Empty when there are no workouts.
+    """
+    sessions = load_workout_frame(db, tz)
+    if sessions.empty:
+        return {}
+
+    hr_max = resolve_hr_max(profile, sessions["max_hr"])
+    hr_rest, hr_rest_default = resolve_hr_rest(rhr, profile)
+    daily = aggregate_workout_daily(sessions, hr_rest, hr_rest_default, hr_max, profile.sex)
+    if daily.empty:
+        return {}
+
+    out: dict[str, pd.Series] = {}
+    columns = {"workout_duration": "duration_h", "workout_count": "count"}
+    if workouts.load_metric in ("trimp", "both"):
+        columns["workout_trimp"] = "trimp"
+    if workouts.load_metric in ("energy", "both"):
+        columns["workout_load"] = "load"
+    for name, col in columns.items():
+        s = fill_zero_within_span(daily[col])
+        # Only a non-empty check (matching the core/sleep series): a constant
+        # series is harmless downstream (spearman_lag returns None on zero
+        # variance, decompose/robust_z degrade to no findings) and a std>0 guard
+        # would be float-fragile (an exact-valued constant has std 0, an
+        # inexact one ~1e-16).
+        if not s.dropna().empty:
+            out[name] = s
+    # Intensity is an average (NaN where absent), not a load total -> no 0-fill.
+    intensity = _reindex_full(daily["intensity"])
+    if not intensity.dropna().empty:
+        out["workout_intensity"] = intensity
+    return out
+
+
+def build_series(
+    db: Session,
+    tz: str,
+    profile: ProfileConfig | None = None,
+    workouts: WorkoutConfig | None = None,
+) -> dict[str, pd.Series]:
+    """All analysis series: core metrics + derived sleep + workout-load series."""
+    profile = profile or _DEFAULT_APP_CONFIG.profile
+    workouts = workouts or _DEFAULT_APP_CONFIG.workouts
     series: dict[str, pd.Series] = {}
     for metric in core_metrics():
         s = load_daily_series(db, metric, METRIC_REGISTRY[metric]["agg_default"], tz)
@@ -383,6 +626,8 @@ def build_series(db: Session, tz: str) -> dict[str, pd.Series]:
             s = _reindex_full(sleep[col])
             if not s.dropna().empty:
                 series[name] = s
+
+    series.update(build_workout_series(db, tz, profile, workouts, series.get("resting_heart_rate")))
     return series
 
 
@@ -625,26 +870,73 @@ def _consistency_findings(
     return findings
 
 
-def run(db: Session, tz: str | None = None, config: AnalysisConfig | None = None) -> AnalysisResult:
+def _training_load_findings(
+    series: dict[str, pd.Series], computed_at: dt.datetime, cfg: AnalysisConfig | None = None
+) -> list[Finding]:
+    """ACWR on the daily workout load; flagged only when it leaves the safe band.
+
+    Computed on ``workout_trimp`` when available (HR-based, the better signal),
+    else ``workout_load`` (kcal). A ratio above ``acwr_high`` is a load spike
+    (overload risk), below ``acwr_low`` is detraining; inside the band is normal
+    and yields no finding (mirrors anomalies/recovery — only alerts are stored).
+    """
+    cfg = cfg or _DEFAULTS
+    name = "workout_trimp" if "workout_trimp" in series else "workout_load" if "workout_load" in series else None
+    if name is None:
+        return []
+    acwr = acute_chronic_ratio(series[name])
+    if acwr is None:
+        return []
+    acute, chronic, ratio = acwr
+    if cfg.acwr_low <= ratio <= cfg.acwr_high:
+        return []
+    note = (
+        "training load spike (acute load high vs. chronic)"
+        if ratio > cfg.acwr_high
+        else "detraining (acute load low vs. chronic)"
+    )
+    return [
+        Finding(
+            computed_at=computed_at,
+            kind="training_load",
+            metric_a=name,
+            ref_date=series[name].dropna().index.max().date(),
+            severity=round(ratio, 4),
+            note=note,
+            details={
+                "acute": round(acute, 4),
+                "chronic": round(chronic, 4),
+                "ratio": round(ratio, 4),
+                "acute_days": ACWR_ACUTE_DAYS,
+                "chronic_days": ACWR_CHRONIC_DAYS,
+            },
+        )
+    ]
+
+
+def run(db: Session, tz: str | None = None, config: AppConfig | None = None) -> AnalysisResult:
     """Compute all findings and write them as a fresh snapshot (flush only).
 
-    ``config`` supplies the analysis tunables; when omitted the built-in
-    defaults (``AnalysisConfig()``) are used, so callers that don't care about
-    config (e.g. tests) behave exactly as before.
+    ``config`` supplies the analysis tunables plus the physiological profile and
+    workout knobs; when omitted the built-in defaults (``AppConfig()``) are used,
+    so callers that don't care about config (e.g. tests) behave exactly as
+    before.
     """
     tz = tz or get_settings().local_tz
-    cfg = config or _DEFAULTS
+    app_cfg = config or _DEFAULT_APP_CONFIG
+    cfg = app_cfg.analysis
     computed_at = dt.datetime.now(dt.UTC)
-    series = build_series(db, tz)
+    series = build_series(db, tz, app_cfg.profile, app_cfg.workouts)
 
     correlations = _correlation_findings(series, computed_at, cfg)
     anomalies = _anomaly_findings(series, computed_at, cfg)
     trends, seasons = _trend_and_seasonality_findings(series, computed_at, cfg)
     recovery = _recovery_findings(series, computed_at, cfg)
     consistency = _consistency_findings(db, tz, computed_at, cfg)
+    training_load = _training_load_findings(series, computed_at, cfg)
 
     db.execute(delete(Finding))  # snapshot: replace the previous run
-    db.add_all([*correlations, *anomalies, *trends, *seasons, *recovery, *consistency])
+    db.add_all([*correlations, *anomalies, *trends, *seasons, *recovery, *consistency, *training_load])
     db.flush()
 
     return AnalysisResult(
@@ -654,6 +946,7 @@ def run(db: Session, tz: str | None = None, config: AnalysisConfig | None = None
         seasonality=len(seasons),
         recovery_alerts=len(recovery),
         consistency=len(consistency),
+        training_load=len(training_load),
     )
 
 
@@ -666,7 +959,7 @@ def main() -> int:
 
     db = SessionLocal()
     try:
-        result = run(db, settings.local_tz, app_config.analysis)
+        result = run(db, settings.local_tz, app_config)
         db.commit()
     except Exception:
         db.rollback()
@@ -676,13 +969,15 @@ def main() -> int:
         db.close()
 
     log.info(
-        "analysis done: correlations=%d anomalies=%d trends=%d seasonality=%d recovery_alerts=%d consistency=%d",
+        "analysis done: correlations=%d anomalies=%d trends=%d seasonality=%d "
+        "recovery_alerts=%d consistency=%d training_load=%d",
         result.correlations,
         result.anomalies,
         result.trends,
         result.seasonality,
         result.recovery_alerts,
         result.consistency,
+        result.training_load,
     )
 
     from .notify import notify_analysis
