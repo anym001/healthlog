@@ -22,8 +22,11 @@ Findings (PLAN.md §4.7), all derived, never medical advice:
                  (Banister TRIMP / kcal).
 
 Workouts are folded in as daily-load *series* (build_workout_series): once
-``workout_trimp``/``workout_load`` sit on the series grid they flow through the
-same correlation/anomaly/trend machinery as every other metric.
+``workout_trimp``/``workout_load``/``workout_edwards`` sit on the series grid
+they flow through the same correlation/anomaly/trend machinery as every other
+metric. ``workout_edwards`` (zone-based TRIMP) is built only when an
+intra-workout HR series is stored; it resolves intervals that the single-average
+Banister TRIMP smooths over.
 """
 
 from __future__ import annotations
@@ -291,6 +294,56 @@ def banister_trimp(
     return float(minutes * hrr * weight)
 
 
+# Zone-based (Edwards) TRIMP. Five intensity zones by % of HR_max with linear
+# weights 1..5; below the zone-1 floor the time carries no load (weight 0).
+# Boundaries are fractions of HR_max — derived per run, never frozen at ingest.
+EDWARDS_ZONE_LOWER = (0.5, 0.6, 0.7, 0.8, 0.9)  # zone floors as a fraction of HR_max
+
+
+def _hr_zone_weight(bpm: float, hr_max: float) -> int:
+    """Edwards zone weight (0..5) for a heart rate, by % of HR_max."""
+    if hr_max <= 0:
+        return 0
+    frac = bpm / hr_max
+    return sum(1 for lower in EDWARDS_ZONE_LOWER if frac >= lower)
+
+
+def edwards_trimp(samples: pd.DataFrame | None, hr_max: float, duration_s: float | None = None) -> float:
+    """Edwards (zone-based) TRIMP for one session from its intra-workout HR series.
+
+    ``Edwards TRIMP = Σ minutes_in_zone · zone_weight`` over the five zones. Each
+    consecutive pair of samples defines an interval whose time is attributed to
+    the zone of its starting heart rate. When ``duration_s`` is given the
+    interval times are rescaled to sum to it, so recording gaps don't distort
+    the total (and Edwards minutes line up with the Banister session minutes).
+
+    Returns 0.0 for a session without a usable series (fewer than two timed
+    samples, or no HR_max) — those carry no zone-based load (Banister still
+    covers them via ``avg_hr``). Unlike Banister it resolves intervals: a 4×4
+    session and a steady run with the same average HR get different loads.
+    """
+    if samples is None or hr_max <= 0 or len(samples) < 2:
+        return 0.0
+    s = samples.dropna(subset=["ts", "bpm"]).sort_values("ts")
+    if len(s) < 2:
+        return 0.0
+    ts = pd.to_datetime(s["ts"])
+    bpm = s["bpm"].to_numpy(dtype="float64")
+    # Seconds per interval (sample k -> k+1); via pandas so tz-aware timestamps
+    # work (their numpy form is object dtype, which np.diff cannot subtract).
+    deltas = np.clip(ts.diff().dt.total_seconds().to_numpy()[1:], 0.0, None)
+    total = float(deltas.sum())
+    if total <= 0:
+        return 0.0
+    scale = (duration_s / total) if (duration_s and duration_s > 0) else 1.0
+    load = 0.0
+    for delta, hr in zip(deltas, bpm[:-1], strict=True):
+        weight = _hr_zone_weight(float(hr), hr_max)
+        if weight:
+            load += (delta * scale / 60.0) * weight
+    return float(load)
+
+
 def resolve_hr_max(profile: ProfileConfig, observed_max_hr: pd.Series | None) -> float:
     """HR_max along the fallback chain (profile override -> Tanaka age formula ->
     data-driven -> constant). Always returns a usable number."""
@@ -342,9 +395,11 @@ def aggregate_workout_daily(
     """Per-local-day workout features from a per-session frame.
 
     ``sessions`` columns: ``day`` (Timestamp), ``duration_s``, ``active_energy_kcal``,
-    ``avg_hr``, ``max_hr``, ``intensity``. Returns a frame indexed by day with
-    ``trimp`` (Banister sum), ``load`` (active-energy sum), ``duration_h``,
-    ``count`` and ``intensity`` (mean). Empty in -> empty out.
+    ``avg_hr``, ``max_hr``, ``intensity`` and an optional precomputed ``edwards``
+    (zone-based TRIMP per session). Returns a frame indexed by day with ``trimp``
+    (Banister sum), ``load`` (active-energy sum), ``edwards`` (zone-based sum, 0.0
+    when no series), ``duration_h``, ``count`` and ``intensity`` (mean). Empty in
+    -> empty out.
     """
     if sessions.empty:
         return pd.DataFrame()
@@ -353,11 +408,13 @@ def aggregate_workout_daily(
         day = r.day
         rest = float(hr_rest.get(day, hr_rest_default)) if len(hr_rest) else hr_rest_default
         trimp = banister_trimp(r.duration_s, r.avg_hr, rest, hr_max, sex)
+        edwards = float(getattr(r, "edwards", 0.0) or 0.0)
         rows.append(
             {
                 "day": day,
                 "trimp": trimp,
                 "load": float(r.active_energy_kcal) if r.active_energy_kcal is not None else 0.0,
+                "edwards": edwards,
                 "duration_h": (float(r.duration_s) / 3600.0) if r.duration_s is not None else 0.0,
                 "count": 1,
                 "intensity": r.intensity,
@@ -367,6 +424,7 @@ def aggregate_workout_daily(
     return df.groupby(level=0).agg(
         trimp=("trimp", "sum"),
         load=("load", "sum"),
+        edwards=("edwards", "sum"),
         duration_h=("duration_h", "sum"),
         count=("count", "sum"),
         intensity=("intensity", "mean"),
@@ -502,7 +560,8 @@ def load_workout_frame(db: Session, tz: str) -> pd.DataFrame:
     rows = db.execute(
         text(
             """
-            SELECT (start_time AT TIME ZONE :tz)::date AS day,
+            SELECT hae_id,
+                   (start_time AT TIME ZONE :tz)::date AS day,
                    name, duration_s, active_energy_kcal, avg_hr, max_hr, intensity
             FROM workouts
             WHERE start_time IS NOT NULL
@@ -515,6 +574,7 @@ def load_workout_frame(db: Session, tz: str) -> pd.DataFrame:
         return pd.DataFrame()
     records = [
         {
+            "hae_id": str(r.hae_id),
             "day": pd.Timestamp(r.day),
             "name": r.name,
             "duration_s": r.duration_s,
@@ -526,6 +586,28 @@ def load_workout_frame(db: Session, tz: str) -> pd.DataFrame:
         for r in rows
     ]
     return pd.DataFrame.from_records(records)
+
+
+def load_workout_hr_samples(db: Session) -> dict[str, pd.DataFrame]:
+    """Intra-workout HR samples grouped per workout (keyed by ``hae_id`` string).
+
+    Each value is a frame with ``ts`` (sample time) and ``bpm`` columns, sorted
+    by time. Empty dict when no workout carries an HR series. The samples feed
+    zone-based (Edwards) TRIMP; zone boundaries are derived per run from HR_max,
+    never stored.
+    """
+    rows = db.execute(text("SELECT workout_hae_id, ts, bpm FROM workout_hr_samples ORDER BY workout_hae_id, ts")).all()
+    if not rows:
+        return {}
+    by_id: dict[str, list[tuple]] = {}
+    for r in rows:
+        by_id.setdefault(str(r.workout_hae_id), []).append((r.ts, float(r.bpm)))
+    out: dict[str, pd.DataFrame] = {}
+    for hid, pairs in by_id.items():
+        frame = pd.DataFrame(pairs, columns=["ts", "bpm"])
+        frame["ts"] = pd.to_datetime(frame["ts"])
+        out[hid] = frame
+    return out
 
 
 def _series_from_rows(rows) -> pd.Series:
@@ -594,7 +676,12 @@ def build_workout_series(
     emitted for each mapped type (``workout_trimp_running``,
     ``workout_load_cycling`` …) so a sport's lagged effect on recovery can be
     told apart from another's. Unmapped workouts still feed the type-agnostic
-    aggregate; they just get no per-type series. Empty when there are no workouts.
+    aggregate; they just get no per-type series.
+
+    When ``workouts.edwards`` is on and an intra-workout HR series is stored, a
+    parallel zone-based series (``workout_edwards`` + per sport) is added next to
+    the Banister ``workout_trimp``. It self-gates on the data: with no stored
+    samples nothing is emitted. Empty when there are no workouts.
     """
     sessions = load_workout_frame(db, tz)
     if sessions.empty:
@@ -602,6 +689,18 @@ def build_workout_series(
 
     hr_max = resolve_hr_max(profile, sessions["max_hr"])
     hr_rest, hr_rest_default = resolve_hr_rest(rhr, profile)
+    # Zone-based (Edwards) TRIMP per session, from the intra-workout HR series.
+    # Self-gating: with no stored samples there is simply no edwards column, so
+    # the aggregate stays 0 and no workout_edwards series is emitted.
+    if workouts.edwards:
+        hr_samples = load_workout_hr_samples(db)
+        if hr_samples:
+            sessions = sessions.assign(
+                edwards=[
+                    edwards_trimp(hr_samples.get(hid), hr_max, dur)
+                    for hid, dur in zip(sessions["hae_id"], sessions["duration_s"], strict=True)
+                ]
+            )
     daily = aggregate_workout_daily(sessions, hr_rest, hr_rest_default, hr_max, profile.sex)
     if daily.empty:
         return {}
@@ -610,6 +709,7 @@ def build_workout_series(
     # Type-agnostic aggregate (Iteration 1): load series + duration/count.
     for name, col in _load_columns(workouts.load_metric).items():
         out[name] = fill_zero_within_span(daily[col])
+    _emit_edwards(out, daily, workouts.edwards)
     for name, col in {"workout_duration": "duration_h", "workout_count": "count"}.items():
         out[name] = fill_zero_within_span(daily[col])
     # Intensity is an average (NaN where absent), not a load total -> no 0-fill.
@@ -627,6 +727,7 @@ def build_workout_series(
                 continue
             for name, col in _load_columns(workouts.load_metric).items():
                 out[f"{name}_{wtype}"] = fill_zero_within_span(sub_daily[col])
+            _emit_edwards(out, sub_daily, workouts.edwards, suffix=f"_{wtype}")
 
     # Drop any series that ended up empty (matching the core/sleep series; a
     # constant series is harmless downstream, so no std>0 guard).
@@ -641,6 +742,17 @@ def _load_columns(load_metric: str) -> dict[str, str]:
     if load_metric in ("energy", "both"):
         columns["workout_load"] = "load"
     return columns
+
+
+def _emit_edwards(out: dict[str, pd.Series], daily: pd.DataFrame, enabled: bool, suffix: str = "") -> None:
+    """Append the zone-based ``workout_edwards`` series (0-filled) when enabled
+    and the daily Edwards load is non-zero somewhere — an all-zero column means
+    no HR series reached this scope, so there is nothing to add."""
+    if not enabled or "edwards" not in daily.columns:
+        return
+    series = fill_zero_within_span(daily["edwards"])
+    if (series > 0).any():
+        out[f"workout_edwards{suffix}"] = series
 
 
 def build_series(
@@ -696,14 +808,15 @@ def _detrend_for_correlation(series: dict[str, pd.Series]) -> dict[str, pd.Serie
     return out
 
 
-_WORKOUT_AGGREGATES = ("workout_trimp", "workout_load")
+_WORKOUT_AGGREGATES = ("workout_trimp", "workout_load", "workout_edwards")
 
 
 def _is_workout_aggregate_child(a: str, b: str) -> bool:
     """True when one name is a workout load aggregate and the other its own
     per-sport series (e.g. ``workout_trimp`` vs ``workout_trimp_running``); their
     correlation is mechanical, not informative. Sport-vs-sport and sport-vs-other
-    pairs are kept."""
+    pairs are kept — as are cross-metric comparisons (trimp vs load vs edwards),
+    whose agreement/divergence is itself informative."""
     lo, hi = sorted((a, b), key=len)
     return lo in _WORKOUT_AGGREGATES and hi.startswith(lo + "_")
 

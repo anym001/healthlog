@@ -64,3 +64,46 @@ def test_workout_uses_uuid_and_converts_energy(sample_payload):
     assert abs(w["total_energy_kcal"] - 836.8 * 0.2390057361) < 1e-6
     assert w["distance_km"] == 2.4
     assert w["is_indoor"] is False
+    # The summary-only fixture carries no intra-workout HR series.
+    assert parsed.workout_hr_rows == []
+
+
+def test_workout_heart_rate_series_parsed_to_samples():
+    wid = "3213AD95-044D-4777-9D99-B473968262F1"
+    payload = {
+        "data": {
+            "workouts": [
+                {
+                    "id": wid,
+                    "name": "Outdoor Run",
+                    "start": "2026-06-15 12:28:00 +0200",
+                    "end": "2026-06-15 13:00:00 +0200",
+                    # HAE ships per-minute buckets {Min, Avg, Max} with a timestamp.
+                    "heartRateData": [
+                        {
+                            "date": "2026-06-15 12:28:21 +0200",
+                            "Min": 100,
+                            "Avg": 104.5,
+                            "Max": 109,
+                            "units": "count/min",
+                        },
+                        {
+                            "date": "2026-06-15 12:29:21 +0200",
+                            "Min": 109,
+                            "Avg": 111.75,
+                            "Max": 114,
+                            "units": "count/min",
+                        },
+                        {"date": "bad-timestamp", "Avg": 120},  # unparseable -> dropped
+                        {"Avg": 130},  # no timestamp -> dropped
+                    ],
+                }
+            ]
+        }
+    }
+    parsed = parse_payload(payload)
+    assert len(parsed.workout_hr_rows) == 2  # only the two timed, valued samples
+    first = parsed.workout_hr_rows[0]
+    assert first["workout_hae_id"] == uuid.UUID(wid)
+    assert first["bpm"] == 104.5  # the Avg of the bucket
+    assert first["ts"] == dt.datetime(2026, 6, 15, 12, 28, 21, tzinfo=dt.timezone(dt.timedelta(hours=2)))

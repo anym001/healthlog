@@ -4,11 +4,33 @@ from __future__ import annotations
 
 import hashlib
 import json
+import uuid
 
 from sqlalchemy import func, select
 
 from app.ingest import archive_raw, parse_payload, store
-from app.models import MetricRegistry, MetricSample, RawIngest, SleepSession, Workout
+from app.models import MetricRegistry, MetricSample, RawIngest, SleepSession, Workout, WorkoutHrSample
+
+_WID = "3213AD95-044D-4777-9D99-B473968262F1"
+
+
+def _workout_hr_payload(avg_first: float = 104.5) -> dict:
+    return {
+        "data": {
+            "workouts": [
+                {
+                    "id": _WID,
+                    "name": "Outdoor Run",
+                    "start": "2026-06-15 12:28:00 +0200",
+                    "end": "2026-06-15 12:31:00 +0200",
+                    "heartRateData": [
+                        {"date": "2026-06-15 12:28:21 +0200", "Avg": avg_first},
+                        {"date": "2026-06-15 12:29:21 +0200", "Avg": 111.0},
+                    ],
+                }
+            ]
+        }
+    }
 
 
 def _count(db, model) -> int:
@@ -57,6 +79,25 @@ def test_unknown_metric_auto_registered_as_secondary_stub(db, sample_payload):
     assert stub.tier == "secondary"
     assert stub.auto_registered is True
     assert stub.unit_canonical == "widgets"
+
+
+def test_workout_hr_samples_idempotent_upsert(db):
+    store(db, parse_payload(_workout_hr_payload()))
+    db.flush()
+    assert _count(db, WorkoutHrSample) == 2
+
+    # Replay: same (workout_hae_id, ts) keys -> no duplicate rows.
+    store(db, parse_payload(_workout_hr_payload()))
+    db.flush()
+    assert _count(db, WorkoutHrSample) == 2
+
+    # Same keys, changed value -> upsert updates in place.
+    store(db, parse_payload(_workout_hr_payload(avg_first=150.0)))
+    db.flush()
+    assert _count(db, WorkoutHrSample) == 2
+    first = db.execute(select(WorkoutHrSample).order_by(WorkoutHrSample.ts)).scalars().first()
+    assert first.bpm == 150.0
+    assert first.workout_hae_id == uuid.UUID(_WID)
 
 
 def test_content_hash_dedup(db, sample_payload):

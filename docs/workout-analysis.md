@@ -1,9 +1,10 @@
 # Workout-Analyse & strukturierte Konfiguration
 
-> **Status:** **Iteration 1 + 2 implementiert** — typ-agnostische Tageslast
-> (`workout_trimp` + `workout_load`, ACWR, Profil via `config.yaml`) **und**
+> **Status:** **Iteration 1 + 2 + Edwards implementiert** — typ-agnostische
+> Tageslast (`workout_trimp` + `workout_load`, ACWR, Profil via `config.yaml`),
 > typ-getrennte Last pro Sportart über `workouts.type_map`
-> (`workout_trimp_running` …). Zonenbasiertes Edwards-TRIMP bleibt offen
+> (`workout_trimp_running` …) **und** zonenbasiertes Edwards-TRIMP
+> (`workout_edwards`, parallel zu Banister) aus der Intra-Workout-HR-Zeitreihe
 > (siehe §9). Ergänzt `PLAN.md` (Phase 3) um Trainingsdaten.
 
 ## 1. Motivation
@@ -235,12 +236,33 @@ Sobald die Serien im Dict liegen, fallen u. a. heraus:
   bei selten betriebenen Sportarten: eine Serie mit weniger als
   `analysis.acwr_min_active_days` (Default 8) Trainingstagen in den 28 Chronic-
   Tagen wird übersprungen.
-- **Später (optional): zonenbasiertes Edwards-TRIMP** aus der Intra-Workout-HR.
-  **Vorbedingung:** die HR-Zeitreihe (`heartRateData`) muss im Export ankommen —
-  im Sample-Payload fehlt sie (nur `heartRate {min,avg,max}`). Prüfbar mit
-  `healthlog check-workout-hr` (scannt das `raw_ingest`-Archiv). Zonengrenzen
-  hängen von HR_max/HR_rest (config-/datengetrieben) ab → Zonen **zur
-  Analysezeit** rechnen, nicht beim Ingest einfrieren. Speichert man die Serie
-  (neue Tabelle beim Ingest, Historie via Backfill-Replay) oder liest sie zur
-  Analysezeit aus dem Roh-Archiv (bewusster Bruch „Raw = Cold Storage")? →
-  separat entscheiden, sobald die Datenfrage geklärt ist.
+- **Zonenbasiertes Edwards-TRIMP (erledigt):** aus der Intra-Workout-HR-Serie
+  (`heartRateData`, HAE liefert ~Minuten-Buckets `{Min, Avg, Max}` mit Zeitstempel)
+  entsteht **zusätzlich** zu Banister eine parallele Tageslast `workout_edwards`
+  (+ je Sportart `workout_edwards_<typ>`), gated über `workouts.edwards`
+  (Default `true`, **selbst-gated**: ohne gespeicherte Samples wird nichts
+  emittiert). Edwards summiert `Σ Minuten-in-Zone · Zonen-Gewicht` über fünf
+  Zonen (50–60–70–80–90–100 % HR_max, Gewichte 1–5; darunter Gewicht 0). Jede
+  zwei aufeinanderfolgenden Samples bilden ein Intervall, dessen Zeit der Zone
+  des Start-HR zugerechnet wird; die Intervallzeiten werden auf `duration_s`
+  reskaliert, damit Aufzeichnungslücken den Wert nicht verzerren. So löst
+  Edwards Intervalle auf, die der eine Ø-Puls von Banister glättet (§8).
+  Zonengrenzen hängen von HR_max ab → **zur Analysezeit** gerechnet, nie beim
+  Ingest eingefroren.
+  - **Architektur (Option B):** die Serie wird **beim Ingest** in eine eigene
+    Tabelle `workout_hr_samples` geparst (`(workout_hae_id, ts)` als
+    Idempotenz-Schlüssel, CASCADE am Workout) — nicht aus dem Roh-Archiv zur
+    Analysezeit gelesen, damit „Raw = Cold Storage" gewahrt bleibt. Migration
+    `0004_workout_hr_samples`.
+  - **Historie:** der Content-Hash-Dedup verhindert, dass bereits archivierte
+    Payloads beim erneuten Posten neu geparst werden → einmalig
+    `healthlog rederive-workout-hr` spielt die HR-Samples aus dem `raw_ingest`-
+    Archiv nach (idempotent; die Workouts existieren bereits). Vorab prüfbar mit
+    `healthlog check-workout-hr`.
+  - **ACWR bleibt auf Banister/kcal** (`_training_load_targets`): Edwards ist
+    eine **parallele** Last-Serie für Korrelationen/Anomalien/Trends, kein
+    zusätzliches ACWR-Ziel (dieselbe Trainingslast dreifach zu bewerten wäre
+    redundant). Aggregat↔eigene Sport-Komponente derselben Metrik bleibt
+    ausgeschlossen (`_is_workout_aggregate_child`, jetzt inkl. `workout_edwards`);
+    Quervergleiche zwischen den Metriken (trimp/load/edwards) bleiben — ihre
+    Übereinstimmung/Divergenz ist selbst aussagekräftig.
