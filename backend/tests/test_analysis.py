@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 from app import analysis
 from app.analysis import (
     AnalysisResult,
+    _hr_zone_weight,
     acute_chronic_ratio,
     aggregate_workout_daily,
     annual_seasonality,
@@ -19,6 +20,7 @@ from app.analysis import (
     canonical_workout_type,
     circular_bedtime_offset,
     decompose,
+    edwards_trimp,
     fdr_adjust,
     fill_zero_within_span,
     resolve_hr_max,
@@ -28,7 +30,7 @@ from app.analysis import (
     trend_slope,
 )
 from app.appconfig import AnalysisConfig, AppConfig, ProfileConfig, WorkoutConfig
-from app.models import Finding, MetricSample, SleepSession, Workout
+from app.models import Finding, MetricSample, SleepSession, Workout, WorkoutHrSample
 
 UTC = dt.UTC
 
@@ -338,6 +340,50 @@ def test_banister_trimp_clamps_hr_reserve_to_one():
     assert capped == at_max
 
 
+# --- Zone-based (Edwards) TRIMP --------------------------------------------
+
+
+def _hr_samples(bpms, *, step_s=60, start="2026-01-01 12:00:00") -> pd.DataFrame:
+    """A per-sample HR frame (ts, bpm), evenly spaced by ``step_s`` seconds."""
+    ts = pd.to_datetime(start) + pd.to_timedelta(np.arange(len(bpms)) * step_s, unit="s")
+    return pd.DataFrame({"ts": ts, "bpm": np.asarray(bpms, dtype="float64")})
+
+
+def test_hr_zone_weight_boundaries():
+    assert _hr_zone_weight(80, 200) == 0  # 0.40 of HR_max -> below zone 1
+    assert _hr_zone_weight(100, 200) == 1  # 0.50 -> zone 1
+    assert _hr_zone_weight(140, 200) == 3  # 0.70 -> zone 3
+    assert _hr_zone_weight(180, 200) == 5  # 0.90 -> zone 5
+    assert _hr_zone_weight(200, 200) == 5  # 1.00 stays at the top zone
+    assert _hr_zone_weight(150, 0) == 0  # no HR_max -> no zone
+
+
+def test_edwards_trimp_sums_minutes_times_zone_weight():
+    # Each interval = 1 min; the last sample has no following interval.
+    s = _hr_samples([100, 140, 150])  # zone 1 (w1) then zone 3 (w3)
+    assert edwards_trimp(s, 200) == 1.0 * 1 + 1.0 * 3
+
+
+def test_edwards_trimp_rescales_interval_time_to_duration():
+    s = _hr_samples([100, 140, 150])  # raw covered time = 120 s
+    assert edwards_trimp(s, 200, duration_s=240) == 2 * (1.0 * 1 + 1.0 * 3)  # x2
+
+
+def test_edwards_trimp_zero_without_usable_series():
+    assert edwards_trimp(None, 200) == 0.0
+    assert edwards_trimp(_hr_samples([150]), 200) == 0.0  # a single sample = no interval
+    assert edwards_trimp(_hr_samples([80, 80, 80]), 200) == 0.0  # all below zone 1
+    assert edwards_trimp(_hr_samples([150, 150]), 0) == 0.0  # no HR_max
+
+
+def test_edwards_trimp_resolves_intervals_banister_smooths():
+    # Same number of samples, different intensity distribution -> different load
+    # (the point of Edwards over a single-average Banister TRIMP).
+    steady = edwards_trimp(_hr_samples([150, 150, 150]), 200)  # 0.75 -> w3 twice
+    spiky = edwards_trimp(_hr_samples([120, 180, 150]), 200)  # 0.60 -> w2, 0.90 -> w5
+    assert steady == 6.0 and spiky == 7.0
+
+
 # --- HR_max / HR_rest fallback chains --------------------------------------
 
 
@@ -522,9 +568,10 @@ def test_is_workout_aggregate_child():
 
 
 def _add_workout(db, start: dt.datetime, *, duration_s, avg_hr, max_hr, energy, name="Outdoor Run"):
+    hae_id = uuid.uuid4()
     db.add(
         Workout(
-            hae_id=uuid.uuid4(),
+            hae_id=hae_id,
             start_time=start,
             end_time=start + dt.timedelta(seconds=duration_s),
             name=name,
@@ -535,6 +582,19 @@ def _add_workout(db, start: dt.datetime, *, duration_s, avg_hr, max_hr, energy, 
             source="",
         )
     )
+    return hae_id
+
+
+def _add_hr_series(db, hae_id, start: dt.datetime, *, count, base=110, span=70, step_s=60):
+    """Attach ~per-minute HR samples spanning several zones to a workout."""
+    for k in range(count):
+        db.add(
+            WorkoutHrSample(
+                workout_hae_id=hae_id,
+                ts=start + dt.timedelta(seconds=k * step_s),
+                bpm=float(base + (k % 5) * (span / 4.0)),  # sweeps 110..180
+            )
+        )
 
 
 def test_build_series_includes_workout_load_series(db):
@@ -648,3 +708,70 @@ def test_build_series_per_sport_respects_load_metric(db):
     series = analysis.build_series(db, "Europe/Vienna", workouts=workouts)
     assert "workout_load_running" in series
     assert "workout_trimp_running" not in series  # trimp gated off by load_metric
+
+
+# --- Zone-based (Edwards) TRIMP: DB end-to-end -----------------------------
+
+
+def test_build_series_includes_edwards_when_hr_samples_present(db):
+    start = dt.date(2026, 1, 1)
+    for i in range(35):
+        day = start + dt.timedelta(days=i)
+        when = dt.datetime(day.year, day.month, day.day, 12, tzinfo=UTC)
+        hid = _add_workout(db, when, duration_s=2400, avg_hr=150, max_hr=180, energy=400)
+        _add_hr_series(db, hid, when, count=40)
+    db.flush()
+
+    series = analysis.build_series(db, "Europe/Vienna")  # edwards default on
+    assert "workout_edwards" in series
+    edwards = series["workout_edwards"]
+    # Parallel to Banister, densified to a complete daily grid, non-trivial.
+    assert "workout_trimp" in series
+    assert (edwards.index == pd.date_range(edwards.index.min(), edwards.index.max(), freq="D")).all()
+    assert (edwards > 0).any()
+
+
+def test_build_series_no_edwards_without_hr_samples(db):
+    start = dt.date(2026, 1, 1)
+    for i in range(35):
+        day = start + dt.timedelta(days=i)
+        when = dt.datetime(day.year, day.month, day.day, 12, tzinfo=UTC)
+        _add_workout(db, when, duration_s=2400, avg_hr=150, max_hr=180, energy=400)
+    db.flush()
+
+    series = analysis.build_series(db, "Europe/Vienna")  # on, but no samples stored
+    assert "workout_trimp" in series
+    assert "workout_edwards" not in series  # self-gates off with no data
+
+
+def test_build_series_edwards_can_be_disabled(db):
+    start = dt.date(2026, 1, 1)
+    for i in range(35):
+        day = start + dt.timedelta(days=i)
+        when = dt.datetime(day.year, day.month, day.day, 12, tzinfo=UTC)
+        hid = _add_workout(db, when, duration_s=2400, avg_hr=150, max_hr=180, energy=400)
+        _add_hr_series(db, hid, when, count=40)
+    db.flush()
+
+    series = analysis.build_series(db, "Europe/Vienna", workouts=WorkoutConfig(edwards=False))
+    assert "workout_trimp" in series
+    assert "workout_edwards" not in series  # gated off by config
+
+
+def test_build_series_edwards_per_sport(db):
+    start = dt.date(2026, 1, 1)
+    for i in range(35):
+        day = start + dt.timedelta(days=i)
+        when = dt.datetime(day.year, day.month, day.day, 12, tzinfo=UTC)
+        run = _add_workout(db, when, duration_s=2400, avg_hr=150, max_hr=180, energy=400, name="Outdoor Run")
+        _add_hr_series(db, run, when, count=40)
+        cyc = _add_workout(
+            db, when + dt.timedelta(hours=2), duration_s=3600, avg_hr=140, max_hr=175, energy=500, name="Outdoor Cycle"
+        )
+        _add_hr_series(db, cyc, when + dt.timedelta(hours=2), count=60)
+    db.flush()
+
+    workouts = WorkoutConfig(type_map={"Outdoor Run": "running", "Outdoor Cycle": "cycling"})
+    series = analysis.build_series(db, "Europe/Vienna", workouts=workouts)
+    assert "workout_edwards" in series
+    assert "workout_edwards_running" in series and "workout_edwards_cycling" in series

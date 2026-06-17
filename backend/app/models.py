@@ -16,6 +16,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     Float,
+    ForeignKey,
     Integer,
     LargeBinary,
     String,
@@ -89,8 +90,9 @@ class SleepSession(Base):
 
 
 class Workout(Base):
-    """Workout summary keyed by HAE's stable UUID. Intra-workout time series
-    stay in the raw archive only."""
+    """Workout summary keyed by HAE's stable UUID. The intra-workout HR time
+    series (when HAE attaches it) lands in ``workout_hr_samples``; other
+    intra-workout series stay in the raw archive only."""
 
     __tablename__ = "workouts"
 
@@ -112,6 +114,27 @@ class Workout(Base):
     temperature_c: Mapped[float | None] = mapped_column(Float, nullable=True)
     humidity_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     source: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class WorkoutHrSample(Base):
+    """One intra-workout heart-rate sample (HAE ``heartRateData``).
+
+    HAE ships these as ~per-minute buckets ({Min, Avg, Max} with a timestamp);
+    we keep the representative ``Avg`` as ``bpm``. (workout_hae_id, ts) is the
+    natural idempotency key so a replayed payload upserts rather than
+    duplicates. Cascades with its workout. Used at analysis time to compute
+    zone-based (Edwards) TRIMP — boundaries depend on HR_max, so they are
+    derived per run, never frozen here."""
+
+    __tablename__ = "workout_hr_samples"
+
+    workout_hae_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workouts.hae_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    ts: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    bpm: Mapped[float] = mapped_column(Float, nullable=False)
 
 
 class MetricRegistry(Base):

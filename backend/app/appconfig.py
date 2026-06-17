@@ -63,6 +63,10 @@ class WorkoutConfig(BaseModel):
     load_metric: Literal["trimp", "energy", "both"] = "both"
     # Localised HAE workout name -> canonical type, for future type-split load.
     type_map: dict[str, str] = Field(default_factory=dict)
+    # Zone-based (Edwards) TRIMP from the intra-workout HR series, as a parallel
+    # series next to Banister. Self-gating: with no stored HR samples nothing is
+    # emitted, so leaving this on is harmless when the export omits the series.
+    edwards: bool = True
 
 
 class AnalysisConfig(BaseModel):

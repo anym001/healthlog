@@ -29,6 +29,13 @@
 # so one sport's effect on recovery can be told apart from another's.
 # workouts:
 #   load_metric: both         # trimp | energy | both (which load series to build)
+#   edwards: true             # also build zone-based (Edwards) TRIMP from the
+#                             #   intra-workout HR series, as a parallel series
+#                             #   next to Banister. Self-gating: with no stored
+#                             #   HR samples nothing is emitted. Check the archive
+#                             #   with `healthlog check-workout-hr`; backfill
+#                             #   already-ingested history with
+#                             #   `healthlog rederive-workout-hr`.
 #   type_map:                 # localised HAE workout name -> canonical type
 #     Outdoor Run: running     #   unmapped workouts still feed the aggregate
 #     Outdoor Cycle: cycling

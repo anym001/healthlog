@@ -17,7 +17,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from . import units
-from .models import MetricRegistry, MetricSample, RawIngest, SleepSession, Workout
+from .models import MetricRegistry, MetricSample, RawIngest, SleepSession, Workout, WorkoutHrSample
 from .registry import METRIC_REGISTRY, SLEEP_METRIC
 from .timeutil import parse_hae_datetime
 
@@ -29,6 +29,8 @@ class ParsedPayload:
     metric_rows: list[dict] = field(default_factory=list)
     sleep_rows: list[dict] = field(default_factory=list)
     workout_rows: list[dict] = field(default_factory=list)
+    # Intra-workout HR samples (heartRateData) -> workout_hr_samples.
+    workout_hr_rows: list[dict] = field(default_factory=list)
     # Metrics seen in the payload that are absent from the registry seed.
     unknown_metrics: dict[str, str] = field(default_factory=dict)  # metric -> unit
     flagged_units: list[tuple[str, str]] = field(default_factory=list)  # (metric, unit)
@@ -138,6 +140,17 @@ def _energy_kcal(obj) -> float | None:
     return qty
 
 
+def _hr_sample_bpm(point: dict) -> float | None:
+    """Representative HR of one heartRateData sample.
+
+    HAE ships per-minute buckets ({Min, Avg, Max}); the ``Avg`` is the
+    representative rate. A bare ``{qty}`` shape is tolerated as a fallback.
+    """
+    if not isinstance(point, dict):
+        return None
+    return _num(point.get("Avg")) if point.get("Avg") is not None else _num(point.get("qty"))
+
+
 def _parse_workout(w: dict, out: ParsedPayload) -> None:
     raw_id = w.get("id")
     if not raw_id:
@@ -146,6 +159,23 @@ def _parse_workout(w: dict, out: ParsedPayload) -> None:
         hae_id = uuid.UUID(str(raw_id))
     except ValueError:
         return
+
+    # Intra-workout HR time series (only sometimes present). Each usable sample
+    # (timestamp + rate) becomes one workout_hr_samples row; (hae_id, ts) keeps
+    # it idempotent across replayed payloads.
+    hr_series = w.get("heartRateData")
+    if isinstance(hr_series, list):
+        for point in hr_series:
+            if not isinstance(point, dict):
+                continue
+            try:
+                ts = parse_hae_datetime(point.get("date"))
+            except ValueError:
+                ts = None  # a single malformed sample must not abort the payload
+            bpm = _hr_sample_bpm(point)
+            if ts is not None and bpm is not None:
+                out.workout_hr_rows.append({"workout_hae_id": hae_id, "ts": ts, "bpm": bpm})
+
     hr = w.get("heartRate") if isinstance(w.get("heartRate"), dict) else {}
     out.workout_rows.append(
         {
@@ -222,6 +252,7 @@ class StoreResult:
     metric_rows: int = 0
     sleep_rows: int = 0
     workout_rows: int = 0
+    workout_hr_rows: int = 0
     unknown_metrics: int = 0
 
 
@@ -242,6 +273,31 @@ def _dedupe_metric_rows(rows: list[dict]) -> list[dict]:
     for r in rows:
         by_key[(r["metric"], r["time"], r["source"])] = r
     return list(by_key.values())
+
+
+def _dedupe_workout_hr_rows(rows: list[dict]) -> list[dict]:
+    """Last-wins de-dup on (workout_hae_id, ts) — the natural PK — so a single
+    INSERT never touches the same conflict target twice."""
+    by_key: dict[tuple, dict] = {}
+    for r in rows:
+        by_key[(r["workout_hae_id"], r["ts"])] = r
+    return list(by_key.values())
+
+
+def store_workout_hr_samples(db: Session, rows: list[dict]) -> int:
+    """Idempotent upsert of intra-workout HR samples. The owning workout must
+    already be persisted (FK); within ``store`` this runs after the workout
+    upsert. Returns the number of rows submitted. Shared with the re-derive CLI,
+    which replays the raw archive into this table."""
+    deduped = _dedupe_workout_hr_rows(rows)
+    for chunk in _chunked(deduped, _METRIC_INSERT_BATCH):
+        stmt = pg_insert(WorkoutHrSample).values(chunk)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["workout_hae_id", "ts"],
+            set_={"bpm": stmt.excluded.bpm},
+        )
+        db.execute(stmt)
+    return len(deduped)
 
 
 def store(db: Session, parsed: ParsedPayload) -> StoreResult:
@@ -280,6 +336,9 @@ def store(db: Session, parsed: ParsedPayload) -> StoreResult:
         )
         db.execute(stmt)
 
+    # After the workouts (FK target) exist in this transaction.
+    store_workout_hr_samples(db, parsed.workout_hr_rows)
+
     for metric, unit in parsed.flagged_units:
         log.warning("unit mismatch for %s: incoming '%s' kept as-is (no known conversion)", metric, unit)
 
@@ -287,6 +346,7 @@ def store(db: Session, parsed: ParsedPayload) -> StoreResult:
         metric_rows=len(parsed.metric_rows),
         sleep_rows=len(parsed.sleep_rows),
         workout_rows=len(parsed.workout_rows),
+        workout_hr_rows=len(_dedupe_workout_hr_rows(parsed.workout_hr_rows)),
         unknown_metrics=len(parsed.unknown_metrics),
     )
 

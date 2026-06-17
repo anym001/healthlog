@@ -7,6 +7,7 @@ instead of a module path::
     healthlog backfill --dry-run /config/import
     healthlog analyze                       # run the nightly analysis once now
     healthlog check-workout-hr              # is intra-workout HR in the archive?
+    healthlog rederive-workout-hr           # backfill HR samples from the archive
 
 New operator commands are added as further subparsers here. The installed
 console script (see ``pyproject.toml``) maps ``healthlog`` to ``main``;
@@ -18,7 +19,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import backfill, diagnostics
+from . import backfill, diagnostics, rederive
 
 
 def _run_analyze(_args: argparse.Namespace) -> int:
@@ -43,6 +44,10 @@ def build_parser() -> argparse.ArgumentParser:
     whr = sub.add_parser("check-workout-hr", help="report intra-workout HR series in the raw archive")
     diagnostics.add_arguments(whr)
     whr.set_defaults(func=diagnostics.run)
+
+    rwh = sub.add_parser("rederive-workout-hr", help="backfill intra-workout HR samples from the raw archive")
+    rederive.add_arguments(rwh)
+    rwh.set_defaults(func=rederive.run)
 
     return parser
 

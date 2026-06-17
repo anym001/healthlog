@@ -79,7 +79,10 @@ in any dashboard tool:
   and active-energy; optionally split per sport), so their lagged effect on
   recovery and sleep falls out of the correlation engine, plus an ACWR
   (acute:chronic) load-spike / detraining alert — overall and, with a type map,
-  per sport. HR_max/zone weighting sharpen with an optional `profile` (see below).
+  per sport. When the export carries an intra-workout HR series, a zone-based
+  **Edwards TRIMP** (`workout_edwards`) runs in parallel and resolves intervals
+  that the single-average Banister load smooths over. HR_max/zone weighting
+  sharpen with an optional `profile` (see below).
 
 All statistics run on the server; only the optional LLM narration is intended
 for a Mac. The full method list and tuning live in [`docs/PLAN.md`](docs/PLAN.md).
@@ -245,10 +248,18 @@ docker exec healthlog healthlog analyze
 ```
 
 To check whether the raw archive carries the intra-workout heart-rate series
-needed for future zone-based training load:
+that zone-based (Edwards) training load needs:
 
 ```bash
 docker exec healthlog healthlog check-workout-hr
+```
+
+Going forward the ingest extracts that series automatically. Workouts ingested
+*before* this feature only have it in the raw archive — replay it into the
+samples table once (idempotent; safe to re-run):
+
+```bash
+docker exec healthlog healthlog rederive-workout-hr
 ```
 
 ## Configuration
@@ -288,10 +299,12 @@ It holds:
   in the workout analysis (see [`docs/workout-analysis.md`](docs/workout-analysis.md)).
   Without it, HR_max is derived from your data and a generic weighting is used.
 - **`workouts`** — `load_metric` (which load series to build: `trimp`/`energy`/
-  `both`) and a `type_map` (localised HAE workout name → canonical sport). With a
-  map, an extra per-sport load series is analysed for each mapped type, so one
-  sport's lagged effect on recovery is told apart from another's; unmapped
-  workouts still feed the type-agnostic aggregate.
+  `both`), a `type_map` (localised HAE workout name → canonical sport) and
+  `edwards` (zone-based TRIMP, default on). With a map, an extra per-sport load
+  series is analysed for each mapped type, so one sport's lagged effect on
+  recovery is told apart from another's; unmapped workouts still feed the
+  type-agnostic aggregate. `edwards` adds a parallel zone-based load series when
+  the intra-workout HR series is present and self-gates off when it isn't.
 - **`notify`** — push notifications (see below).
 
 Malformed YAML or an out-of-range value fails fast with a clear message. See the
