@@ -122,6 +122,10 @@ class NotifyConfig(BaseModel):
     # validate_assignment so the token injection in load_config is still checked.
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
+    # Service selector. Only "gotify" is supported today (covers Gotify and the
+    # Gotify-compatible PushBits). Extend this Literal and add a branch to
+    # notify.build_notifier() to support a new service without touching callers.
+    type: Literal["gotify"] = "gotify"
     url: str | None = None
     # Which sources may notify (subset of ingest/analysis/findings).
     events: list[NotifyEvent] = Field(default_factory=lambda: ["analysis", "findings"])

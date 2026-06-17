@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import httpx
 
@@ -52,6 +52,19 @@ class Notification:
     message: str
     priority: int
     problem: bool
+
+
+@runtime_checkable
+class Notifier(Protocol):
+    """Common interface for all notification backends.
+
+    Adding a new service: implement this Protocol, extend ``NotifyConfig.type``,
+    and add a branch to ``build_notifier()`` — callers need no changes.
+    """
+
+    def send(self, notification: Notification) -> bool: ...
+
+    def close(self) -> None: ...
 
 
 class GotifyNotifier:
@@ -98,15 +111,18 @@ class GotifyNotifier:
         self._client.close()
 
 
-def build_notifier(notify: NotifyConfig) -> GotifyNotifier | None:
-    """Create the configured notifier, or None when notifications are off.
+def build_notifier(notify: NotifyConfig) -> Notifier | None:
+    """Create the notifier for the configured service, or None when disabled.
 
-    Raises ``ValueError`` when a URL is configured without a token — callers in
-    a request/run path use the best-effort dispatchers below, which swallow it.
+    Dispatches on ``notify.type``; raises ``ValueError`` when a URL is
+    configured without a token (callers in the run path swallow it). Add a
+    branch here and a class implementing ``Notifier`` to support a new service.
     """
     if not notify.url:
         return None
-    return GotifyNotifier(notify.url, notify.token or "", verify_tls=notify.verify_tls)
+    if notify.type == "gotify":
+        return GotifyNotifier(notify.url, notify.token or "", verify_tls=notify.verify_tls)
+    raise ValueError(f"Unsupported notify.type: {notify.type!r}")
 
 
 # ---------------------------------------------------------------------------

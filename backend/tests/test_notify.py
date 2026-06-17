@@ -128,6 +128,20 @@ def test_build_notifier_requires_token():
         build_notifier(NotifyConfig(url="https://push.example.com", token=None))
 
 
+def test_build_notifier_default_type_is_gotify():
+    cfg = NotifyConfig(url="https://push.example.com", token="t")
+    notifier = build_notifier(cfg)
+    assert isinstance(notifier, GotifyNotifier)
+    notifier.close()
+
+
+def test_build_notifier_explicit_gotify_type():
+    cfg = NotifyConfig(type="gotify", url="https://push.example.com", token="t")
+    notifier = build_notifier(cfg)
+    assert isinstance(notifier, GotifyNotifier)
+    notifier.close()
+
+
 # --- Composers -------------------------------------------------------------
 
 
