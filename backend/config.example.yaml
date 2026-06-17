@@ -71,11 +71,13 @@
 #   acwr_min_active_days: 8   # min training days in 28 before a (per-sport) ratio is trusted
 
 # --- Notifications ---------------------------------------------------------
-# Push run outcomes / health alerts to a Gotify-compatible endpoint (Gotify or
-# PushBits). The behaviour lives here; the SECRET token does NOT — set it via
-# the NOTIFY_TOKEN environment variable. Off until a url is set. Defaults shown.
+# Push run outcomes / health alerts to a push-notification service. The
+# behaviour lives here; the SECRET token does NOT — set it via the NOTIFY_TOKEN
+# environment variable. Off until a url is set. Defaults shown.
 # notify:
-#   url: https://push.example.com   # Gotify/PushBits base URL
+#   type: gotify                    # service selector; only "gotify" today
+#                                   # (covers Gotify and PushBits)
+#   url: https://push.example.com   # service base URL
 #   events: [analysis, findings]    # any of: ingest, analysis, findings
 #   level: problems                 # problems | always
 #   verify_tls: true
