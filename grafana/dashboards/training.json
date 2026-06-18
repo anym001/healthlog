@@ -16,7 +16,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT day AS time, sum AS \"TRIMP\" FROM daily_metrics WHERE metric = 'workout_trimp' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "rawSql": "SELECT DATE(start_time AT TIME ZONE 'Europe/Vienna') AS time, ROUND(SUM(CASE WHEN avg_hr IS NOT NULL AND duration_s IS NOT NULL AND duration_s > 0 THEN (duration_s / 60.0) * LEAST(1.0, GREATEST(0.0, (avg_hr - 60.0) / 130.0)) * (0.64 * EXP(1.92 * LEAST(1.0, GREATEST(0.0, (avg_hr - 60.0) / 130.0)))) ELSE 0 END)::numeric, 1) AS \"TRIMP\" FROM workouts WHERE $__timeFilter(start_time) GROUP BY DATE(start_time AT TIME ZONE 'Europe/Vienna') ORDER BY time",
           "format": "time_series"
         }
       ]
@@ -31,17 +31,17 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT day AS time, sum AS \"Strength\" FROM daily_metrics WHERE metric = 'workout_trimp_strength' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "rawSql": "WITH t AS (SELECT DATE(start_time AT TIME ZONE 'Europe/Vienna') AS day, CASE WHEN avg_hr IS NOT NULL AND duration_s IS NOT NULL AND duration_s > 0 THEN (duration_s / 60.0) * LEAST(1.0, GREATEST(0.0, (avg_hr - 60.0) / 130.0)) * (0.64 * EXP(1.92 * LEAST(1.0, GREATEST(0.0, (avg_hr - 60.0) / 130.0)))) ELSE 0 END AS trimp FROM workouts WHERE (lower(name) LIKE '%kraft%' OR lower(name) LIKE '%strength%') AND $__timeFilter(start_time)) SELECT day AS time, ROUND(SUM(trimp)::numeric, 1) AS \"Strength\" FROM t GROUP BY day ORDER BY day",
           "format": "time_series"
         },
         {
           "refId": "B",
-          "rawSql": "SELECT day AS time, sum AS \"Walking\" FROM daily_metrics WHERE metric = 'workout_trimp_walking' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "rawSql": "WITH t AS (SELECT DATE(start_time AT TIME ZONE 'Europe/Vienna') AS day, CASE WHEN avg_hr IS NOT NULL AND duration_s IS NOT NULL AND duration_s > 0 THEN (duration_s / 60.0) * LEAST(1.0, GREATEST(0.0, (avg_hr - 60.0) / 130.0)) * (0.64 * EXP(1.92 * LEAST(1.0, GREATEST(0.0, (avg_hr - 60.0) / 130.0)))) ELSE 0 END AS trimp FROM workouts WHERE (lower(name) LIKE '%walk%' OR lower(name) LIKE '%spazier%' OR lower(name) LIKE '%wander%' OR lower(name) LIKE '%hik%') AND $__timeFilter(start_time)) SELECT day AS time, ROUND(SUM(trimp)::numeric, 1) AS \"Walking\" FROM t GROUP BY day ORDER BY day",
           "format": "time_series"
         },
         {
           "refId": "C",
-          "rawSql": "SELECT day AS time, sum AS \"Cycling\" FROM daily_metrics WHERE metric = 'workout_trimp_cycling' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "rawSql": "WITH t AS (SELECT DATE(start_time AT TIME ZONE 'Europe/Vienna') AS day, CASE WHEN avg_hr IS NOT NULL AND duration_s IS NOT NULL AND duration_s > 0 THEN (duration_s / 60.0) * LEAST(1.0, GREATEST(0.0, (avg_hr - 60.0) / 130.0)) * (0.64 * EXP(1.92 * LEAST(1.0, GREATEST(0.0, (avg_hr - 60.0) / 130.0)))) ELSE 0 END AS trimp FROM workouts WHERE (lower(name) LIKE '%cycl%' OR lower(name) LIKE '%radfahren%' OR lower(name) LIKE '%fahrrad%') AND $__timeFilter(start_time)) SELECT day AS time, ROUND(SUM(trimp)::numeric, 1) AS \"Cycling\" FROM t GROUP BY day ORDER BY day",
           "format": "time_series"
         }
       ]
