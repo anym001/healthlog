@@ -78,11 +78,14 @@ async def ingest_payload(
     db.commit()
 
     audit.info(
-        "ingest.stored ip=%s metrics=%d sleep=%d workouts=%d unknown=%d",
+        "ingest.stored ip=%s metrics=%d(%d new) sleep=%d(%d new) workouts=%d(%d new) unknown=%d",
         ip,
         result.metric_rows,
+        result.metric_new,
         result.sleep_rows,
+        result.sleep_new,
         result.workout_rows,
+        result.workout_new,
         result.unknown_metrics,
     )
     # Best-effort push after the response is sent (never blocks the HAE sync).
@@ -92,6 +95,9 @@ async def ingest_payload(
         metric_rows=result.metric_rows,
         sleep_rows=result.sleep_rows,
         workout_rows=result.workout_rows,
+        metric_new=result.metric_new,
+        sleep_new=result.sleep_new,
+        workout_new=result.workout_new,
     )
     return IngestResponse(
         status="stored",
@@ -99,4 +105,7 @@ async def ingest_payload(
         sleep_rows=result.sleep_rows,
         workout_rows=result.workout_rows,
         unknown_metrics=result.unknown_metrics,
+        metric_new=result.metric_new,
+        sleep_new=result.sleep_new,
+        workout_new=result.workout_new,
     )

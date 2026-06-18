@@ -25,6 +25,33 @@ def test_ingest_happy_path(client, sample_payload):
     assert body["sleep_rows"] == 1
     assert body["workout_rows"] == 1
     assert body["unknown_metrics"] == 1
+    # First ingest: every row is new.
+    assert body["metric_new"] == 7
+    assert body["sleep_new"] == 1
+    assert body["workout_new"] == 1
+
+
+def test_ingest_second_run_shows_updated_counts(client, sample_payload):
+    # Simulate a HAE re-sync with the same data (overlapping window): the
+    # second store sees all rows as updates (xmax != 0).
+    headers = {"X-Ingest-Token": "test-secret"}
+    import copy
+
+    first = client.post("/api/ingest", json=sample_payload, headers=headers)
+    assert first.json()["status"] == "stored"
+    assert first.json()["metric_new"] == 7
+
+    # Change the content hash so the raw-archive dedup does not short-circuit;
+    # the per-row upserts still hit their unique constraints.
+    payload2 = copy.deepcopy(sample_payload)
+    payload2["_replay"] = True  # mutate so SHA-256 differs
+    second = client.post("/api/ingest", json=payload2, headers=headers)
+    body = second.json()
+    assert body["status"] == "stored"
+    assert body["metric_rows"] == 7
+    assert body["metric_new"] == 0  # all rows already existed
+    assert body["sleep_new"] == 0
+    assert body["workout_new"] == 0
 
 
 def test_ingest_duplicate_is_deduped(client, sample_payload):
