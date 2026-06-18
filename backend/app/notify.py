@@ -170,7 +170,28 @@ def compose_findings_message(result: AnalysisResult) -> Notification | None:
     return Notification("HealthLog: health alerts", "\n".join(lines), PRIORITY_PROBLEM, True)
 
 
-def compose_ingest_message(kind: str, metric_rows: int, sleep_rows: int, workout_rows: int) -> Notification:
+def _row_line(label: str, total: int, new: int) -> str:
+    """Format one row category for the ingest notification.
+
+    Shows ``new + updated`` counts when not all rows are new, so a re-run of
+    overlapping data (e.g. HAE rolling window) is visually distinct from fresh
+    data: ``workouts: 0 new, 158 updated`` vs. ``workouts: 158``.
+    """
+    updated = total - new
+    if updated == 0:
+        return f"{label}: {total}"
+    return f"{label}: {new} new, {updated} updated"
+
+
+def compose_ingest_message(
+    kind: str,
+    metric_rows: int,
+    sleep_rows: int,
+    workout_rows: int,
+    metric_new: int = 0,
+    sleep_new: int = 0,
+    workout_new: int = 0,
+) -> Notification:
     """Notification for one HAE ingest. ``kind`` is "stored" or "empty"."""
     if kind == "empty":
         return Notification(
@@ -180,9 +201,9 @@ def compose_ingest_message(kind: str, metric_rows: int, sleep_rows: int, workout
             True,
         )
     lines = [
-        f"metrics: {metric_rows}",
-        f"sleep: {sleep_rows}",
-        f"workouts: {workout_rows}",
+        _row_line("metrics", metric_rows, metric_new),
+        _row_line("sleep", sleep_rows, sleep_new),
+        _row_line("workouts", workout_rows, workout_new),
     ]
     return Notification("HealthLog: data ingested", "\n".join(lines), PRIORITY_INFO, False)
 
@@ -231,7 +252,16 @@ def notify_analysis_crash(notify: NotifyConfig, exc: Exception) -> None:
     _send_all(notify, [compose_analysis_crash_message(exc)])
 
 
-def notify_ingest(notify: NotifyConfig, *, metric_rows: int, sleep_rows: int, workout_rows: int) -> None:
+def notify_ingest(
+    notify: NotifyConfig,
+    *,
+    metric_rows: int,
+    sleep_rows: int,
+    workout_rows: int,
+    metric_new: int = 0,
+    sleep_new: int = 0,
+    workout_new: int = 0,
+) -> None:
     """Notify on an ingest outcome (``ingest`` source). An empty ingest is a
     problem (any level); a non-empty one is routine info (``always`` only)."""
     if "ingest" not in notify.event_set():
@@ -239,7 +269,15 @@ def notify_ingest(notify: NotifyConfig, *, metric_rows: int, sleep_rows: int, wo
     if metric_rows + sleep_rows + workout_rows == 0:
         message = compose_ingest_message("empty", metric_rows, sleep_rows, workout_rows)
     elif notify.level == "always":
-        message = compose_ingest_message("stored", metric_rows, sleep_rows, workout_rows)
+        message = compose_ingest_message(
+            "stored",
+            metric_rows,
+            sleep_rows,
+            workout_rows,
+            metric_new=metric_new,
+            sleep_new=sleep_new,
+            workout_new=workout_new,
+        )
     else:
         return
     _send_all(notify, [message])

@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.expression import literal_column
 
 from . import units
 from .models import MetricRegistry, MetricSample, RawIngest, SleepSession, Workout, WorkoutHrSample
@@ -254,6 +255,12 @@ class StoreResult:
     workout_rows: int = 0
     workout_hr_rows: int = 0
     unknown_metrics: int = 0
+    # New vs. updated counts from the Postgres xmax trick: xmax=0 means the
+    # row was freshly inserted; xmax!=0 means an existing row was updated (i.e.
+    # the payload contained data that was already in the DB).
+    metric_new: int = 0
+    sleep_new: int = 0
+    workout_new: int = 0
 
 
 # Postgres caps a single statement at 65535 bound parameters; a metric row has
@@ -300,11 +307,25 @@ def store_workout_hr_samples(db: Session, rows: list[dict]) -> int:
     return len(deduped)
 
 
+_XMAX_IS_NEW = literal_column("(xmax = 0)")
+
+
+def _count_new(cursor) -> int:
+    """Count rows where xmax=0 (fresh insert, not a conflict-update)."""
+    return sum(1 for (is_new,) in cursor if is_new)
+
+
 def store(db: Session, parsed: ParsedPayload) -> StoreResult:
-    """Idempotent upsert of parsed rows. Safe to replay overlapping windows."""
+    """Idempotent upsert of parsed rows. Safe to replay overlapping windows.
+
+    Uses the Postgres xmax trick (RETURNING xmax=0) to distinguish freshly
+    inserted rows from conflict-updates so the caller can report new vs. updated
+    counts in notifications.
+    """
     if parsed.unknown_metrics:
         _auto_register(db, parsed.unknown_metrics)
 
+    metric_new = 0
     for chunk in _chunked(_dedupe_metric_rows(parsed.metric_rows), _METRIC_INSERT_BATCH):
         stmt = pg_insert(MetricSample).values(chunk)
         stmt = stmt.on_conflict_do_update(
@@ -317,24 +338,26 @@ def store(db: Session, parsed: ParsedPayload) -> StoreResult:
                 "vmax": stmt.excluded.vmax,
                 "n": stmt.excluded.n,
             },
-        )
-        db.execute(stmt)
+        ).returning(_XMAX_IS_NEW)
+        metric_new += _count_new(db.execute(stmt))
 
+    sleep_new = 0
     for row in parsed.sleep_rows:
         stmt = pg_insert(SleepSession).values(**row)
         stmt = stmt.on_conflict_do_update(
             constraint="uq_sleep_sessions",
             set_={k: getattr(stmt.excluded, k) for k in row if k not in ("sleep_start", "source")},
-        )
-        db.execute(stmt)
+        ).returning(_XMAX_IS_NEW)
+        sleep_new += _count_new(db.execute(stmt))
 
+    workout_new = 0
     for row in parsed.workout_rows:
         stmt = pg_insert(Workout).values(**row)
         stmt = stmt.on_conflict_do_update(
             index_elements=["hae_id"],
             set_={k: getattr(stmt.excluded, k) for k in row if k != "hae_id"},
-        )
-        db.execute(stmt)
+        ).returning(_XMAX_IS_NEW)
+        workout_new += _count_new(db.execute(stmt))
 
     # After the workouts (FK target) exist in this transaction.
     store_workout_hr_samples(db, parsed.workout_hr_rows)
@@ -348,6 +371,9 @@ def store(db: Session, parsed: ParsedPayload) -> StoreResult:
         workout_rows=len(parsed.workout_rows),
         workout_hr_rows=len(_dedupe_workout_hr_rows(parsed.workout_hr_rows)),
         unknown_metrics=len(parsed.unknown_metrics),
+        metric_new=metric_new,
+        sleep_new=sleep_new,
+        workout_new=workout_new,
     )
 
 

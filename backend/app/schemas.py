@@ -16,3 +16,6 @@ class IngestResponse(BaseModel):
     sleep_rows: int = 0
     workout_rows: int = 0
     unknown_metrics: int = 0
+    metric_new: int = 0
+    sleep_new: int = 0
+    workout_new: int = 0

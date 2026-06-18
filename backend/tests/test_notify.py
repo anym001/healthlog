@@ -180,13 +180,35 @@ def test_compose_findings_message_reports_training_load_alone():
     assert "training load alerts: 1" in note.message
 
 
-def test_compose_ingest_messages():
-    empty = compose_ingest_message("empty", 0, 0, 0)
-    assert empty.problem is True
-    assert empty.priority == PRIORITY_PROBLEM
-    stored = compose_ingest_message("stored", 12, 1, 0)
-    assert stored.problem is False
-    assert "metrics: 12" in stored.message
+def test_compose_ingest_empty_message():
+    note = compose_ingest_message("empty", 0, 0, 0)
+    assert note.problem is True
+    assert note.priority == PRIORITY_PROBLEM
+
+
+def test_compose_ingest_stored_all_new():
+    # All rows are fresh inserts: no "updated" suffix, just the count.
+    note = compose_ingest_message("stored", 12, 1, 3, metric_new=12, sleep_new=1, workout_new=3)
+    assert note.problem is False
+    assert "metrics: 12" in note.message
+    assert "sleep: 1" in note.message
+    assert "workouts: 3" in note.message
+    assert "updated" not in note.message
+
+
+def test_compose_ingest_stored_with_updates():
+    # Some rows already existed: show the new/updated split.
+    note = compose_ingest_message("stored", 10, 1, 158, metric_new=0, sleep_new=0, workout_new=0)
+    assert "metrics: 0 new, 10 updated" in note.message
+    assert "sleep: 0 new, 1 updated" in note.message
+    assert "workouts: 0 new, 158 updated" in note.message
+
+
+def test_compose_ingest_stored_mixed():
+    note = compose_ingest_message("stored", 10, 1, 5, metric_new=7, sleep_new=1, workout_new=2)
+    assert "metrics: 7 new, 3 updated" in note.message
+    assert "sleep: 1" in note.message  # all new, no suffix
+    assert "workouts: 2 new, 3 updated" in note.message
 
 
 # --- Dispatch: analysis + findings -----------------------------------------
