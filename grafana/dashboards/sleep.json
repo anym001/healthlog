@@ -1,6 +1,6 @@
 {
   "uid": "healthlog-sleep",
-  "title": "Schlaf",
+  "title": "Sleep",
   "timezone": "Europe/Vienna",
   "schemaVersion": 39,
   "tags": ["healthlog"],
@@ -10,19 +10,19 @@
     {
       "id": 1,
       "type": "barchart",
-      "title": "Schlafphasen",
+      "title": "Sleep Phases",
       "gridPos": { "x": 0, "y": 0, "w": 24, "h": 8 },
       "datasource": { "uid": "healthlog-db" },
       "options": { "stacking": "normal" },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT sleep_date AS time, deep_h AS \"Tiefschlaf\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "rawSql": "SELECT sleep_date AS time, deep_h AS \"Deep\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
           "format": "time_series"
         },
         {
           "refId": "B",
-          "rawSql": "SELECT sleep_date AS time, core_h AS \"Kernschlaf\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "rawSql": "SELECT sleep_date AS time, core_h AS \"Core\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
           "format": "time_series"
         },
         {
@@ -32,7 +32,7 @@
         },
         {
           "refId": "D",
-          "rawSql": "SELECT sleep_date AS time, awake_h AS \"Wach\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "rawSql": "SELECT sleep_date AS time, awake_h AS \"Awake\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
           "format": "time_series"
         }
       ]
@@ -40,13 +40,13 @@
     {
       "id": 2,
       "type": "timeseries",
-      "title": "Schlafdauer",
+      "title": "Sleep Duration",
       "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
       "datasource": { "uid": "healthlog-db" },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT sleep_date AS time, total_sleep_h AS \"Schlafdauer (h)\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "rawSql": "SELECT sleep_date AS time, total_sleep_h AS \"Total Sleep (h)\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
           "format": "time_series"
         }
       ]
@@ -54,13 +54,13 @@
     {
       "id": 3,
       "type": "timeseries",
-      "title": "Schlafeffizienz (%)",
+      "title": "Sleep Efficiency (%)",
       "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
       "datasource": { "uid": "healthlog-db" },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT sleep_date AS time, ROUND((total_sleep_h / NULLIF(in_bed_h,0) * 100)::numeric,1) AS \"Effizienz (%)\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) AND in_bed_h > 0 ORDER BY sleep_date",
+          "rawSql": "SELECT sleep_date AS time, ROUND((total_sleep_h / NULLIF(in_bed_h,0) * 100)::numeric,1) AS \"Efficiency (%)\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) AND in_bed_h > 0 ORDER BY sleep_date",
           "format": "time_series"
         }
       ]
@@ -68,13 +68,13 @@
     {
       "id": 4,
       "type": "timeseries",
-      "title": "Einschlafzeit",
+      "title": "Bedtime",
       "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
       "datasource": { "uid": "healthlog-db" },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT sleep_date AS time, EXTRACT(HOUR FROM sleep_start AT TIME ZONE 'Europe/Vienna') + EXTRACT(MINUTE FROM sleep_start AT TIME ZONE 'Europe/Vienna')/60.0 AS \"Einschlafzeit (Stunde)\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "rawSql": "SELECT sleep_date AS time, EXTRACT(HOUR FROM sleep_start AT TIME ZONE 'Europe/Vienna') + EXTRACT(MINUTE FROM sleep_start AT TIME ZONE 'Europe/Vienna')/60.0 AS \"Bedtime (hour)\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
           "format": "time_series"
         }
       ]
@@ -82,13 +82,13 @@
     {
       "id": 5,
       "type": "table",
-      "title": "Schlaf-Befunde",
+      "title": "Sleep Findings",
       "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
       "datasource": { "uid": "healthlog-db" },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT ref_date AS \"Datum\", kind AS \"Art\", note AS \"Hinweis\", ROUND(severity::numeric,2) AS \"Schweregrad\" FROM findings WHERE kind IN ('anomaly','consistency') AND (metric_a LIKE 'sleep%' OR metric_a = 'consistency') AND ref_date >= NOW() - INTERVAL '30 days' ORDER BY ref_date DESC",
+          "rawSql": "SELECT ref_date AS \"Date\", kind AS \"Kind\", note AS \"Note\", ROUND(severity::numeric,2) AS \"Severity\" FROM findings WHERE kind IN ('anomaly','consistency') AND (metric_a LIKE 'sleep%' OR metric_a = 'consistency') AND ref_date >= NOW() - INTERVAL '30 days' ORDER BY ref_date DESC",
           "format": "table"
         }
       ]
