@@ -1,0 +1,207 @@
+{
+  "id": null,
+  "uid": "healthlog-overview",
+  "title": "Morgenübersicht",
+  "schemaVersion": 39,
+  "version": 1,
+  "timezone": "Europe/Vienna",
+  "tags": ["healthlog"],
+  "time": {"from": "now-14d", "to": "now"},
+  "timepicker": {},
+  "refresh": "5m",
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Letzte Nacht – Schlaf",
+      "gridPos": {"x": 0, "y": 0, "w": 8, "h": 4},
+      "datasource": {"type": "postgres", "uid": "healthlog-db"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "postgres", "uid": "healthlog-db"},
+          "rawSql": "SELECT total_sleep_h AS \"Gesamtschlaf (h)\" FROM sleep_sessions ORDER BY sleep_date DESC LIMIT 1",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "h",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 6},
+              {"color": "green", "value": 7}
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Letzte Nacht – Tiefschlaf",
+      "gridPos": {"x": 8, "y": 0, "w": 8, "h": 4},
+      "datasource": {"type": "postgres", "uid": "healthlog-db"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "postgres", "uid": "healthlog-db"},
+          "rawSql": "SELECT deep_h AS \"Tiefschlaf (h)\" FROM sleep_sessions ORDER BY sleep_date DESC LIMIT 1",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "h",
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Letzte Nacht – HRV",
+      "gridPos": {"x": 16, "y": 0, "w": 8, "h": 4},
+      "datasource": {"type": "postgres", "uid": "healthlog-db"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "postgres", "uid": "healthlog-db"},
+          "rawSql": "SELECT avg AS \"HRV (ms)\" FROM daily_metrics WHERE metric = 'heart_rate_variability' ORDER BY day DESC LIMIT 1",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 4,
+      "type": "barchart",
+      "title": "Schlafphasen",
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+      "datasource": {"type": "postgres", "uid": "healthlog-db"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "postgres", "uid": "healthlog-db"},
+          "rawSql": "SELECT sleep_date AS time, deep_h AS \"Tief\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "datasource": {"type": "postgres", "uid": "healthlog-db"},
+          "rawSql": "SELECT sleep_date AS time, core_h AS \"Kern\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "format": "time_series"
+        },
+        {
+          "refId": "C",
+          "datasource": {"type": "postgres", "uid": "healthlog-db"},
+          "rawSql": "SELECT sleep_date AS time, rem_h AS \"REM\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "format": "time_series"
+        },
+        {
+          "refId": "D",
+          "datasource": {"type": "postgres", "uid": "healthlog-db"},
+          "rawSql": "SELECT sleep_date AS time, awake_h AS \"Wach\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "stacking": "normal"
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "HRV & Ruhepuls",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+      "datasource": {"type": "postgres", "uid": "healthlog-db"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "postgres", "uid": "healthlog-db"},
+          "rawSql": "SELECT day AS time, avg AS \"HRV (ms)\" FROM daily_metrics WHERE metric = 'heart_rate_variability' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "datasource": {"type": "postgres", "uid": "healthlog-db"},
+          "rawSql": "SELECT day AS time, vmin AS \"Ruhepuls (bpm)\" FROM daily_metrics WHERE metric = 'resting_heart_rate' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {"id": "byName", "options": "Ruhepuls (bpm)"},
+            "properties": [
+              {"id": "custom.axisPlacement", "value": "right"}
+            ]
+          }
+        ]
+      },
+      "options": {}
+    },
+    {
+      "id": 6,
+      "type": "barchart",
+      "title": "Schritte",
+      "gridPos": {"x": 0, "y": 12, "w": 12, "h": 6},
+      "datasource": {"type": "postgres", "uid": "healthlog-db"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "postgres", "uid": "healthlog-db"},
+          "rawSql": "SELECT day AS time, sum AS \"Schritte\" FROM daily_metrics WHERE metric = 'step_count' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Auffälligkeiten (letzte 14 Tage)",
+      "gridPos": {"x": 12, "y": 12, "w": 12, "h": 6},
+      "datasource": {"type": "postgres", "uid": "healthlog-db"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "postgres", "uid": "healthlog-db"},
+          "rawSql": "SELECT ref_date AS \"Datum\", kind AS \"Art\", metric_a AS \"Metrik\", ROUND(severity::numeric, 2) AS \"Schweregrad\" FROM findings WHERE kind IN ('anomaly', 'recovery_alert') AND ref_date >= NOW() - INTERVAL '14 days' ORDER BY ref_date DESC",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    }
+  ],
+  "templating": {"list": []},
+  "annotations": {"list": []},
+  "links": []
+}
