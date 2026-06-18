@@ -1,24 +1,18 @@
-# Grafana Provisioning for HealthLog Phase 4
+# Grafana Provisioning for HealthLog
 
-This directory contains Grafana provisioning configuration and pre-built dashboards for HealthLog. On container start, Grafana automatically loads the datasource and all three dashboards — no manual import needed.
+This directory contains Grafana provisioning configuration and dashboards for the HealthLog project.
 
-## What's included
+## What this is
 
-- `provisioning/datasources/timescaledb.yaml` — PostgreSQL/TimescaleDB datasource (`healthlog-db`)
-- `provisioning/dashboards/dashboards.yaml` — dashboard provider (file-based, auto-reload every 60 s)
-- `dashboards/overview.json` — Morgenübersicht (14-day overview)
-- `dashboards/sleep.json` — Schlaf (30-day sleep detail)
-- `dashboards/training.json` — Training & Erholung (30-day training & recovery)
+Automated provisioning for a Grafana instance that visualises HealthLog data directly from the TimescaleDB/PostgreSQL database. Three dashboards are included:
+
+- **Morgenübersicht** (`overview.json`) — 14-day overview: last night's sleep stats, HRV, sleep phases chart, steps, and anomaly table.
+- **Schlaf** (`sleep.json`) — 30-day sleep deep-dive: phases, duration, efficiency, sleep-onset time, and sleep-related findings.
+- **Training & Erholung** (`training.json`) — 30-day training view: TRIMP load, load by sport, HRV/resting heart rate, cardio recovery, workout log, and training findings.
 
 ## Prerequisites
 
-### 1. Grafana on the same Docker network as `healthlog-db`
-
-Make sure both containers are on the same Docker network (e.g. `health`).
-
-### 2. Read-only database user
-
-Connect to your HealthLog PostgreSQL instance and run:
+Create a read-only database user in your HealthLog PostgreSQL/TimescaleDB instance:
 
 ```sql
 CREATE USER grafana_ro WITH PASSWORD 'change-me-grafana-ro';
@@ -28,50 +22,36 @@ GRANT SELECT ON ALL TABLES IN SCHEMA public TO grafana_ro;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO grafana_ro;
 ```
 
-## Deploying on Unraid
+## Running Grafana on Unraid
 
-1. Copy the `grafana/` directory to your host, e.g.:
+Mount the provisioning and dashboard directories from your appdata share and pass the database credentials via environment variables:
 
-   ```
-   /mnt/user/appdata/healthlog/grafana/
-   ```
+```bash
+docker run -d \
+  --name grafana \
+  --network health \
+  -p 3000:3000 \
+  -e GF_SECURITY_ADMIN_PASSWORD=change-me \
+  -e GF_HEALTHLOG_DB_HOST=healthlog-db:5432 \
+  -e GF_HEALTHLOG_DB_NAME=healthlog \
+  -e GF_HEALTHLOG_DB_USER=grafana_ro \
+  -e GF_HEALTHLOG_DB_PASSWORD=change-me-grafana-ro \
+  -e GF_AUTH_ANONYMOUS_ENABLED=false \
+  -v /mnt/user/appdata/grafana:/var/lib/grafana \
+  -v /mnt/user/appdata/healthlog/grafana/provisioning:/etc/grafana/provisioning:ro \
+  -v /mnt/user/appdata/healthlog/grafana/dashboards:/var/lib/grafana/dashboards:ro \
+  --restart unless-stopped \
+  grafana/grafana:11.5.2
+```
 
-2. Start Grafana:
-
-   ```bash
-   docker run -d \
-     --name grafana \
-     --network health \
-     -p 3000:3000 \
-     -e GF_SECURITY_ADMIN_PASSWORD=change-me \
-     -e GF_HEALTHLOG_DB_HOST=healthlog-db:5432 \
-     -e GF_HEALTHLOG_DB_NAME=healthlog \
-     -e GF_HEALTHLOG_DB_USER=grafana_ro \
-     -e GF_HEALTHLOG_DB_PASSWORD=change-me-grafana-ro \
-     -e GF_AUTH_ANONYMOUS_ENABLED=false \
-     -v /mnt/user/appdata/grafana:/var/lib/grafana \
-     -v /mnt/user/appdata/healthlog/grafana/provisioning:/etc/grafana/provisioning:ro \
-     -v /mnt/user/appdata/healthlog/grafana/dashboards:/var/lib/grafana/dashboards:ro \
-     --restart unless-stopped \
-     grafana/grafana:11.5.2
-   ```
-
-   Replace all `change-me` values with your own passwords.
+Replace `change-me` and `change-me-grafana-ro` with strong passwords before deploying.
 
 ## Updating dashboards
 
-Pull the updated files from the repo and restart Grafana:
+The dashboard provider polls for changes every 60 seconds (`updateIntervalSeconds: 60`). To update a dashboard:
 
-```bash
-docker restart grafana
-```
+1. Edit the relevant JSON file in `grafana/dashboards/`.
+2. Copy the updated file to `/mnt/user/appdata/healthlog/grafana/dashboards/` on the Unraid host.
+3. Grafana picks up the change automatically within 60 seconds — no restart required.
 
-Alternatively, the dashboard provider polls `/var/lib/grafana/dashboards` every 60 seconds — simply updating the JSON files on the host is enough for dashboard changes to appear without a restart.
-
-## Dashboards
-
-| Dashboard | UID | Default range | Description |
-|---|---|---|---|
-| Morgenübersicht | `healthlog-overview` | Last 14 days | Quick morning check: last night's sleep stats (total, deep, HRV), stacked sleep phases, HRV & resting heart rate trend, step count, and an anomaly/recovery-alert table. |
-| Schlaf | `healthlog-sleep` | Last 30 days | Detailed sleep view: stacked phases, total duration with 7 h target line, sleep efficiency, bedtime trend, and a sleep-findings table. |
-| Training & Erholung | `healthlog-training` | Last 30 days | Training load (TRIMP total and by sport), HRV & resting heart rate, heart-rate recovery, workout log table, and a training/recovery-findings table. |
+Dashboard deletion is disabled (`disableDeletion: true`); removing a file from the provisioning path will not delete the dashboard from Grafana's UI until the instance is restarted.

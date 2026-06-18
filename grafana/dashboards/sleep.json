@@ -1,150 +1,97 @@
 {
-  "id": null,
   "uid": "healthlog-sleep",
   "title": "Schlaf",
-  "schemaVersion": 39,
-  "version": 1,
   "timezone": "Europe/Vienna",
+  "schemaVersion": 39,
   "tags": ["healthlog"],
-  "time": {"from": "now-30d", "to": "now"},
-  "timepicker": {},
-  "refresh": "5m",
+  "time": { "from": "now-30d", "to": "now" },
+  "refresh": "",
   "panels": [
     {
       "id": 1,
       "type": "barchart",
       "title": "Schlafphasen",
-      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 8},
-      "datasource": {"type": "postgres", "uid": "healthlog-db"},
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 8 },
+      "datasource": { "uid": "healthlog-db" },
+      "options": { "stacking": "normal" },
       "targets": [
         {
           "refId": "A",
-          "datasource": {"type": "postgres", "uid": "healthlog-db"},
-          "rawSql": "SELECT sleep_date AS time, deep_h AS \"Tief\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "rawSql": "SELECT sleep_date AS time, deep_h AS \"Tiefschlaf\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
           "format": "time_series"
         },
         {
           "refId": "B",
-          "datasource": {"type": "postgres", "uid": "healthlog-db"},
-          "rawSql": "SELECT sleep_date AS time, core_h AS \"Kern\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "rawSql": "SELECT sleep_date AS time, core_h AS \"Kernschlaf\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
           "format": "time_series"
         },
         {
           "refId": "C",
-          "datasource": {"type": "postgres", "uid": "healthlog-db"},
           "rawSql": "SELECT sleep_date AS time, rem_h AS \"REM\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
           "format": "time_series"
         },
         {
           "refId": "D",
-          "datasource": {"type": "postgres", "uid": "healthlog-db"},
           "rawSql": "SELECT sleep_date AS time, awake_h AS \"Wach\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
           "format": "time_series"
         }
-      ],
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": []
-      },
-      "options": {
-        "stacking": "normal"
-      }
+      ]
     },
     {
       "id": 2,
       "type": "timeseries",
       "title": "Schlafdauer",
-      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
-      "datasource": {"type": "postgres", "uid": "healthlog-db"},
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "datasource": { "uid": "healthlog-db" },
       "targets": [
         {
           "refId": "A",
-          "datasource": {"type": "postgres", "uid": "healthlog-db"},
-          "rawSql": "SELECT sleep_date AS time, total_sleep_h AS \"Gesamtschlaf (h)\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "rawSql": "SELECT sleep_date AS time, total_sleep_h AS \"Schlafdauer (h)\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
           "format": "time_series"
         }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {"color": "transparent", "value": null},
-              {"color": "green", "value": 7}
-            ]
-          },
-          "custom": {
-            "thresholdsStyle": {
-              "mode": "line"
-            }
-          }
-        },
-        "overrides": []
-      },
-      "options": {}
+      ]
     },
     {
       "id": 3,
       "type": "timeseries",
       "title": "Schlafeffizienz (%)",
-      "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
-      "datasource": {"type": "postgres", "uid": "healthlog-db"},
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "datasource": { "uid": "healthlog-db" },
       "targets": [
         {
           "refId": "A",
-          "datasource": {"type": "postgres", "uid": "healthlog-db"},
-          "rawSql": "SELECT sleep_date AS time, ROUND((total_sleep_h / NULLIF(in_bed_h, 0) * 100)::numeric, 1) AS \"Effizienz (%)\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) AND in_bed_h > 0 ORDER BY sleep_date",
+          "rawSql": "SELECT sleep_date AS time, ROUND((total_sleep_h / NULLIF(in_bed_h,0) * 100)::numeric,1) AS \"Effizienz (%)\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) AND in_bed_h > 0 ORDER BY sleep_date",
           "format": "time_series"
         }
-      ],
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": []
-      },
-      "options": {}
+      ]
     },
     {
       "id": 4,
       "type": "timeseries",
       "title": "Einschlafzeit",
-      "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
-      "datasource": {"type": "postgres", "uid": "healthlog-db"},
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+      "datasource": { "uid": "healthlog-db" },
       "targets": [
         {
           "refId": "A",
-          "datasource": {"type": "postgres", "uid": "healthlog-db"},
           "rawSql": "SELECT sleep_date AS time, EXTRACT(HOUR FROM sleep_start AT TIME ZONE 'Europe/Vienna') + EXTRACT(MINUTE FROM sleep_start AT TIME ZONE 'Europe/Vienna')/60.0 AS \"Einschlafzeit (Stunde)\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
           "format": "time_series"
         }
-      ],
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": []
-      },
-      "options": {}
+      ]
     },
     {
       "id": 5,
       "type": "table",
       "title": "Schlaf-Befunde",
-      "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
-      "datasource": {"type": "postgres", "uid": "healthlog-db"},
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+      "datasource": { "uid": "healthlog-db" },
       "targets": [
         {
           "refId": "A",
-          "datasource": {"type": "postgres", "uid": "healthlog-db"},
-          "rawSql": "SELECT ref_date AS \"Datum\", kind AS \"Art\", note AS \"Hinweis\", ROUND(severity::numeric, 2) AS \"Schweregrad\" FROM findings WHERE kind IN ('anomaly', 'consistency') AND (metric_a LIKE 'sleep%' OR metric_a = 'consistency') AND ref_date >= NOW() - INTERVAL '30 days' ORDER BY ref_date DESC",
+          "rawSql": "SELECT ref_date AS \"Datum\", kind AS \"Art\", note AS \"Hinweis\", ROUND(severity::numeric,2) AS \"Schweregrad\" FROM findings WHERE kind IN ('anomaly','consistency') AND (metric_a LIKE 'sleep%' OR metric_a = 'consistency') AND ref_date >= NOW() - INTERVAL '30 days' ORDER BY ref_date DESC",
           "format": "table"
         }
-      ],
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": []
-      },
-      "options": {}
+      ]
     }
-  ],
-  "templating": {"list": []},
-  "annotations": {"list": []},
-  "links": []
+  ]
 }
