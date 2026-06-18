@@ -1,0 +1,84 @@
+{
+  "data": {
+    "metrics": [
+      {
+        "name": "heart_rate",
+        "units": "count/min",
+        "data": [
+          {"date": "2026-01-02 08:00:00 +0100", "Min": 50, "Avg": 58.5, "Max": 92, "source": "Apple Watch"},
+          {"date": "2026-01-02 09:00:00 +0100", "Min": 55, "Avg": 64.2, "Max": 110, "source": "Apple Watch"}
+        ]
+      },
+      {
+        "name": "step_count",
+        "units": "count",
+        "data": [
+          {"date": "2026-01-02 08:00:00 +0100", "qty": 1200, "source": "Apple Watch|iPhone"},
+          {"date": "2026-01-02 09:00:00 +0100", "qty": 800, "source": ""}
+        ]
+      },
+      {
+        "name": "active_energy",
+        "units": "kJ",
+        "data": [
+          {"date": "2026-01-02 08:00:00 +0100", "qty": 418.4, "source": "Apple Watch"}
+        ]
+      },
+      {
+        "name": "resting_heart_rate",
+        "units": "count/min",
+        "data": [
+          {"date": "2026-01-02 00:00:00 +0100", "qty": 62, "source": "Apple Watch"}
+        ]
+      },
+      {
+        "name": "future_unknown_metric",
+        "units": "widgets",
+        "data": [
+          {"date": "2026-01-02 08:00:00 +0100", "qty": 7, "source": "Apple Watch"}
+        ]
+      },
+      {
+        "name": "sleep_analysis",
+        "units": "hr",
+        "data": [
+          {
+            "date": "2026-01-02 00:00:00 +0100",
+            "sleepStart": "2026-01-01 22:30:00 +0100",
+            "sleepEnd": "2026-01-02 06:30:00 +0100",
+            "inBedStart": "2026-01-01 22:15:00 +0100",
+            "inBedEnd": "2026-01-02 06:35:00 +0100",
+            "deep": 1.5,
+            "core": 4.5,
+            "rem": 1.5,
+            "awake": 0.5,
+            "asleep": 0,
+            "inBed": 0,
+            "totalSleep": 7.5,
+            "source": "Apple Watch"
+          }
+        ]
+      }
+    ],
+    "workouts": [
+      {
+        "id": "3213AD95-044D-4777-9D99-B473968262F1",
+        "name": "Outdoor Walk",
+        "location": "Outdoor",
+        "isIndoor": false,
+        "start": "2026-01-02 12:00:00 +0100",
+        "end": "2026-01-02 12:30:00 +0100",
+        "duration": 1800.0,
+        "totalEnergy": {"qty": 836.8, "units": "kJ"},
+        "activeEnergyBurned": {"qty": 627.6, "units": "kJ"},
+        "distance": {"qty": 2.4, "units": "km"},
+        "heartRate": {"min": {"qty": 95, "units": "count/min"}, "avg": {"qty": 112, "units": "count/min"}, "max": {"qty": 130, "units": "count/min"}},
+        "intensity": {"qty": 4.2, "units": "kcal/hr·kg"},
+        "elevationUp": {"qty": 12.0, "units": "m"},
+        "temperature": {"qty": 8.5, "units": "degC"},
+        "humidity": {"qty": 60, "units": "%"},
+        "source": "Apple Watch"
+      }
+    ]
+  }
+}

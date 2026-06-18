@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "healthlog"
+version = "0.0.0"
+description = "Self-hosted, privacy-first Apple Health analysis."
+requires-python = ">=3.12"
+# Runtime dependencies are pinned in requirements.txt and installed separately;
+# this project metadata exists to expose the `healthlog` console script.
+dynamic = ["dependencies"]
+
+[project.scripts]
+healthlog = "app.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+# Migrations are generated/idiomatic; keep them lint-light.
+extend-exclude = ["migrations/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "W"]
+# B008: FastAPI's Depends()/Header() in argument defaults is the framework idiom.
+ignore = ["B008"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

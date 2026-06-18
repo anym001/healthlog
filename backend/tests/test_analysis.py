@@ -1,0 +1,817 @@
+"""Phase 3 analysis pipeline: pure math on synthetic series + DB end-to-end."""
+
+from __future__ import annotations
+
+import datetime as dt
+import uuid
+
+import numpy as np
+import pandas as pd
+from sqlalchemy import func, select
+
+from app import analysis
+from app.analysis import (
+    AnalysisResult,
+    _hr_zone_weight,
+    acute_chronic_ratio,
+    aggregate_workout_daily,
+    annual_seasonality,
+    banister_trimp,
+    circular_bedtime_offset,
+    decompose,
+    edwards_trimp,
+    fdr_adjust,
+    fill_zero_within_span,
+    resolve_hr_max,
+    resolve_hr_rest,
+    rolling_mad_anomalies,
+    spearman_lag,
+    trend_slope,
+)
+from app.appconfig import AnalysisConfig, AppConfig, ProfileConfig, WorkoutConfig
+from app.models import Finding, MetricSample, SleepSession, Workout, WorkoutHrSample
+from app.workout_types import canonical_workout_type
+
+UTC = dt.UTC
+
+
+def _daily(values, start="2026-01-01") -> pd.Series:
+    idx = pd.date_range(start, periods=len(values), freq="D")
+    return pd.Series(np.asarray(values, dtype="float64"), index=idx)
+
+
+# --- Spearman lag correlation ---------------------------------------------
+
+
+def test_spearman_lag_detects_known_lag():
+    rng = np.random.default_rng(0)
+    a = _daily(rng.normal(size=150))
+    # b[t] = a[t-2] + small noise  =>  a leads b by 2 days.
+    b = a.shift(2) + _daily(rng.normal(scale=0.1, size=150))
+    at_lag2 = spearman_lag(a, b, 2)
+    at_lag0 = spearman_lag(a, b, 0)
+    assert at_lag2 is not None and at_lag2.coef > 0.8
+    assert at_lag2.p < 1e-6
+    assert abs(at_lag0.coef) < at_lag2.coef
+
+
+def test_spearman_lag_independent_series_not_strong():
+    rng = np.random.default_rng(1)
+    a = _daily(rng.normal(size=150))
+    b = _daily(rng.normal(size=150))
+    res = spearman_lag(a, b, 0)
+    assert res is not None
+    assert abs(res.coef) < 0.3
+
+
+def test_spearman_lag_too_short_returns_none():
+    rng = np.random.default_rng(2)
+    a = _daily(rng.normal(size=30))
+    b = _daily(rng.normal(size=30))
+    assert spearman_lag(a, b, 0) is None  # below MIN_OVERLAP
+
+
+# --- FDR --------------------------------------------------------------------
+
+
+def test_fdr_adjust_ge_raw_and_preserves_length():
+    p = [0.001, 0.01, 0.04, 0.2, 0.5]
+    adj = fdr_adjust(p)
+    assert len(adj) == len(p)
+    assert all(a >= raw - 1e-12 for a, raw in zip(adj, p, strict=True))
+
+
+def test_fdr_adjust_empty():
+    assert fdr_adjust([]) == []
+
+
+# --- Anomalies --------------------------------------------------------------
+
+
+def test_rolling_mad_anomalies_flags_spike():
+    rng = np.random.default_rng(3)
+    vals = 50 + rng.normal(scale=2.0, size=60)
+    vals[55] = 90.0  # clear spike
+    s = _daily(vals)
+    anomalies = rolling_mad_anomalies(s)
+    assert s.index[55] in anomalies.index
+    assert anomalies.loc[s.index[55], "z"] > analysis.ANOMALY_THRESHOLD
+
+
+def test_rolling_mad_anomalies_clean_series_is_empty():
+    rng = np.random.default_rng(4)
+    s = _daily(50 + rng.normal(scale=1.0, size=60))
+    assert rolling_mad_anomalies(s).empty
+
+
+# --- Trend / seasonality ----------------------------------------------------
+
+
+def test_decompose_detects_upward_trend():
+    rng = np.random.default_rng(5)
+    t = np.arange(150)
+    vals = 100 + 0.5 * t + 2 * np.sin(2 * np.pi * t / 7) + rng.normal(scale=1.0, size=150)
+    decomp = decompose(_daily(vals))
+    assert decomp is not None
+    assert trend_slope(decomp.trend) > 0.3
+    assert analysis._component_strength(decomp.trend, decomp.resid) > analysis.TREND_STRENGTH_MIN
+
+
+def test_decompose_flat_series_has_weak_trend():
+    rng = np.random.default_rng(6)
+    decomp = decompose(_daily(100 + rng.normal(scale=1.0, size=150)))
+    assert decomp is not None
+    assert abs(trend_slope(decomp.trend)) < 0.05
+
+
+def test_annual_seasonality_detected_over_two_years():
+    rng = np.random.default_rng(7)
+    t = np.arange(800)
+    vals = 100 + 10 * np.sin(2 * np.pi * t / 365) + 2 * np.sin(2 * np.pi * t / 7) + rng.normal(scale=1.0, size=800)
+    decomp = decompose(_daily(vals))
+    assert decomp is not None and decomp.has_annual
+    annual = annual_seasonality(decomp)
+    assert annual is not None
+    assert annual["strength"] >= analysis.SEASONALITY_STRENGTH_MIN
+    assert annual["peak_month"] != annual["trough_month"]
+    # A clean sine peaks and troughs ~6 months apart -> phase is trustworthy.
+    assert annual["phase_confident"] is True
+
+
+def _annual_decomp(month_level: dict[int, float]) -> analysis.Decomp:
+    """A synthetic Decomp whose annual component takes a fixed value per month."""
+    idx = pd.date_range("2024-01-01", periods=730, freq="D")
+    seasonal = pd.Series([month_level.get(d.month, 0.0) for d in idx], index=idx, dtype="float64")
+    resid = pd.Series(np.zeros(len(idx)), index=idx)
+    return analysis.Decomp(trend=resid, resid=resid, seasonal={analysis.SEASONAL_PERIOD: seasonal}, has_annual=True)
+
+
+def test_seasonality_phase_flagged_uncertain_when_peak_trough_adjacent():
+    annual = annual_seasonality(_annual_decomp({5: 1.0, 6: -1.0}))  # May peak, Jun trough
+    assert annual["peak_month"] == 5 and annual["trough_month"] == 6
+    assert annual["phase_confident"] is False
+
+
+def test_seasonality_phase_confident_when_peak_trough_far_apart():
+    annual = annual_seasonality(_annual_decomp({1: 1.0, 7: -1.0}))  # Jan peak, Jul trough
+    assert annual["phase_confident"] is True
+
+
+# --- Correlation de-trending + de-duplication -------------------------------
+
+
+def test_correlation_collapses_spurious_trend_only_pairs():
+    # Two independent noise series with opposite linear trends correlate near
+    # -1 on raw levels (pure trend artefact). De-trending must collapse that to
+    # a weak residual: the shared drift is gone, the noise is independent.
+    rng = np.random.default_rng(20)
+    n = 400
+    t = np.arange(n)
+    up = _daily(0.5 * t + rng.normal(scale=1.0, size=n))
+    down = _daily(-0.5 * t + rng.normal(scale=1.0, size=n))
+
+    assert abs(spearman_lag(up, down, 0).coef) > 0.9  # raw: pure trend artefact
+    findings = analysis._correlation_findings({"up": up, "down": down}, dt.datetime.now(UTC))
+    assert all(abs(float(f.coefficient)) < 0.3 for f in findings)  # collapsed
+
+
+def test_correlation_keeps_one_finding_per_pair():
+    # An autocorrelated common signal makes several lags significant, but the
+    # output must collapse to a single best row for the {a, b} pair.
+    rng = np.random.default_rng(21)
+    n = 300
+    base = np.zeros(n)
+    for k in range(1, n):
+        base[k] = 0.8 * base[k - 1] + rng.normal()  # stationary AR(1): no trend
+    a = _daily(base + rng.normal(scale=0.3, size=n))
+    b = _daily(base + rng.normal(scale=0.3, size=n))
+    findings = analysis._correlation_findings({"a": a, "b": b}, dt.datetime.now(UTC))
+    assert len(findings) == 1
+    assert {findings[0].metric_a, findings[0].metric_b} == {"a", "b"}
+
+
+# --- Bedtime offset (circular) ---------------------------------------------
+
+
+def test_circular_bedtime_offset_no_midnight_wrap():
+    s = circular_bedtime_offset(_daily([22.0, 0.5, 2.0, 23.0]))
+    assert list(s.to_numpy()) == [4.0, 6.5, 8.0, 5.0]
+    # 23:00 and 01:00 stay close (5 vs 7), no 22-hour jump.
+    pair = circular_bedtime_offset(_daily([23.0, 1.0]))
+    assert abs(pair.iloc[0] - pair.iloc[1]) == 2.0
+
+
+# --- Recovery alert (composite) --------------------------------------------
+
+
+def test_recovery_alert_fires_on_low_hrv_high_rhr():
+    rng = np.random.default_rng(8)
+    n = 40
+    rhr = 50 + rng.normal(scale=2.0, size=n)
+    hrv = 60 + rng.normal(scale=3.0, size=n)
+    rhr[-1] = 72  # spike up (bad)
+    hrv[-1] = 35  # drop down (bad)
+    series = {"resting_heart_rate": _daily(rhr), "heart_rate_variability": _daily(hrv)}
+
+    findings = analysis._recovery_findings(series, dt.datetime.now(UTC))
+    assert len(findings) == 1
+    assert findings[0].kind == "recovery_alert"
+    assert findings[0].ref_date == _daily(rhr).index[-1].date()
+
+
+def test_recovery_alert_silent_when_only_one_signal():
+    rng = np.random.default_rng(9)
+    n = 40
+    rhr = 50 + rng.normal(scale=2.0, size=n)
+    hrv = 60 + rng.normal(scale=3.0, size=n)
+    rhr[-1] = 72  # only resting HR up; HRV normal
+    series = {"resting_heart_rate": _daily(rhr), "heart_rate_variability": _daily(hrv)}
+    assert analysis._recovery_findings(series, dt.datetime.now(UTC)) == []
+
+
+# --- DB end-to-end ----------------------------------------------------------
+
+
+def _add_metric(db, metric, values, start_date=dt.date(2026, 1, 1)):
+    for i, v in enumerate(values):
+        day = start_date + dt.timedelta(days=i)
+        db.add(
+            MetricSample(
+                time=dt.datetime(day.year, day.month, day.day, 12, tzinfo=UTC),
+                metric=metric,
+                source="",
+                qty=float(v),
+            )
+        )
+
+
+def test_run_writes_correlation_findings_as_snapshot(db):
+    rng = np.random.default_rng(10)
+    steps = rng.integers(3000, 12000, size=60).astype(float)
+    energy = 0.04 * steps + rng.normal(scale=5.0, size=60)  # strongly correlated, same day
+    _add_metric(db, "step_count", steps)
+    _add_metric(db, "active_energy", energy)
+    db.flush()
+
+    result = analysis.run(db)
+    assert isinstance(result, AnalysisResult)
+    assert result.correlations >= 1
+
+    pair = (
+        db.execute(
+            select(Finding).where(
+                Finding.kind == "correlation",
+                Finding.metric_a.in_(["step_count", "active_energy"]),
+                Finding.metric_b.in_(["step_count", "active_energy"]),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert pair, "expected a step_count<->active_energy correlation"
+    assert pair[0].p_value_adj is not None
+
+    # Snapshot: a second run replaces, not accumulates.
+    count_after_first = db.execute(select(func.count()).select_from(Finding)).scalar_one()
+    analysis.run(db)
+    count_after_second = db.execute(select(func.count()).select_from(Finding)).scalar_one()
+    assert count_after_second == count_after_first
+
+
+def test_build_series_includes_sleep_efficiency_and_consistency(db):
+    rng = np.random.default_rng(11)
+    start = dt.date(2026, 1, 1)
+    for i in range(35):
+        wake = start + dt.timedelta(days=i)
+        sleep_start = dt.datetime(wake.year, wake.month, wake.day, 22, tzinfo=UTC) - dt.timedelta(days=1)
+        total = 7.5 + float(rng.normal(scale=0.5))
+        db.add(
+            SleepSession(
+                sleep_start=sleep_start,
+                sleep_end=sleep_start + dt.timedelta(hours=8),
+                in_bed_start=sleep_start - dt.timedelta(minutes=10),
+                in_bed_end=sleep_start + dt.timedelta(hours=8, minutes=10),
+                source="",
+                sleep_date=wake,
+                total_sleep_h=total,
+                deep_h=1.5,
+                rem_h=1.8,
+            )
+        )
+    db.flush()
+
+    series = analysis.build_series(db, "Europe/Vienna")
+    assert "sleep_efficiency" in series
+    assert "sleep_total_h" in series
+    eff = series["sleep_efficiency"].dropna()
+    assert ((eff > 0) & (eff <= 1.05)).all()  # slept / in-bed ratio
+
+    consistency = analysis._consistency_findings(db, "Europe/Vienna", dt.datetime.now(UTC))
+    kinds = {f.metric_a for f in consistency}
+    assert {"sleep_total_h", "bedtime"} <= kinds
+
+
+def test_run_with_no_data_is_clean(db):
+    # No samples at all: run must not error and must write nothing.
+    result = analysis.run(db)
+    assert result.total() == 0
+    assert db.execute(select(func.count()).select_from(Finding)).scalar_one() == 0
+
+
+# --- Workout training load: Banister TRIMP ---------------------------------
+
+
+def test_banister_trimp_female_weight_exceeds_male_at_same_load():
+    male = banister_trimp(3600, 150, 60, 180, "male")
+    female = banister_trimp(3600, 150, 60, 180, "female")
+    assert male > 0 and female > male  # female weighting is steeper
+
+
+def test_banister_trimp_zero_without_usable_inputs():
+    assert banister_trimp(3600, None, 60, 180) == 0.0  # no avg_hr (e.g. strength)
+    assert banister_trimp(0, 150, 60, 180) == 0.0  # zero duration
+    assert banister_trimp(3600, 150, 180, 150) == 0.0  # hr_max <= hr_rest
+
+
+def test_banister_trimp_clamps_hr_reserve_to_one():
+    # avg_hr above hr_max -> HRr clamps at 1.0, not >1.
+    capped = banister_trimp(3600, 250, 60, 180, "male")
+    at_max = banister_trimp(3600, 180, 60, 180, "male")
+    assert capped == at_max
+
+
+# --- Zone-based (Edwards) TRIMP --------------------------------------------
+
+
+def _hr_samples(bpms, *, step_s=60, start="2026-01-01 12:00:00") -> pd.DataFrame:
+    """A per-sample HR frame (ts, bpm), evenly spaced by ``step_s`` seconds."""
+    ts = pd.to_datetime(start) + pd.to_timedelta(np.arange(len(bpms)) * step_s, unit="s")
+    return pd.DataFrame({"ts": ts, "bpm": np.asarray(bpms, dtype="float64")})
+
+
+def test_hr_zone_weight_boundaries():
+    assert _hr_zone_weight(80, 200) == 0  # 0.40 of HR_max -> below zone 1
+    assert _hr_zone_weight(100, 200) == 1  # 0.50 -> zone 1
+    assert _hr_zone_weight(140, 200) == 3  # 0.70 -> zone 3
+    assert _hr_zone_weight(180, 200) == 5  # 0.90 -> zone 5
+    assert _hr_zone_weight(200, 200) == 5  # 1.00 stays at the top zone
+    assert _hr_zone_weight(150, 0) == 0  # no HR_max -> no zone
+
+
+def test_edwards_trimp_sums_minutes_times_zone_weight():
+    # Each interval = 1 min; the last sample has no following interval.
+    s = _hr_samples([100, 140, 150])  # zone 1 (w1) then zone 3 (w3)
+    assert edwards_trimp(s, 200) == 1.0 * 1 + 1.0 * 3
+
+
+def test_edwards_trimp_rescales_interval_time_to_duration():
+    s = _hr_samples([100, 140, 150])  # raw covered time = 120 s
+    assert edwards_trimp(s, 200, duration_s=240) == 2 * (1.0 * 1 + 1.0 * 3)  # x2
+
+
+def test_edwards_trimp_zero_without_usable_series():
+    assert edwards_trimp(None, 200) == 0.0
+    assert edwards_trimp(_hr_samples([150]), 200) == 0.0  # a single sample = no interval
+    assert edwards_trimp(_hr_samples([80, 80, 80]), 200) == 0.0  # all below zone 1
+    assert edwards_trimp(_hr_samples([150, 150]), 0) == 0.0  # no HR_max
+
+
+def test_edwards_trimp_resolves_intervals_banister_smooths():
+    # Same number of samples, different intensity distribution -> different load
+    # (the point of Edwards over a single-average Banister TRIMP).
+    steady = edwards_trimp(_hr_samples([150, 150, 150]), 200)  # 0.75 -> w3 twice
+    spiky = edwards_trimp(_hr_samples([120, 180, 150]), 200)  # 0.60 -> w2, 0.90 -> w5
+    assert steady == 6.0 and spiky == 7.0
+
+
+# --- HR_max / HR_rest fallback chains --------------------------------------
+
+
+def test_resolve_hr_max_prefers_profile_override():
+    assert resolve_hr_max(ProfileConfig(hr_max=200), pd.Series([195.0, 205.0])) == 200.0
+
+
+def test_resolve_hr_max_uses_tanaka_from_birth_year():
+    age = dt.date.today().year - 1990
+    assert resolve_hr_max(ProfileConfig(birth_year=1990), None) == 208.0 - 0.7 * age
+
+
+def test_resolve_hr_max_data_driven_is_clamped():
+    assert resolve_hr_max(ProfileConfig(), pd.Series([250.0])) == 210.0  # ceil
+    assert resolve_hr_max(ProfileConfig(), pd.Series([130.0])) == 160.0  # floor
+    assert resolve_hr_max(ProfileConfig(), None) == 190.0  # nothing -> constant
+
+
+def test_resolve_hr_rest_default_chain():
+    # profile override wins
+    series, default = resolve_hr_rest(_daily([50.0] * 40), ProfileConfig(hr_rest=55))
+    assert default == 55.0
+    # no profile, data present -> measured median
+    series, default = resolve_hr_rest(_daily([48.0] * 40), ProfileConfig())
+    assert default == 48.0
+    assert not series.dropna().empty
+    # nothing at all -> constant fallback
+    series, default = resolve_hr_rest(None, ProfileConfig())
+    assert default == 60.0 and series.empty
+
+
+# --- Zero-fill + daily aggregation -----------------------------------------
+
+
+def test_fill_zero_within_span_fills_rest_days_with_zero():
+    s = pd.Series([5.0, 3.0], index=pd.to_datetime(["2026-01-01", "2026-01-04"]))
+    filled = fill_zero_within_span(s)
+    assert list(filled.index) == list(pd.date_range("2026-01-01", "2026-01-04", freq="D"))
+    assert filled.loc["2026-01-02"] == 0.0 and filled.loc["2026-01-03"] == 0.0
+
+
+def test_aggregate_workout_daily_sums_sessions_per_day():
+    d1, d2 = pd.Timestamp("2026-01-01"), pd.Timestamp("2026-01-02")
+    sessions = pd.DataFrame.from_records(
+        [
+            {
+                "day": d1,
+                "duration_s": 3600,
+                "active_energy_kcal": 500.0,
+                "avg_hr": 150.0,
+                "max_hr": 170.0,
+                "intensity": 6.0,
+            },
+            {
+                "day": d1,
+                "duration_s": 1800,
+                "active_energy_kcal": 300.0,
+                "avg_hr": 140.0,
+                "max_hr": 160.0,
+                "intensity": 5.0,
+            },
+            {
+                "day": d2,
+                "duration_s": 3600,
+                "active_energy_kcal": 400.0,
+                "avg_hr": 120.0,
+                "max_hr": 150.0,
+                "intensity": 4.0,
+            },
+        ]
+    )
+    daily = aggregate_workout_daily(sessions, pd.Series(dtype="float64"), 60.0, 180.0, "male")
+    assert daily.loc[d1, "count"] == 2
+    assert daily.loc[d1, "load"] == 800.0
+    assert daily.loc[d1, "duration_h"] == 1.5
+    assert daily.loc[d1, "trimp"] > daily.loc[d2, "trimp"]  # harder day -> more load
+    assert daily.loc[d1, "intensity"] == 5.5  # mean of the two sessions
+
+
+# --- ACWR / training-load finding ------------------------------------------
+
+
+def test_acute_chronic_ratio_detects_spike():
+    s = _daily([10.0] * 21 + [30.0] * 7)  # 28 days, recent week 3x baseline
+    acwr = acute_chronic_ratio(s)
+    assert acwr is not None
+    _, _, ratio = acwr
+    assert ratio == 2.0  # acute 30 / chronic 15
+
+
+def test_acute_chronic_ratio_needs_history():
+    assert acute_chronic_ratio(_daily([10.0] * 20)) is None  # < 28 days
+    assert acute_chronic_ratio(_daily([0.0] * 30)) is None  # chronic load 0
+
+
+def test_training_load_finding_flags_spike_only_outside_band():
+    spike = analysis._training_load_findings({"workout_trimp": _daily([10.0] * 21 + [30.0] * 7)}, dt.datetime.now(UTC))
+    assert len(spike) == 1
+    assert spike[0].kind == "training_load"
+    assert spike[0].metric_a == "workout_trimp"
+    assert spike[0].severity == 2.0
+
+    detrain = analysis._training_load_findings({"workout_trimp": _daily([30.0] * 21 + [5.0] * 7)}, dt.datetime.now(UTC))
+    assert len(detrain) == 1 and "detraining" in detrain[0].note
+
+    balanced = analysis._training_load_findings({"workout_trimp": _daily([20.0] * 28)}, dt.datetime.now(UTC))
+    assert balanced == []  # inside the safe band -> no finding
+
+
+def test_training_load_prefers_trimp_over_energy():
+    series = {"workout_trimp": _daily([20.0] * 28), "workout_load": _daily([10.0] * 21 + [40.0] * 7)}
+    # trimp is balanced -> no finding even though energy would spike.
+    assert analysis._training_load_findings(series, dt.datetime.now(UTC)) == []
+
+
+def test_training_load_targets_aggregate_and_per_sport():
+    series = {
+        "workout_trimp": _daily([1.0]),
+        "workout_load": _daily([1.0]),
+        "workout_trimp_running": _daily([1.0]),
+        "workout_load_running": _daily([1.0]),
+        "workout_load_cycling": _daily([1.0]),  # cycling has only the kcal series
+    }
+    targets = analysis._training_load_targets(series)
+    assert targets[0] == "workout_trimp"  # aggregate first, prefers TRIMP
+    # one target per family, TRIMP preferred where available
+    assert set(targets) == {"workout_trimp", "workout_trimp_running", "workout_load_cycling"}
+
+
+def test_training_load_per_sport_with_activity_guard():
+    series = {
+        "workout_trimp": _daily([20.0] * 28),  # aggregate: balanced -> no finding
+        "workout_trimp_running": _daily([10.0] * 21 + [30.0] * 7),  # spike, trains daily
+        "workout_trimp_cycling": _daily([0.0] * 26 + [50.0, 50.0]),  # only 2 active days
+    }
+    findings = analysis._training_load_findings(series, dt.datetime.now(UTC), AnalysisConfig())
+    # Running spikes and is trained enough; cycling is too sparse to trust.
+    assert {f.metric_a for f in findings} == {"workout_trimp_running"}
+
+
+def test_training_load_activity_guard_is_configurable():
+    series = {"workout_trimp_cycling": _daily([0.0] * 26 + [50.0, 50.0])}  # 2 active days
+    # Default guard (8 active days) suppresses the sparse sport.
+    assert analysis._training_load_findings(series, dt.datetime.now(UTC), AnalysisConfig()) == []
+    # Relaxing the guard lets the (genuine) spike through.
+    relaxed = analysis._training_load_findings(series, dt.datetime.now(UTC), AnalysisConfig(acwr_min_active_days=1))
+    assert [f.metric_a for f in relaxed] == ["workout_trimp_cycling"]
+
+
+# --- Per-sport type mapping (Iteration 2) ----------------------------------
+
+
+def test_canonical_workout_type_maps_case_insensitively():
+    tmap = {"Outdoor Run": "running", "Traditional Strength Training": "strength"}
+    assert canonical_workout_type("Outdoor Run", tmap) == "running"
+    assert canonical_workout_type("outdoor run", tmap) == "running"  # case-insensitive
+    # Multi-word canonical types are slugged into safe series-name suffixes.
+    assert canonical_workout_type("Traditional Strength Training", tmap) == "strength"
+
+
+def test_canonical_workout_type_unmapped_is_none():
+    tmap = {"Outdoor Run": "running"}
+    assert canonical_workout_type("Quidditch Match", tmap) is None  # unknown to map + built-in
+    assert canonical_workout_type(None, tmap) is None
+    assert canonical_workout_type("", tmap) is None
+
+
+def test_canonical_workout_type_uses_builtin_without_config():
+    # The built-in map normalises common Apple types out of the box (no config).
+    assert canonical_workout_type("Outdoor Run", {}) == "running"
+    assert canonical_workout_type("Pool Swim", {}) == "swimming"
+    # Cross-language stability: German and English names fold to one type.
+    assert canonical_workout_type("Laufen", {}) == canonical_workout_type("Outdoor Run", {}) == "running"
+    assert canonical_workout_type("Radfahren", {}) == "cycling"
+
+
+def test_canonical_workout_type_config_overrides_builtin():
+    # An operator entry wins over the built-in mapping for the same name.
+    assert canonical_workout_type("Outdoor Run", {"Outdoor Run": "trail running"}) == "trail_running"
+
+
+def test_canonical_workout_type_slugs_spaces():
+    assert canonical_workout_type("X", {"X": "Trail Running"}) == "trail_running"
+
+
+def test_is_workout_aggregate_child():
+    assert analysis._is_workout_aggregate_child("workout_trimp", "workout_trimp_running")
+    assert analysis._is_workout_aggregate_child("workout_load_cycling", "workout_load")
+    # Different families / two aggregates / two sports are NOT mechanical pairs.
+    assert not analysis._is_workout_aggregate_child("workout_trimp", "workout_load")
+    assert not analysis._is_workout_aggregate_child("workout_trimp_running", "workout_trimp_cycling")
+    assert not analysis._is_workout_aggregate_child("workout_trimp", "resting_heart_rate")
+
+
+# --- Workout series: DB end-to-end -----------------------------------------
+
+
+def _add_workout(db, start: dt.datetime, *, duration_s, avg_hr, max_hr, energy, name="Outdoor Run"):
+    hae_id = uuid.uuid4()
+    db.add(
+        Workout(
+            hae_id=hae_id,
+            start_time=start,
+            end_time=start + dt.timedelta(seconds=duration_s),
+            name=name,
+            duration_s=float(duration_s),
+            active_energy_kcal=float(energy),
+            avg_hr=float(avg_hr),
+            max_hr=float(max_hr),
+            source="",
+        )
+    )
+    return hae_id
+
+
+def _add_hr_series(db, hae_id, start: dt.datetime, *, count, base=110, span=70, step_s=60):
+    """Attach ~per-minute HR samples spanning several zones to a workout."""
+    for k in range(count):
+        db.add(
+            WorkoutHrSample(
+                workout_hae_id=hae_id,
+                ts=start + dt.timedelta(seconds=k * step_s),
+                bpm=float(base + (k % 5) * (span / 4.0)),  # sweeps 110..180
+            )
+        )
+
+
+def test_build_series_includes_workout_load_series(db):
+    rng = np.random.default_rng(30)
+    start = dt.date(2026, 1, 1)
+    for i in range(35):
+        day = start + dt.timedelta(days=i)
+        when = dt.datetime(day.year, day.month, day.day, 18, tzinfo=UTC)
+        _add_workout(
+            db,
+            when,
+            duration_s=1800 + 600 * (i % 3),
+            avg_hr=130 + rng.integers(-5, 15),
+            max_hr=170,
+            energy=300 + 50 * (i % 4),
+        )
+    db.flush()
+
+    series = analysis.build_series(db, "Europe/Vienna")
+    assert "workout_trimp" in series
+    assert "workout_load" in series
+    # Workout series are densified: a continuous daily index, no gaps.
+    trimp = series["workout_trimp"]
+    assert (trimp.index == pd.date_range(trimp.index.min(), trimp.index.max(), freq="D")).all()
+
+
+def test_build_series_load_metric_energy_only(db):
+    start = dt.date(2026, 1, 1)
+    for i in range(35):
+        day = start + dt.timedelta(days=i)
+        when = dt.datetime(day.year, day.month, day.day, 18, tzinfo=UTC)
+        _add_workout(db, when, duration_s=2400, avg_hr=140, max_hr=175, energy=350)
+    db.flush()
+
+    series = analysis.build_series(db, "Europe/Vienna", workouts=WorkoutConfig(load_metric="energy"))
+    assert "workout_load" in series
+    assert "workout_trimp" not in series  # gated off by load_metric
+
+
+def test_run_with_workouts_is_clean_and_snapshots(db):
+    start = dt.date(2026, 1, 1)
+    for i in range(35):
+        day = start + dt.timedelta(days=i)
+        when = dt.datetime(day.year, day.month, day.day, 18, tzinfo=UTC)
+        _add_workout(db, when, duration_s=2400, avg_hr=140, max_hr=175, energy=350)
+    db.flush()
+
+    result = analysis.run(db, "Europe/Vienna", AppConfig())
+    assert isinstance(result, AnalysisResult)
+    # Re-running replaces, never accumulates (snapshot semantics).
+    first = db.execute(select(func.count()).select_from(Finding)).scalar_one()
+    analysis.run(db, "Europe/Vienna", AppConfig())
+    assert db.execute(select(func.count()).select_from(Finding)).scalar_one() == first
+
+
+def test_build_series_splits_load_by_sport(db):
+    start = dt.date(2026, 1, 1)
+    for i in range(35):
+        day = start + dt.timedelta(days=i)
+        when = dt.datetime(day.year, day.month, day.day, 18, tzinfo=UTC)
+        _add_workout(db, when, duration_s=2400, avg_hr=150, max_hr=180, energy=400, name="Outdoor Run")
+        if i % 3 == 0:  # cycling every third day
+            _add_workout(
+                db,
+                when + dt.timedelta(hours=2),
+                duration_s=3600,
+                avg_hr=135,
+                max_hr=170,
+                energy=500,
+                name="Outdoor Cycle",
+            )
+        if i % 5 == 0:  # a sport unknown to both the config map and the built-in
+            _add_workout(
+                db,
+                when + dt.timedelta(hours=4),
+                duration_s=1800,
+                avg_hr=120,
+                max_hr=150,
+                energy=200,
+                name="Quidditch Match",
+            )
+    db.flush()
+
+    workouts = WorkoutConfig(type_map={"Outdoor Run": "running", "Outdoor Cycle": "cycling"})
+    series = analysis.build_series(db, "Europe/Vienna", workouts=workouts)
+
+    # Type-agnostic aggregate stays; per-sport series are added for mapped types.
+    assert "workout_trimp" in series and "workout_load" in series
+    assert "workout_trimp_running" in series and "workout_load_running" in series
+    assert "workout_trimp_cycling" in series and "workout_load_cycling" in series
+    # The unrecognised sport feeds only the aggregate, never its own series.
+    assert not any("quidditch" in name for name in series)
+
+
+def test_build_series_no_type_split_for_unrecognised_sport(db):
+    start = dt.date(2026, 1, 1)
+    for i in range(30):
+        day = start + dt.timedelta(days=i)
+        when = dt.datetime(day.year, day.month, day.day, 18, tzinfo=UTC)
+        _add_workout(db, when, duration_s=2400, avg_hr=150, max_hr=180, energy=400, name="Quidditch Match")
+    db.flush()
+
+    series = analysis.build_series(db, "Europe/Vienna")  # default config, no type_map
+    assert "workout_trimp" in series
+    # Unknown to the built-in map and no config entry -> aggregate only, no split.
+    assert not any(name.startswith("workout_trimp_") for name in series)
+
+
+def test_build_series_splits_by_builtin_map_without_config(db):
+    start = dt.date(2026, 1, 1)
+    for i in range(35):
+        day = start + dt.timedelta(days=i)
+        when = dt.datetime(day.year, day.month, day.day, 18, tzinfo=UTC)
+        _add_workout(db, when, duration_s=2400, avg_hr=150, max_hr=180, energy=400, name="Outdoor Run")
+        if i % 3 == 0:
+            _add_workout(
+                db, when + dt.timedelta(hours=2), duration_s=3600, avg_hr=135, max_hr=170, energy=500, name="Radfahren"
+            )
+    db.flush()
+
+    # No type_map configured: the built-in map alone normalises the localised
+    # names, so per-sport series appear out of the box (German + English fold).
+    series = analysis.build_series(db, "Europe/Vienna")
+    assert "workout_trimp_running" in series
+    assert "workout_trimp_cycling" in series
+
+
+def test_build_series_per_sport_respects_load_metric(db):
+    start = dt.date(2026, 1, 1)
+    for i in range(30):
+        day = start + dt.timedelta(days=i)
+        when = dt.datetime(day.year, day.month, day.day, 18, tzinfo=UTC)
+        _add_workout(db, when, duration_s=2400, avg_hr=150, max_hr=180, energy=400, name="Outdoor Run")
+    db.flush()
+
+    workouts = WorkoutConfig(load_metric="energy", type_map={"Outdoor Run": "running"})
+    series = analysis.build_series(db, "Europe/Vienna", workouts=workouts)
+    assert "workout_load_running" in series
+    assert "workout_trimp_running" not in series  # trimp gated off by load_metric
+
+
+# --- Zone-based (Edwards) TRIMP: DB end-to-end -----------------------------
+
+
+def test_build_series_includes_edwards_when_hr_samples_present(db):
+    start = dt.date(2026, 1, 1)
+    for i in range(35):
+        day = start + dt.timedelta(days=i)
+        when = dt.datetime(day.year, day.month, day.day, 12, tzinfo=UTC)
+        hid = _add_workout(db, when, duration_s=2400, avg_hr=150, max_hr=180, energy=400)
+        _add_hr_series(db, hid, when, count=40)
+    db.flush()
+
+    series = analysis.build_series(db, "Europe/Vienna")  # edwards default on
+    assert "workout_edwards" in series
+    edwards = series["workout_edwards"]
+    # Parallel to Banister, densified to a complete daily grid, non-trivial.
+    assert "workout_trimp" in series
+    assert (edwards.index == pd.date_range(edwards.index.min(), edwards.index.max(), freq="D")).all()
+    assert (edwards > 0).any()
+
+
+def test_build_series_no_edwards_without_hr_samples(db):
+    start = dt.date(2026, 1, 1)
+    for i in range(35):
+        day = start + dt.timedelta(days=i)
+        when = dt.datetime(day.year, day.month, day.day, 12, tzinfo=UTC)
+        _add_workout(db, when, duration_s=2400, avg_hr=150, max_hr=180, energy=400)
+    db.flush()
+
+    series = analysis.build_series(db, "Europe/Vienna")  # on, but no samples stored
+    assert "workout_trimp" in series
+    assert "workout_edwards" not in series  # self-gates off with no data
+
+
+def test_build_series_edwards_can_be_disabled(db):
+    start = dt.date(2026, 1, 1)
+    for i in range(35):
+        day = start + dt.timedelta(days=i)
+        when = dt.datetime(day.year, day.month, day.day, 12, tzinfo=UTC)
+        hid = _add_workout(db, when, duration_s=2400, avg_hr=150, max_hr=180, energy=400)
+        _add_hr_series(db, hid, when, count=40)
+    db.flush()
+
+    series = analysis.build_series(db, "Europe/Vienna", workouts=WorkoutConfig(edwards=False))
+    assert "workout_trimp" in series
+    assert "workout_edwards" not in series  # gated off by config
+
+
+def test_build_series_edwards_per_sport(db):
+    start = dt.date(2026, 1, 1)
+    for i in range(35):
+        day = start + dt.timedelta(days=i)
+        when = dt.datetime(day.year, day.month, day.day, 12, tzinfo=UTC)
+        run = _add_workout(db, when, duration_s=2400, avg_hr=150, max_hr=180, energy=400, name="Outdoor Run")
+        _add_hr_series(db, run, when, count=40)
+        cyc = _add_workout(
+            db, when + dt.timedelta(hours=2), duration_s=3600, avg_hr=140, max_hr=175, energy=500, name="Outdoor Cycle"
+        )
+        _add_hr_series(db, cyc, when + dt.timedelta(hours=2), count=60)
+    db.flush()
+
+    workouts = WorkoutConfig(type_map={"Outdoor Run": "running", "Outdoor Cycle": "cycling"})
+    series = analysis.build_series(db, "Europe/Vienna", workouts=workouts)
+    assert "workout_edwards" in series
+    assert "workout_edwards_running" in series and "workout_edwards_cycling" in series

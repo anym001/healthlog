@@ -1,0 +1,52 @@
+name: Build dev image
+
+# Maintainer pre-prod channel. Every push to `dev` runs the full test suite
+# and, only if green, builds and publishes the mutable `:dev` image to GHCR.
+#
+# TODO (deferred): mirror to Docker Hub once DOCKERHUB_* secrets are set —
+# add a docker/login-action step and docker.io tags below.
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+jobs:
+  tests:
+    uses: ./.github/workflows/test.yml
+
+  publish-dev:
+    needs: tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Short SHA
+        id: sha
+        run: echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push :dev
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          file: backend/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/healthlog:dev
+            ghcr.io/${{ github.repository_owner }}/healthlog:dev-${{ steps.sha.outputs.short }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

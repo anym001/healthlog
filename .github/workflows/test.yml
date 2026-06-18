@@ -1,0 +1,118 @@
+name: tests
+
+# Runs on every PR for fast feedback, and is reusable (workflow_call) so the
+# build/publish workflows gate the image on green tests.
+on:
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  lint-backend:
+    # Static gate: ruff lint + format check. Fast, no DB.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+      - run: pip install ruff==0.15.17
+      - name: ruff check
+        run: ruff check .
+        working-directory: backend
+      - name: ruff format --check
+        run: ruff format --check .
+        working-directory: backend
+
+  test:
+    # Full pytest suite against a real TimescaleDB, so the hypertable migration
+    # path and the local-timezone daily view are exercised exactly as in prod.
+    runs-on: ubuntu-latest
+    services:
+      timescaledb:
+        image: timescale/timescaledb:2.17.2-pg16
+        env:
+          POSTGRES_USER: healthlog
+          POSTGRES_PASSWORD: healthlog
+          POSTGRES_DB: healthlog
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U healthlog"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      DATABASE_URL: postgresql+psycopg://healthlog:healthlog@127.0.0.1:5432/healthlog
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+      - run: pip install -r backend/requirements-dev.txt
+      - run: python -m pytest -q
+        working-directory: backend
+
+  smoke:
+    # Build the image and boot it as an Unraid user would (PUID/PGID 99:100)
+    # against a real TimescaleDB. Proves: s6 comes up, init-config chowns
+    # /config, migrate runs alembic upgrade head, uvicorn serves, and a full
+    # HAE POST round-trips through to storage.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Create network + TimescaleDB
+        run: |
+          docker network create hl
+          docker run -d --name tsdb --network hl \
+            -e POSTGRES_USER=healthlog -e POSTGRES_PASSWORD=healthlog -e POSTGRES_DB=healthlog \
+            --health-cmd="pg_isready -U healthlog" --health-interval=5s --health-timeout=5s --health-retries=20 \
+            timescale/timescaledb:2.17.2-pg16
+          for i in $(seq 1 30); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' tsdb)" = "healthy" ] && break
+            sleep 2
+          done
+
+      - name: Build image
+        run: docker build -f backend/Dockerfile -t healthlog:ci .
+
+      - name: Run container (PUID/PGID 99:100)
+        run: |
+          mkdir -p cfg
+          docker run -d --name hl --network hl -p 8000:8000 \
+            -e PUID=99 -e PGID=100 \
+            -e INGEST_SECRET=ci-secret \
+            -e DATABASE_URL=postgresql+psycopg://healthlog:healthlog@tsdb:5432/healthlog \
+            -v "$PWD/cfg:/config" \
+            healthlog:ci
+
+      - name: Wait for health
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/api/health; then echo " -> healthy"; exit 0; fi
+            sleep 2
+          done
+          echo "health check timed out"; docker logs hl; exit 1
+
+      - name: Assert /config owned by 99:100
+        run: |
+          owner=$(stat -c '%u:%g' cfg/logs)
+          echo "config owner: $owner"
+          [ "$owner" = "99:100" ] || { echo "expected 99:100"; docker logs hl; exit 1; }
+
+      - name: End-to-end ingest POST
+        run: |
+          code=$(curl -s -o /tmp/resp.json -w '%{http_code}' \
+            -H "X-Ingest-Token: ci-secret" -H "Content-Type: application/json" \
+            --data @backend/tests/fixtures/hae_sample.json \
+            http://127.0.0.1:8000/api/ingest)
+          echo "HTTP $code"; cat /tmp/resp.json
+          [ "$code" = "200" ] || { docker logs hl; exit 1; }
+          grep -q '"status":"stored"' /tmp/resp.json || { docker logs hl; exit 1; }
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f hl tsdb || true
