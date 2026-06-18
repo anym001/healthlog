@@ -1,0 +1,130 @@
+{
+  "uid": "healthlog-overview",
+  "title": "Overview",
+  "timezone": "Europe/Vienna",
+  "schemaVersion": 39,
+  "tags": ["healthlog"],
+  "time": { "from": "now-14d", "to": "now" },
+  "refresh": "",
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Last Night – Sleep",
+      "gridPos": { "x": 0, "y": 0, "w": 8, "h": 4 },
+      "datasource": { "uid": "healthlog-db" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT total_sleep_h AS \"Total Sleep (h)\" FROM sleep_sessions ORDER BY sleep_date DESC LIMIT 1",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Last Night – Deep Sleep",
+      "gridPos": { "x": 8, "y": 0, "w": 8, "h": 4 },
+      "datasource": { "uid": "healthlog-db" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT deep_h AS \"Deep Sleep (h)\" FROM sleep_sessions ORDER BY sleep_date DESC LIMIT 1",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Last Night – HRV",
+      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 4 },
+      "datasource": { "uid": "healthlog-db" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT avg AS \"HRV (ms)\" FROM daily_metrics WHERE metric = 'heart_rate_variability' ORDER BY day DESC LIMIT 1",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "barchart",
+      "title": "Sleep Phases",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "uid": "healthlog-db" },
+      "options": { "stacking": "normal" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT sleep_date AS time, deep_h AS \"Deep\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "rawSql": "SELECT sleep_date AS time, core_h AS \"Core\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "format": "time_series"
+        },
+        {
+          "refId": "C",
+          "rawSql": "SELECT sleep_date AS time, rem_h AS \"REM\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "format": "time_series"
+        },
+        {
+          "refId": "D",
+          "rawSql": "SELECT sleep_date AS time, awake_h AS \"Awake\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "HRV & Resting Heart Rate",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "uid": "healthlog-db" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT day AS time, avg AS \"HRV (ms)\" FROM daily_metrics WHERE metric = 'heart_rate_variability' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "rawSql": "SELECT day AS time, vmin AS \"Resting HR (bpm)\" FROM daily_metrics WHERE metric = 'resting_heart_rate' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "barchart",
+      "title": "Steps",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 6 },
+      "datasource": { "uid": "healthlog-db" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT day AS time, sum AS \"Steps\" FROM daily_metrics WHERE metric = 'step_count' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Findings",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 6 },
+      "datasource": { "uid": "healthlog-db" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT ref_date AS \"Date\", kind AS \"Kind\", metric_a AS \"Metric\", ROUND(severity::numeric,2) AS \"Severity\" FROM findings WHERE kind IN ('anomaly','recovery_alert') AND ref_date >= NOW() - INTERVAL '14 days' ORDER BY ref_date DESC",
+          "format": "table"
+        }
+      ]
+    }
+  ]
+}
