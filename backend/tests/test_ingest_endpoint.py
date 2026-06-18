@@ -42,3 +42,13 @@ def test_daily_view_buckets_in_local_tz(client, sample_payload, db_conn):
     assert len(rows) == 1
     assert str(rows[0].day) == "2026-01-02"
     assert rows[0].sum == 2000
+
+
+def test_daily_view_avg_coalesces_onto_qty(client, sample_payload, db_conn):
+    # resting_heart_rate fills qty (no Min/Avg/Max) — after migration 0005 the
+    # view's ``avg`` column must return the qty value via COALESCE, not NULL.
+    client.post("/api/ingest", json=sample_payload, headers={"X-Ingest-Token": "test-secret"})
+    rows = db_conn.execute(text("SELECT avg FROM daily_metrics WHERE metric = 'resting_heart_rate'")).all()
+    assert len(rows) == 1
+    assert rows[0].avg is not None  # pre-0005 this was NULL
+    assert abs(rows[0].avg - 62.0) < 0.01  # resting_heart_rate qty=62 in fixture

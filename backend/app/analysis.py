@@ -49,6 +49,7 @@ from .config import get_settings
 from .logging_config import configure_logging
 from .models import Finding
 from .registry import METRIC_REGISTRY
+from .workout_types import canonical_workout_type
 
 log = logging.getLogger("healthlog.analysis")
 
@@ -431,28 +432,6 @@ def aggregate_workout_daily(
     )
 
 
-def _slug(value: str) -> str:
-    """Lowercase the canonical type to a safe series-name suffix (``a-z0-9_``)."""
-    out = "".join(c if c.isalnum() else "_" for c in value.strip().lower())
-    while "__" in out:
-        out = out.replace("__", "_")
-    return out.strip("_")
-
-
-def canonical_workout_type(name: str | None, type_map: dict[str, str]) -> str | None:
-    """Map a localised HAE workout ``name`` to its canonical type slug.
-
-    Matching is case-insensitive on the configured keys. Returns None for an
-    unmapped (or missing) name — those workouts still feed the type-agnostic
-    aggregate, they just don't get a per-type series.
-    """
-    if not name or not type_map:
-        return None
-    lookup = {k.strip().lower(): v for k, v in type_map.items()}
-    mapped = lookup.get(name.strip().lower())
-    return _slug(mapped) if mapped else None
-
-
 def acute_chronic_ratio(s: pd.Series) -> tuple[float, float, float] | None:
     """ACWR = mean(last 7d) / mean(last 28d) on a dense daily load series.
 
@@ -672,10 +651,11 @@ def build_workout_series(
     ``workout_trimp`` (HR-based) and ``workout_load`` (kcal) run in parallel and
     are gated by ``workouts.load_metric``; duration/count always come along.
 
-    When ``workouts.type_map`` is set, an additional per-sport load series is
-    emitted for each mapped type (``workout_trimp_running``,
-    ``workout_load_cycling`` …) so a sport's lagged effect on recovery can be
-    told apart from another's. Unmapped workouts still feed the type-agnostic
+    An additional per-sport load series is emitted for each recognised type
+    (``workout_trimp_running``, ``workout_load_cycling`` …) so a sport's lagged
+    effect on recovery can be told apart from another's. Types are normalised by
+    the built-in workout-type map (``workout_types.py``), extensible/overridable
+    via ``workouts.type_map``. Unrecognised workouts still feed the type-agnostic
     aggregate; they just get no per-type series.
 
     When ``workouts.edwards`` is on and an intra-workout HR series is stored, a
@@ -717,17 +697,17 @@ def build_workout_series(
     if not intensity.dropna().empty:
         out["workout_intensity"] = intensity
 
-    # Per-sport load (Iteration 2): only when a type map is configured.
-    if workouts.type_map:
-        types = sessions["name"].map(lambda n: canonical_workout_type(n, workouts.type_map))
-        for wtype in sorted({t for t in types if t}):
-            subset = sessions[types == wtype]
-            sub_daily = aggregate_workout_daily(subset, hr_rest, hr_rest_default, hr_max, profile.sex)
-            if sub_daily.empty:
-                continue
-            for name, col in _load_columns(workouts.load_metric).items():
-                out[f"{name}_{wtype}"] = fill_zero_within_span(sub_daily[col])
-            _emit_edwards(out, sub_daily, workouts.edwards, suffix=f"_{wtype}")
+    # Per-sport load (Iteration 2): the built-in workout-type map normalises the
+    # localised HAE name out of the box, with workouts.type_map layered on top.
+    types = sessions["name"].map(lambda n: canonical_workout_type(n, workouts.type_map))
+    for wtype in sorted({t for t in types if t}):
+        subset = sessions[types == wtype]
+        sub_daily = aggregate_workout_daily(subset, hr_rest, hr_rest_default, hr_max, profile.sex)
+        if sub_daily.empty:
+            continue
+        for name, col in _load_columns(workouts.load_metric).items():
+            out[f"{name}_{wtype}"] = fill_zero_within_span(sub_daily[col])
+        _emit_edwards(out, sub_daily, workouts.edwards, suffix=f"_{wtype}")
 
     # Drop any series that ended up empty (matching the core/sleep series; a
     # constant series is harmless downstream, so no std>0 guard).

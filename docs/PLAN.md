@@ -515,9 +515,20 @@ Schein-Zusammenhang aus gegenläufigen Langzeit-Trends) + Dedup auf den stärkst
 Lag/Richtung je Paar; Saisonalität mit `phase_confident`-Flag bei zu nahem Hoch/Tief.
 
 ### Noch offen (in einer späteren Phase)
-- **Workout-Typ-Normalisierung:** Mapping lokalisierter `name` → kanonischer Typ (§4.4).
-- **`daily_metrics`-View an `COALESCE(vavg,qty)` angleichen** (Phase 4/Grafana), damit
-  Dashboards dieselben Tageswerte sehen wie die Analyse (die View nutzt aktuell `vavg`/`vmin`).
+
+*(Beide ursprünglichen Punkte umgesetzt — siehe unten.)*
+
+### Technische Schulden — umgesetzt ✅
+- **Workout-Typ-Normalisierung:** `app/workout_types.py` — eingebaute Map der gängigen
+  Apple-Workout-Namen (DE + EN) → kanonischer Slug, erweiterbar/überschreibbar via
+  `workouts.type_map` (config.yaml). Per-Sport-Serien in der Analyse erscheinen damit
+  out-of-the-box ohne Konfigurationsaufwand, und Sprach­wechsel am iPhone fragmentiert
+  keine Serien mehr. (§4.4)
+- **`daily_metrics`-View auf `COALESCE(vavg, qty)` angeglichen:** Migration
+  `0005_daily_metrics_coalesce` — `avg`/`vmin`/`vmax` nutzen nun
+  `COALESCE(vavg, qty)` / `COALESCE(vmin, qty)` / `COALESCE(vmax, qty)`, identisch
+  zum Analyse-Loader `load_daily_series`. Grafana-Dashboards und die Pipeline sehen
+  jetzt dieselben Tageswerte. (§4.7)
 
 ### Optional „think bigger" — nicht aktivierte Health-Kategorien
 Im Sample bewusst aus (ECG/GPX) bzw. ungenutzt. Das Modell verträgt sie jederzeit ohne

@@ -99,7 +99,8 @@ class Workout(Base):
     hae_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     start_time: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     end_time: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    name: Mapped[str | None] = mapped_column(Text, nullable=True)  # localised; needs type mapping
+    # localised HAE name; normalised to a canonical type at analysis time (workout_types.py)
+    name: Mapped[str | None] = mapped_column(Text, nullable=True)
     location: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_indoor: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     duration_s: Mapped[float | None] = mapped_column(Float, nullable=True)
