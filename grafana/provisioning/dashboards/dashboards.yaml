@@ -1,8 +1,0 @@
-apiVersion: 1
-providers:
-  - name: healthlog
-    type: file
-    disableDeletion: true
-    updateIntervalSeconds: 0
-    options:
-      path: /var/lib/grafana/dashboards
