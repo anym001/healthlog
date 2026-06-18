@@ -3,6 +3,6 @@ providers:
   - name: healthlog
     type: file
     disableDeletion: true
-    updateIntervalSeconds: 60
+    updateIntervalSeconds: 0
     options:
       path: /var/lib/grafana/dashboards
