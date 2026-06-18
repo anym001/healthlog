@@ -17,7 +17,6 @@ from app.analysis import (
     aggregate_workout_daily,
     annual_seasonality,
     banister_trimp,
-    canonical_workout_type,
     circular_bedtime_offset,
     decompose,
     edwards_trimp,
@@ -31,6 +30,7 @@ from app.analysis import (
 )
 from app.appconfig import AnalysisConfig, AppConfig, ProfileConfig, WorkoutConfig
 from app.models import Finding, MetricSample, SleepSession, Workout, WorkoutHrSample
+from app.workout_types import canonical_workout_type
 
 UTC = dt.UTC
 
@@ -546,9 +546,23 @@ def test_canonical_workout_type_maps_case_insensitively():
 
 def test_canonical_workout_type_unmapped_is_none():
     tmap = {"Outdoor Run": "running"}
-    assert canonical_workout_type("Pool Swim", tmap) is None  # not in the map
+    assert canonical_workout_type("Quidditch Match", tmap) is None  # unknown to map + built-in
     assert canonical_workout_type(None, tmap) is None
-    assert canonical_workout_type("Outdoor Run", {}) is None  # no map -> aggregate only
+    assert canonical_workout_type("", tmap) is None
+
+
+def test_canonical_workout_type_uses_builtin_without_config():
+    # The built-in map normalises common Apple types out of the box (no config).
+    assert canonical_workout_type("Outdoor Run", {}) == "running"
+    assert canonical_workout_type("Pool Swim", {}) == "swimming"
+    # Cross-language stability: German and English names fold to one type.
+    assert canonical_workout_type("Laufen", {}) == canonical_workout_type("Outdoor Run", {}) == "running"
+    assert canonical_workout_type("Radfahren", {}) == "cycling"
+
+
+def test_canonical_workout_type_config_overrides_builtin():
+    # An operator entry wins over the built-in mapping for the same name.
+    assert canonical_workout_type("Outdoor Run", {"Outdoor Run": "trail running"}) == "trail_running"
 
 
 def test_canonical_workout_type_slugs_spaces():
@@ -666,9 +680,15 @@ def test_build_series_splits_load_by_sport(db):
                 energy=500,
                 name="Outdoor Cycle",
             )
-        if i % 5 == 0:  # an unmapped sport
+        if i % 5 == 0:  # a sport unknown to both the config map and the built-in
             _add_workout(
-                db, when + dt.timedelta(hours=4), duration_s=1800, avg_hr=120, max_hr=150, energy=200, name="Pool Swim"
+                db,
+                when + dt.timedelta(hours=4),
+                duration_s=1800,
+                avg_hr=120,
+                max_hr=150,
+                energy=200,
+                name="Quidditch Match",
             )
     db.flush()
 
@@ -679,21 +699,41 @@ def test_build_series_splits_load_by_sport(db):
     assert "workout_trimp" in series and "workout_load" in series
     assert "workout_trimp_running" in series and "workout_load_running" in series
     assert "workout_trimp_cycling" in series and "workout_load_cycling" in series
-    # The unmapped sport feeds only the aggregate, never its own series.
-    assert not any("swim" in name for name in series)
+    # The unrecognised sport feeds only the aggregate, never its own series.
+    assert not any("quidditch" in name for name in series)
 
 
-def test_build_series_no_type_split_without_map(db):
+def test_build_series_no_type_split_for_unrecognised_sport(db):
     start = dt.date(2026, 1, 1)
     for i in range(30):
         day = start + dt.timedelta(days=i)
         when = dt.datetime(day.year, day.month, day.day, 18, tzinfo=UTC)
-        _add_workout(db, when, duration_s=2400, avg_hr=150, max_hr=180, energy=400, name="Outdoor Run")
+        _add_workout(db, when, duration_s=2400, avg_hr=150, max_hr=180, energy=400, name="Quidditch Match")
     db.flush()
 
-    series = analysis.build_series(db, "Europe/Vienna")  # default: empty type_map
+    series = analysis.build_series(db, "Europe/Vienna")  # default config, no type_map
     assert "workout_trimp" in series
-    assert not any(name.startswith("workout_trimp_") for name in series)  # no per-sport split
+    # Unknown to the built-in map and no config entry -> aggregate only, no split.
+    assert not any(name.startswith("workout_trimp_") for name in series)
+
+
+def test_build_series_splits_by_builtin_map_without_config(db):
+    start = dt.date(2026, 1, 1)
+    for i in range(35):
+        day = start + dt.timedelta(days=i)
+        when = dt.datetime(day.year, day.month, day.day, 18, tzinfo=UTC)
+        _add_workout(db, when, duration_s=2400, avg_hr=150, max_hr=180, energy=400, name="Outdoor Run")
+        if i % 3 == 0:
+            _add_workout(
+                db, when + dt.timedelta(hours=2), duration_s=3600, avg_hr=135, max_hr=170, energy=500, name="Radfahren"
+            )
+    db.flush()
+
+    # No type_map configured: the built-in map alone normalises the localised
+    # names, so per-sport series appear out of the box (German + English fold).
+    series = analysis.build_series(db, "Europe/Vienna")
+    assert "workout_trimp_running" in series
+    assert "workout_trimp_cycling" in series
 
 
 def test_build_series_per_sport_respects_load_metric(db):
