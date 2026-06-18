@@ -1,22 +1,47 @@
 {
   "uid": "healthlog-overview",
-  "title": "Overview",
-  "timezone": "Europe/Vienna",
+  "title": "HealthLog – Overview",
   "schemaVersion": 39,
-  "tags": ["healthlog"],
+  "version": 1,
+  "timezone": "Europe/Vienna",
   "time": { "from": "now-14d", "to": "now" },
-  "refresh": "",
+  "refresh": "1h",
+  "tags": ["healthlog"],
   "panels": [
     {
       "id": 1,
       "type": "stat",
-      "title": "Last Night – Sleep",
-      "gridPos": { "x": 0, "y": 0, "w": 8, "h": 4 },
+      "title": "Last Night – Total Sleep",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
       "datasource": { "uid": "healthlog-db" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:h",
+          "decimals": 1,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 6 },
+              { "color": "green", "value": 7 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT total_sleep_h AS \"Total Sleep (h)\" FROM sleep_sessions ORDER BY sleep_date DESC LIMIT 1",
+          "rawSql": "SELECT total_sleep_h AS \"Total Sleep\" FROM sleep_sessions ORDER BY sleep_date DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -25,12 +50,36 @@
       "id": 2,
       "type": "stat",
       "title": "Last Night – Deep Sleep",
-      "gridPos": { "x": 8, "y": 0, "w": 8, "h": 4 },
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
       "datasource": { "uid": "healthlog-db" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:h",
+          "decimals": 1,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.8 },
+              { "color": "green", "value": 1.2 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT deep_h AS \"Deep Sleep (h)\" FROM sleep_sessions ORDER BY sleep_date DESC LIMIT 1",
+          "rawSql": "SELECT deep_h AS \"Deep Sleep\" FROM sleep_sessions ORDER BY sleep_date DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -38,53 +87,221 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "Last Night – HRV",
-      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 4 },
+      "title": "Last Night – REM Sleep",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
       "datasource": { "uid": "healthlog-db" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:h",
+          "decimals": 1,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 1.0 },
+              { "color": "green", "value": 1.5 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT avg AS \"HRV (ms)\" FROM daily_metrics WHERE metric = 'heart_rate_variability' ORDER BY day DESC LIMIT 1",
+          "rawSql": "SELECT rem_h AS \"REM Sleep\" FROM sleep_sessions ORDER BY sleep_date DESC LIMIT 1",
           "format": "table"
         }
       ]
     },
     {
       "id": 4,
-      "type": "barchart",
-      "title": "Sleep Phases",
-      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "type": "stat",
+      "title": "Last Night – Sleep Efficiency",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
       "datasource": { "uid": "healthlog-db" },
-      "options": { "stacking": "normal" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 0,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 75 },
+              { "color": "green", "value": 85 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT sleep_date AS time, deep_h AS \"Deep\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
-          "format": "time_series"
-        },
-        {
-          "refId": "B",
-          "rawSql": "SELECT sleep_date AS time, core_h AS \"Core\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
-          "format": "time_series"
-        },
-        {
-          "refId": "C",
-          "rawSql": "SELECT sleep_date AS time, rem_h AS \"REM\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
-          "format": "time_series"
-        },
-        {
-          "refId": "D",
-          "rawSql": "SELECT sleep_date AS time, awake_h AS \"Awake\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
-          "format": "time_series"
+          "rawSql": "SELECT ROUND((total_sleep_h / NULLIF(CASE WHEN in_bed_start IS NOT NULL AND in_bed_end IS NOT NULL THEN EXTRACT(EPOCH FROM (in_bed_end - in_bed_start))/3600.0 WHEN in_bed_h > 0 THEN in_bed_h WHEN (total_sleep_h + awake_h) > 0 THEN total_sleep_h + awake_h ELSE NULL END, 0.0) * 100)::numeric, 0) AS \"Sleep Efficiency\" FROM sleep_sessions ORDER BY sleep_date DESC LIMIT 1",
+          "format": "table"
         }
       ]
     },
     {
       "id": 5,
+      "type": "stat",
+      "title": "Today – HRV",
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "uid": "healthlog-db" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "decimals": 0,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 30 },
+              { "color": "green", "value": 50 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT avg AS \"HRV\" FROM daily_metrics WHERE metric = 'heart_rate_variability' ORDER BY day DESC LIMIT 1",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Today – Resting HR",
+      "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "uid": "healthlog-db" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:bpm",
+          "decimals": 0,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 65 },
+              { "color": "red", "value": 75 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT vmin AS \"Resting HR\" FROM daily_metrics WHERE metric = 'resting_heart_rate' ORDER BY day DESC LIMIT 1",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "barchart",
+      "title": "Sleep Phases",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "uid": "healthlog-db" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:h",
+          "decimals": 1,
+          "color": { "mode": "palette-classic" },
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "stacking": "normal",
+        "barRadius": 0.1,
+        "groupWidth": 0.7,
+        "barWidth": 0.97,
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT sleep_date AS time, deep_h AS \"Deep\", core_h AS \"Core\", rem_h AS \"REM\", awake_h AS \"Awake\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "id": 8,
       "type": "timeseries",
       "title": "HRV & Resting Heart Rate",
       "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
       "datasource": { "uid": "healthlog-db" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "decimals": 0,
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "spanNulls": false,
+            "showPoints": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Resting HR (bpm)" },
+            "properties": [
+              { "id": "unit", "value": "suffix:bpm" },
+              { "id": "custom.axisPlacement", "value": "right" },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
       "targets": [
         {
           "refId": "A",
@@ -99,11 +316,28 @@
       ]
     },
     {
-      "id": 6,
+      "id": 9,
       "type": "barchart",
-      "title": "Steps",
-      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 6 },
+      "title": "Daily Steps",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 7 },
       "datasource": { "uid": "healthlog-db" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": { "mode": "palette-classic" },
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "stacking": "none",
+        "barRadius": 0.1,
+        "groupWidth": 0.7,
+        "barWidth": 0.97,
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi" }
+      },
       "targets": [
         {
           "refId": "A",
@@ -113,15 +347,54 @@
       ]
     },
     {
-      "id": 7,
-      "type": "table",
-      "title": "Findings",
-      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 6 },
+      "id": 10,
+      "type": "barchart",
+      "title": "Active Energy",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 7 },
       "datasource": { "uid": "healthlog-db" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:kcal",
+          "decimals": 0,
+          "color": { "mode": "palette-classic" },
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "stacking": "none",
+        "barRadius": 0.1,
+        "groupWidth": 0.7,
+        "barWidth": 0.97,
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi" }
+      },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT ref_date AS \"Date\", kind AS \"Kind\", metric_a AS \"Metric\", ROUND(severity::numeric,2) AS \"Severity\" FROM findings WHERE kind IN ('anomaly','recovery_alert') AND ref_date >= NOW() - INTERVAL '14 days' ORDER BY ref_date DESC",
+          "rawSql": "SELECT day AS time, sum AS \"Active Energy (kcal)\" FROM daily_metrics WHERE metric = 'active_energy' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "table",
+      "title": "Recent Findings",
+      "gridPos": { "x": 0, "y": 19, "w": 24, "h": 6 },
+      "datasource": { "uid": "healthlog-db" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "sortBy": [{ "displayName": "Date", "desc": true }],
+        "footer": { "show": false }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT TO_CHAR(ref_date, 'YYYY-MM-DD') AS \"Date\", kind AS \"Kind\", metric_a AS \"Metric\", note AS \"Note\", ROUND(severity::numeric, 2) AS \"Severity\" FROM findings WHERE kind IN ('anomaly', 'recovery_alert', 'training_load') ORDER BY ref_date DESC LIMIT 50",
           "format": "table"
         }
       ]
