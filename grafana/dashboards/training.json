@@ -1,6 +1,6 @@
 {
   "uid": "healthlog-training",
-  "title": "Training & Erholung",
+  "title": "Training & Recovery",
   "timezone": "Europe/Vienna",
   "schemaVersion": 39,
   "tags": ["healthlog"],
@@ -10,7 +10,7 @@
     {
       "id": 1,
       "type": "barchart",
-      "title": "Trainingsbelastung (TRIMP)",
+      "title": "Training Load (TRIMP)",
       "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
       "datasource": { "uid": "healthlog-db" },
       "targets": [
@@ -24,24 +24,24 @@
     {
       "id": 2,
       "type": "barchart",
-      "title": "Belastung nach Sportart",
+      "title": "Load by Sport",
       "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
       "datasource": { "uid": "healthlog-db" },
       "options": { "stacking": "normal" },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT day AS time, sum AS \"Krafttraining\" FROM daily_metrics WHERE metric = 'workout_trimp_strength' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "rawSql": "SELECT day AS time, sum AS \"Strength\" FROM daily_metrics WHERE metric = 'workout_trimp_strength' AND $__timeFilter(day::timestamptz) ORDER BY day",
           "format": "time_series"
         },
         {
           "refId": "B",
-          "rawSql": "SELECT day AS time, sum AS \"Gehen\" FROM daily_metrics WHERE metric = 'workout_trimp_walking' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "rawSql": "SELECT day AS time, sum AS \"Walking\" FROM daily_metrics WHERE metric = 'workout_trimp_walking' AND $__timeFilter(day::timestamptz) ORDER BY day",
           "format": "time_series"
         },
         {
           "refId": "C",
-          "rawSql": "SELECT day AS time, sum AS \"Radfahren\" FROM daily_metrics WHERE metric = 'workout_trimp_cycling' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "rawSql": "SELECT day AS time, sum AS \"Cycling\" FROM daily_metrics WHERE metric = 'workout_trimp_cycling' AND $__timeFilter(day::timestamptz) ORDER BY day",
           "format": "time_series"
         }
       ]
@@ -49,7 +49,7 @@
     {
       "id": 3,
       "type": "timeseries",
-      "title": "HRV & Ruhepuls",
+      "title": "HRV & Resting Heart Rate",
       "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
       "datasource": { "uid": "healthlog-db" },
       "targets": [
@@ -60,7 +60,7 @@
         },
         {
           "refId": "B",
-          "rawSql": "SELECT day AS time, vmin AS \"Ruhepuls (bpm)\" FROM daily_metrics WHERE metric = 'resting_heart_rate' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "rawSql": "SELECT day AS time, vmin AS \"Resting HR (bpm)\" FROM daily_metrics WHERE metric = 'resting_heart_rate' AND $__timeFilter(day::timestamptz) ORDER BY day",
           "format": "time_series"
         }
       ]
@@ -68,13 +68,13 @@
     {
       "id": 4,
       "type": "timeseries",
-      "title": "Herzfrequenz-Erholung",
+      "title": "Cardio Recovery",
       "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
       "datasource": { "uid": "healthlog-db" },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT day AS time, avg AS \"HF-Erholung\" FROM daily_metrics WHERE metric = 'cardio_recovery' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "rawSql": "SELECT day AS time, avg AS \"HR Recovery (bpm)\" FROM daily_metrics WHERE metric = 'cardio_recovery' AND $__timeFilter(day::timestamptz) ORDER BY day",
           "format": "time_series"
         }
       ]
@@ -88,7 +88,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT DATE(start_time AT TIME ZONE 'Europe/Vienna') AS \"Datum\", name AS \"Sportart\", ROUND((duration_s/60)::numeric,0) AS \"Dauer (min)\", ROUND(active_energy_kcal::numeric,0) AS \"Energie (kcal)\", ROUND(avg_hr::numeric,0) AS \"Ø HR (bpm)\", ROUND(distance_km::numeric,2) AS \"Distanz (km)\" FROM workouts WHERE $__timeFilter(start_time) ORDER BY start_time DESC",
+          "rawSql": "SELECT DATE(start_time AT TIME ZONE 'Europe/Vienna') AS \"Date\", name AS \"Type\", ROUND((duration_s/60)::numeric,0) AS \"Duration (min)\", ROUND(active_energy_kcal::numeric,0) AS \"Energy (kcal)\", ROUND(avg_hr::numeric,0) AS \"Avg HR (bpm)\", ROUND(distance_km::numeric,2) AS \"Distance (km)\" FROM workouts WHERE $__timeFilter(start_time) ORDER BY start_time DESC",
           "format": "table"
         }
       ]
@@ -96,13 +96,13 @@
     {
       "id": 6,
       "type": "table",
-      "title": "Training-Befunde",
+      "title": "Training Findings",
       "gridPos": { "x": 0, "y": 23, "w": 24, "h": 7 },
       "datasource": { "uid": "healthlog-db" },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT ref_date AS \"Datum\", kind AS \"Art\", note AS \"Hinweis\", ROUND(severity::numeric,2) AS \"Schweregrad\" FROM findings WHERE kind IN ('training_load','recovery_alert') AND ref_date >= NOW() - INTERVAL '30 days' ORDER BY ref_date DESC",
+          "rawSql": "SELECT ref_date AS \"Date\", kind AS \"Kind\", note AS \"Note\", ROUND(severity::numeric,2) AS \"Severity\" FROM findings WHERE kind IN ('training_load','recovery_alert') AND ref_date >= NOW() - INTERVAL '30 days' ORDER BY ref_date DESC",
           "format": "table"
         }
       ]
