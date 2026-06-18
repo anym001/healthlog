@@ -2,7 +2,7 @@
 # python:3.12-slim + s6-overlay v3 (PID 1: clean signal handling + supervision).
 # Two long-run services (uvicorn ingest, APScheduler) plus oneshot init/migrate.
 # PUID/PGID + /config follow the LinuxServer/Unraid convention.
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 ARG S6_OVERLAY_VERSION=3.2.0.2
 

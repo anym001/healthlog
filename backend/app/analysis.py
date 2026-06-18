@@ -700,7 +700,7 @@ def build_workout_series(
     # Per-sport load (Iteration 2): the built-in workout-type map normalises the
     # localised HAE name out of the box, with workouts.type_map layered on top.
     types = sessions["name"].map(lambda n: canonical_workout_type(n, workouts.type_map))
-    for wtype in sorted({t for t in types if t}):
+    for wtype in sorted(t for t in types if isinstance(t, str)):
         subset = sessions[types == wtype]
         sub_daily = aggregate_workout_daily(subset, hr_rest, hr_rest_default, hr_max, profile.sex)
         if sub_daily.empty:
