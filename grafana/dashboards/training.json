@@ -31,17 +31,17 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT day AS time, sum AS \"Krafttraining\" FROM daily_metrics WHERE metric = 'workout_trimp_krafttraining' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "rawSql": "SELECT day AS time, sum AS \"Krafttraining\" FROM daily_metrics WHERE metric = 'workout_trimp_strength' AND $__timeFilter(day::timestamptz) ORDER BY day",
           "format": "time_series"
         },
         {
           "refId": "B",
-          "rawSql": "SELECT day AS time, sum AS \"Gehen\" FROM daily_metrics WHERE metric = 'workout_trimp_gehen' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "rawSql": "SELECT day AS time, sum AS \"Gehen\" FROM daily_metrics WHERE metric = 'workout_trimp_walking' AND $__timeFilter(day::timestamptz) ORDER BY day",
           "format": "time_series"
         },
         {
           "refId": "C",
-          "rawSql": "SELECT day AS time, sum AS \"Radfahren\" FROM daily_metrics WHERE metric = 'workout_trimp_radfahren' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "rawSql": "SELECT day AS time, sum AS \"Radfahren\" FROM daily_metrics WHERE metric = 'workout_trimp_cycling' AND $__timeFilter(day::timestamptz) ORDER BY day",
           "format": "time_series"
         }
       ]
