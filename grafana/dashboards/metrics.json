@@ -1,0 +1,440 @@
+{
+  "uid": "healthlog-metrics",
+  "title": "HealthLog – Metrics Explorer",
+  "schemaVersion": 39,
+  "version": 1,
+  "timezone": "Europe/Vienna",
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "refresh": "1h",
+  "tags": [
+    "healthlog"
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "metric",
+        "type": "query",
+        "label": "Metric",
+        "datasource": {
+          "uid": "healthlog-db"
+        },
+        "query": "SELECT COALESCE(r.category, 'other') || ' · ' || COALESCE(r.display_name, m.metric) AS __text, m.metric AS __value FROM (SELECT DISTINCT metric FROM metric_samples) m LEFT JOIN metric_registry r ON r.metric = m.metric ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "multi": false,
+        "includeAll": false,
+        "current": {},
+        "options": []
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Latest Reading",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 2,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT ROUND((CASE r.agg_default WHEN 'sum' THEN d.sum WHEN 'min' THEN d.vmin WHEN 'max' THEN d.vmax ELSE d.avg END)::numeric, 2)::text || ' ' || COALESCE(r.unit_canonical, '') AS \"Latest\" FROM daily_metrics d JOIN metric_registry r ON r.metric = d.metric WHERE d.metric = '$metric' ORDER BY d.day DESC LIMIT 1",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "7-Day Average",
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 2,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT ROUND(AVG(CASE r.agg_default WHEN 'sum' THEN d.sum WHEN 'min' THEN d.vmin WHEN 'max' THEN d.vmax ELSE d.avg END)::numeric, 2) AS \"7-day avg\" FROM daily_metrics d JOIN metric_registry r ON r.metric = d.metric WHERE d.metric = '$metric' AND d.day >= CURRENT_DATE - INTERVAL '7 days'",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "30-Day Minimum",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 2,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT ROUND(MIN(CASE r.agg_default WHEN 'sum' THEN d.sum WHEN 'min' THEN d.vmin WHEN 'max' THEN d.vmax ELSE d.avg END)::numeric, 2) AS \"30-day min\" FROM daily_metrics d JOIN metric_registry r ON r.metric = d.metric WHERE d.metric = '$metric' AND d.day >= CURRENT_DATE - INTERVAL '30 days'",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "30-Day Maximum",
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 2,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT ROUND(MAX(CASE r.agg_default WHEN 'sum' THEN d.sum WHEN 'min' THEN d.vmin WHEN 'max' THEN d.vmax ELSE d.avg END)::numeric, 2) AS \"30-day max\" FROM daily_metrics d JOIN metric_registry r ON r.metric = d.metric WHERE d.metric = '$metric' AND d.day >= CURRENT_DATE - INTERVAL '30 days'",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Daily Value — $metric",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 9
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 2,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "spanNulls": false,
+            "showPoints": "auto",
+            "axisLabel": "Daily aggregate"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT d.day AS time, ROUND((CASE r.agg_default WHEN 'sum' THEN d.sum WHEN 'min' THEN d.vmin WHEN 'max' THEN d.vmax ELSE d.avg END)::numeric, 2) AS \"Daily value\" FROM daily_metrics d JOIN metric_registry r ON r.metric = d.metric WHERE d.metric = '$metric' AND $__timeFilter(d.day::timestamptz) ORDER BY d.day",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Intraday Range (min / avg / max)",
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 2,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "spanNulls": false,
+            "showPoints": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT day AS time, ROUND(vmin::numeric, 2) AS \"Min\", ROUND(avg::numeric, 2) AS \"Avg\", ROUND(vmax::numeric, 2) AS \"Max\" FROM daily_metrics WHERE metric = '$metric' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "barchart",
+      "title": "Daily Sample Count",
+      "gridPos": {
+        "x": 12,
+        "y": 13,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "Samples per day"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "barRadius": 0.1,
+        "groupWidth": 0.7,
+        "barWidth": 0.9,
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT day AS time, n AS \"Samples\" FROM daily_metrics WHERE metric = '$metric' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Raw Samples — $metric  (newest 500)",
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 24,
+        "h": 9
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "sortBy": [
+          {
+            "displayName": "Time",
+            "desc": true
+          }
+        ],
+        "footer": {
+          "show": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT time AS \"Time\", ROUND(qty::numeric, 3) AS \"Qty\", ROUND(vmin::numeric, 3) AS \"Min\", ROUND(vavg::numeric, 3) AS \"Avg\", ROUND(vmax::numeric, 3) AS \"Max\", n AS \"n\", unit AS \"Unit\", source AS \"Source\" FROM metric_samples WHERE metric = '$metric' AND $__timeFilter(time) ORDER BY time DESC LIMIT 500",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "table",
+      "title": "All Metrics — Data Catalog",
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 24,
+        "h": 11
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "sortBy": [
+          {
+            "displayName": "Category",
+            "desc": false
+          }
+        ],
+        "footer": {
+          "show": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT COALESCE(r.display_name, agg.metric) AS \"Metric\", COALESCE(r.category, '—') AS \"Category\", COALESCE(r.unit_canonical, '') AS \"Unit\", COALESCE(r.tier, 'secondary') AS \"Tier\", agg.days AS \"Days\", TO_CHAR(agg.last_day, 'YYYY-MM-DD') AS \"Last Sample\" FROM (SELECT metric, COUNT(*) AS days, MAX(day) AS last_day FROM daily_metrics GROUP BY metric) agg LEFT JOIN metric_registry r ON r.metric = agg.metric ORDER BY \"Category\", \"Metric\"",
+          "format": "table"
+        }
+      ]
+    }
+  ]
+}

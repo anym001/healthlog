@@ -1,6 +1,6 @@
 # Grafana Dashboards
 
-Three pre-built Grafana dashboards for HealthLog. Import them once via the
+Four pre-built Grafana dashboards for HealthLog. Import them once via the
 Grafana UI — no provisioning required.
 
 ## Prerequisites
@@ -61,6 +61,16 @@ Dashboards → New → Import → upload JSON file (repeat for each):
 | `dashboards/overview.json` | Overview — daily summary (14-day window) |
 | `dashboards/sleep.json` | Sleep — phases, efficiency, bedtime (30-day window) |
 | `dashboards/training.json` | Training & Recovery — TRIMP by sport, HRV, workouts table (30-day window) |
+| `dashboards/metrics.json` | Metrics Explorer — raw values for any metric, Apple-Health-style (30-day window) |
+
+The **Metrics Explorer** is metric-agnostic: a `Metric` dropdown at the top
+(grouped by category, e.g. `vital · Heart Rate`) selects which metric to inspect,
+and every panel follows it — latest reading, 7-day average, 30-day min/max, the
+agg-aware daily trend (sum / min / avg / max per the metric registry), the
+intraday min–avg–max range, daily sample count, and the raw `metric_samples`
+rows. The bottom **Data Catalog** lists every metric that has data with its unit,
+category, tier, day count, and last sample — so newly auto-registered metrics
+show up automatically without editing the dashboard.
 
 ## Updating a dashboard
 

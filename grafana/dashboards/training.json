@@ -4,35 +4,67 @@
   "schemaVersion": 39,
   "version": 1,
   "timezone": "Europe/Vienna",
-  "time": { "from": "now-30d", "to": "now" },
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
   "refresh": "1h",
-  "tags": ["healthlog"],
+  "tags": [
+    "healthlog"
+  ],
   "panels": [
     {
       "id": 1,
       "type": "stat",
       "title": "TRIMP (last 7d)",
-      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
-      "datasource": { "uid": "healthlog-db" },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "none",
           "decimals": 0,
-          "color": { "mode": "thresholds" },
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "blue", "value": null },
-              { "color": "green", "value": 100 },
-              { "color": "yellow", "value": 300 },
-              { "color": "red", "value": 500 }
+              {
+                "color": "blue",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 100
+              },
+              {
+                "color": "yellow",
+                "value": 300
+              },
+              {
+                "color": "red",
+                "value": 500
+              }
             ]
           }
         },
         "overrides": []
       },
       "options": {
-        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
         "orientation": "auto",
         "textMode": "auto",
         "colorMode": "background",
@@ -51,26 +83,50 @@
       "id": 2,
       "type": "stat",
       "title": "Workouts (last 7d)",
-      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
-      "datasource": { "uid": "healthlog-db" },
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "none",
           "decimals": 0,
-          "color": { "mode": "thresholds" },
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "blue", "value": null },
-              { "color": "green", "value": 3 },
-              { "color": "yellow", "value": 6 }
+              {
+                "color": "blue",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 3
+              },
+              {
+                "color": "yellow",
+                "value": 6
+              }
             ]
           }
         },
         "overrides": []
       },
       "options": {
-        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
         "orientation": "auto",
         "textMode": "auto",
         "colorMode": "background",
@@ -89,26 +145,50 @@
       "id": 3,
       "type": "stat",
       "title": "Last HRV",
-      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
-      "datasource": { "uid": "healthlog-db" },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "ms",
           "decimals": 0,
-          "color": { "mode": "thresholds" },
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "yellow", "value": 30 },
-              { "color": "green", "value": 50 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 30
+              },
+              {
+                "color": "green",
+                "value": 50
+              }
             ]
           }
         },
         "overrides": []
       },
       "options": {
-        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
         "orientation": "auto",
         "textMode": "auto",
         "colorMode": "background",
@@ -127,26 +207,50 @@
       "id": 4,
       "type": "stat",
       "title": "Last Resting HR",
-      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
-      "datasource": { "uid": "healthlog-db" },
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "suffix:bpm",
           "decimals": 0,
-          "color": { "mode": "thresholds" },
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 65 },
-              { "color": "red", "value": 75 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 65
+              },
+              {
+                "color": "red",
+                "value": 75
+              }
             ]
           }
         },
         "overrides": []
       },
       "options": {
-        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
         "orientation": "auto",
         "textMode": "auto",
         "colorMode": "background",
@@ -165,13 +269,22 @@
       "id": 5,
       "type": "barchart",
       "title": "Training Load (TRIMP)",
-      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
-      "datasource": { "uid": "healthlog-db" },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "none",
           "decimals": 1,
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {}
         },
         "overrides": []
@@ -181,13 +294,19 @@
         "barRadius": 0.1,
         "groupWidth": 0.7,
         "barWidth": 0.97,
-        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
-        "tooltip": { "mode": "multi" }
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
       },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT start_time AS time, CASE WHEN avg_hr IS NOT NULL AND duration_s IS NOT NULL AND duration_s > 0 THEN (duration_s/60.0) * LEAST(1.0,GREATEST(0.0,(avg_hr-60.0)/130.0)) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,(avg_hr-60.0)/130.0)))) ELSE 0 END AS \"TRIMP\" FROM workouts WHERE $__timeFilter(start_time) ORDER BY start_time",
+          "rawSql": "SELECT DATE(start_time AT TIME ZONE 'Europe/Vienna') AS time, ROUND(SUM(CASE WHEN avg_hr IS NOT NULL AND duration_s IS NOT NULL AND duration_s > 0 THEN (duration_s/60.0) * LEAST(1.0,GREATEST(0.0,(avg_hr-60.0)/130.0)) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,(avg_hr-60.0)/130.0)))) ELSE 0 END)::numeric, 1) AS \"TRIMP\" FROM workouts WHERE $__timeFilter(start_time) GROUP BY DATE(start_time AT TIME ZONE 'Europe/Vienna') ORDER BY time",
           "format": "time_series"
         }
       ]
@@ -196,13 +315,22 @@
       "id": 6,
       "type": "barchart",
       "title": "Load by Sport",
-      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
-      "datasource": { "uid": "healthlog-db" },
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "none",
           "decimals": 1,
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {}
         },
         "overrides": []
@@ -212,23 +340,29 @@
         "barRadius": 0.1,
         "groupWidth": 0.7,
         "barWidth": 0.97,
-        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
-        "tooltip": { "mode": "multi" }
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
       },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT start_time AS time, CASE WHEN avg_hr IS NOT NULL AND duration_s IS NOT NULL AND duration_s > 0 THEN (duration_s/60.0) * LEAST(1.0,GREATEST(0.0,(avg_hr-60.0)/130.0)) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,(avg_hr-60.0)/130.0)))) ELSE 0 END AS \"Strength\" FROM workouts WHERE $__timeFilter(start_time) AND (name ILIKE '%kraft%' OR name ILIKE '%strength%') ORDER BY start_time",
+          "rawSql": "SELECT DATE(start_time AT TIME ZONE 'Europe/Vienna') AS time, ROUND(SUM(CASE WHEN avg_hr IS NOT NULL AND duration_s IS NOT NULL AND duration_s > 0 THEN (duration_s/60.0) * LEAST(1.0,GREATEST(0.0,(avg_hr-60.0)/130.0)) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,(avg_hr-60.0)/130.0)))) ELSE 0 END)::numeric, 1) AS \"Strength\" FROM workouts WHERE $__timeFilter(start_time) AND (name ILIKE '%kraft%' OR name ILIKE '%strength%') GROUP BY DATE(start_time AT TIME ZONE 'Europe/Vienna') ORDER BY time",
           "format": "time_series"
         },
         {
           "refId": "B",
-          "rawSql": "SELECT start_time AS time, CASE WHEN avg_hr IS NOT NULL AND duration_s IS NOT NULL AND duration_s > 0 THEN (duration_s/60.0) * LEAST(1.0,GREATEST(0.0,(avg_hr-60.0)/130.0)) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,(avg_hr-60.0)/130.0)))) ELSE 0 END AS \"Walking\" FROM workouts WHERE $__timeFilter(start_time) AND (name ILIKE '%walk%' OR name ILIKE '%spazier%' OR name ILIKE '%wander%' OR name ILIKE '%hik%') ORDER BY start_time",
+          "rawSql": "SELECT DATE(start_time AT TIME ZONE 'Europe/Vienna') AS time, ROUND(SUM(CASE WHEN avg_hr IS NOT NULL AND duration_s IS NOT NULL AND duration_s > 0 THEN (duration_s/60.0) * LEAST(1.0,GREATEST(0.0,(avg_hr-60.0)/130.0)) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,(avg_hr-60.0)/130.0)))) ELSE 0 END)::numeric, 1) AS \"Walking\" FROM workouts WHERE $__timeFilter(start_time) AND (name ILIKE '%walk%' OR name ILIKE '%spazier%' OR name ILIKE '%wander%' OR name ILIKE '%hik%') GROUP BY DATE(start_time AT TIME ZONE 'Europe/Vienna') ORDER BY time",
           "format": "time_series"
         },
         {
           "refId": "C",
-          "rawSql": "SELECT start_time AS time, CASE WHEN avg_hr IS NOT NULL AND duration_s IS NOT NULL AND duration_s > 0 THEN (duration_s/60.0) * LEAST(1.0,GREATEST(0.0,(avg_hr-60.0)/130.0)) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,(avg_hr-60.0)/130.0)))) ELSE 0 END AS \"Cycling\" FROM workouts WHERE $__timeFilter(start_time) AND (name ILIKE '%cycl%' OR name ILIKE '%radfahren%' OR name ILIKE '%fahrrad%') ORDER BY start_time",
+          "rawSql": "SELECT DATE(start_time AT TIME ZONE 'Europe/Vienna') AS time, ROUND(SUM(CASE WHEN avg_hr IS NOT NULL AND duration_s IS NOT NULL AND duration_s > 0 THEN (duration_s/60.0) * LEAST(1.0,GREATEST(0.0,(avg_hr-60.0)/130.0)) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,(avg_hr-60.0)/130.0)))) ELSE 0 END)::numeric, 1) AS \"Cycling\" FROM workouts WHERE $__timeFilter(start_time) AND (name ILIKE '%cycl%' OR name ILIKE '%radfahren%' OR name ILIKE '%fahrrad%') GROUP BY DATE(start_time AT TIME ZONE 'Europe/Vienna') ORDER BY time",
           "format": "time_series"
         }
       ]
@@ -237,13 +371,22 @@
       "id": 7,
       "type": "timeseries",
       "title": "HRV & Resting Heart Rate",
-      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
-      "datasource": { "uid": "healthlog-db" },
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "ms",
           "decimals": 0,
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "drawStyle": "line",
             "lineInterpolation": "smooth",
@@ -255,18 +398,40 @@
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "Resting HR (bpm)" },
+            "matcher": {
+              "id": "byName",
+              "options": "Resting HR (bpm)"
+            },
             "properties": [
-              { "id": "unit", "value": "suffix:bpm" },
-              { "id": "custom.axisPlacement", "value": "right" },
-              { "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }
+              {
+                "id": "unit",
+                "value": "suffix:bpm"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
             ]
           }
         ]
       },
       "options": {
-        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
-        "tooltip": { "mode": "multi", "sort": "none" }
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
       },
       "targets": [
         {
@@ -285,13 +450,22 @@
       "id": 8,
       "type": "timeseries",
       "title": "Cardio Recovery",
-      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
-      "datasource": { "uid": "healthlog-db" },
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "suffix:bpm",
           "decimals": 0,
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "drawStyle": "line",
             "lineInterpolation": "smooth",
@@ -304,8 +478,15 @@
         "overrides": []
       },
       "options": {
-        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
-        "tooltip": { "mode": "multi", "sort": "none" }
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
       },
       "targets": [
         {
@@ -319,13 +500,22 @@
       "id": 9,
       "type": "timeseries",
       "title": "Active Energy",
-      "gridPos": { "x": 0, "y": 20, "w": 12, "h": 8 },
-      "datasource": { "uid": "healthlog-db" },
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "suffix:kcal",
           "decimals": 0,
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "drawStyle": "line",
             "lineInterpolation": "smooth",
@@ -338,8 +528,15 @@
         "overrides": []
       },
       "options": {
-        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
-        "tooltip": { "mode": "multi", "sort": "none" }
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
       },
       "targets": [
         {
@@ -353,13 +550,22 @@
       "id": 10,
       "type": "timeseries",
       "title": "VO2 Max",
-      "gridPos": { "x": 12, "y": 20, "w": 12, "h": 8 },
-      "datasource": { "uid": "healthlog-db" },
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "suffix:ml/kg/min",
           "decimals": 1,
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "drawStyle": "line",
             "lineInterpolation": "smooth",
@@ -372,8 +578,15 @@
         "overrides": []
       },
       "options": {
-        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
-        "tooltip": { "mode": "multi", "sort": "none" }
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
       },
       "targets": [
         {
@@ -387,34 +600,66 @@
       "id": 11,
       "type": "table",
       "title": "Workouts",
-      "gridPos": { "x": 0, "y": 28, "w": 24, "h": 7 },
-      "datasource": { "uid": "healthlog-db" },
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 24,
+        "h": 7
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
       "fieldConfig": {
         "defaults": {},
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "Duration (min)" },
+            "matcher": {
+              "id": "byName",
+              "options": "Duration (min)"
+            },
             "properties": [
-              { "id": "unit", "value": "suffix:min" }
+              {
+                "id": "unit",
+                "value": "suffix:min"
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "Energy (kcal)" },
+            "matcher": {
+              "id": "byName",
+              "options": "Energy (kcal)"
+            },
             "properties": [
-              { "id": "unit", "value": "suffix:kcal" }
+              {
+                "id": "unit",
+                "value": "suffix:kcal"
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "Distance (km)" },
+            "matcher": {
+              "id": "byName",
+              "options": "Distance (km)"
+            },
             "properties": [
-              { "id": "unit", "value": "lengthkm" }
+              {
+                "id": "unit",
+                "value": "lengthkm"
+              }
             ]
           }
         ]
       },
       "options": {
-        "sortBy": [{ "displayName": "Date", "desc": true }],
-        "footer": { "show": false }
+        "sortBy": [
+          {
+            "displayName": "Date",
+            "desc": true
+          }
+        ],
+        "footer": {
+          "show": false
+        }
       },
       "targets": [
         {
@@ -428,20 +673,34 @@
       "id": 12,
       "type": "table",
       "title": "Training Findings",
-      "gridPos": { "x": 0, "y": 35, "w": 24, "h": 6 },
-      "datasource": { "uid": "healthlog-db" },
+      "gridPos": {
+        "x": 0,
+        "y": 35,
+        "w": 24,
+        "h": 6
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
       "fieldConfig": {
         "defaults": {},
         "overrides": []
       },
       "options": {
-        "sortBy": [{ "displayName": "Date", "desc": true }],
-        "footer": { "show": false }
+        "sortBy": [
+          {
+            "displayName": "Date",
+            "desc": true
+          }
+        ],
+        "footer": {
+          "show": false
+        }
       },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT TO_CHAR(ref_date, 'YYYY-MM-DD') AS \"Date\", kind AS \"Kind\", metric_a AS \"Metric\", note AS \"Note\", ROUND(severity::numeric, 2) AS \"Severity\" FROM findings WHERE kind IN ('training_load', 'recovery_alert') ORDER BY ref_date DESC LIMIT 50",
+          "rawSql": "SELECT TO_CHAR(COALESCE(ref_date, window_end), 'YYYY-MM-DD') AS \"Date\", kind AS \"Kind\", metric_a AS \"Metric\", CASE kind WHEN 'anomaly' THEN ROUND((details->>'z')::numeric,1)::text || 'σ (val: ' || ROUND((details->>'value')::numeric,2)::text || ')' WHEN 'training_load' THEN 'ACWR ' || ROUND((details->>'ratio')::numeric,2)::text WHEN 'consistency' THEN ROUND((details->>'std_hours')::numeric,2)::text || 'h std' WHEN 'recovery_alert' THEN 'RHR z=' || ROUND((details->>'resting_heart_rate_z')::numeric,1)::text || ' HRV z=' || ROUND((details->>'heart_rate_variability_z')::numeric,1)::text WHEN 'correlation' THEN 'r=' || ROUND(coefficient::numeric,2)::text || ' lag=' || COALESCE(lag_days::text,'0') || 'd' ELSE ROUND(severity::numeric,2)::text END AS \"Detail\", note AS \"Note\" FROM findings WHERE kind IN ('training_load', 'recovery_alert', 'anomaly') ORDER BY COALESCE(ref_date, window_end) DESC LIMIT 50",
           "format": "table"
         }
       ]

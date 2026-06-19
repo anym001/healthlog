@@ -4,34 +4,63 @@
   "schemaVersion": 39,
   "version": 1,
   "timezone": "Europe/Vienna",
-  "time": { "from": "now-14d", "to": "now" },
+  "time": {
+    "from": "now-14d",
+    "to": "now"
+  },
   "refresh": "1h",
-  "tags": ["healthlog"],
+  "tags": [
+    "healthlog"
+  ],
   "panels": [
     {
       "id": 1,
       "type": "stat",
       "title": "Last Night – Total Sleep",
-      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
-      "datasource": { "uid": "healthlog-db" },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "suffix:h",
           "decimals": 1,
-          "color": { "mode": "thresholds" },
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "yellow", "value": 6 },
-              { "color": "green", "value": 7 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 6
+              },
+              {
+                "color": "green",
+                "value": 7
+              }
             ]
           }
         },
         "overrides": []
       },
       "options": {
-        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
         "orientation": "auto",
         "textMode": "auto",
         "colorMode": "background",
@@ -50,26 +79,50 @@
       "id": 2,
       "type": "stat",
       "title": "Last Night – Deep Sleep",
-      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
-      "datasource": { "uid": "healthlog-db" },
+      "gridPos": {
+        "x": 4,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "suffix:h",
           "decimals": 1,
-          "color": { "mode": "thresholds" },
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "yellow", "value": 0.8 },
-              { "color": "green", "value": 1.2 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.8
+              },
+              {
+                "color": "green",
+                "value": 1.2
+              }
             ]
           }
         },
         "overrides": []
       },
       "options": {
-        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
         "orientation": "auto",
         "textMode": "auto",
         "colorMode": "background",
@@ -88,26 +141,50 @@
       "id": 3,
       "type": "stat",
       "title": "Last Night – REM Sleep",
-      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
-      "datasource": { "uid": "healthlog-db" },
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "suffix:h",
           "decimals": 1,
-          "color": { "mode": "thresholds" },
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "yellow", "value": 1.0 },
-              { "color": "green", "value": 1.5 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1.0
+              },
+              {
+                "color": "green",
+                "value": 1.5
+              }
             ]
           }
         },
         "overrides": []
       },
       "options": {
-        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
         "orientation": "auto",
         "textMode": "auto",
         "colorMode": "background",
@@ -126,26 +203,50 @@
       "id": 4,
       "type": "stat",
       "title": "Last Night – Sleep Efficiency",
-      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
-      "datasource": { "uid": "healthlog-db" },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
           "decimals": 0,
-          "color": { "mode": "thresholds" },
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "yellow", "value": 75 },
-              { "color": "green", "value": 85 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 75
+              },
+              {
+                "color": "green",
+                "value": 85
+              }
             ]
           }
         },
         "overrides": []
       },
       "options": {
-        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
         "orientation": "auto",
         "textMode": "auto",
         "colorMode": "background",
@@ -164,26 +265,50 @@
       "id": 5,
       "type": "stat",
       "title": "Today – HRV",
-      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
-      "datasource": { "uid": "healthlog-db" },
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "ms",
           "decimals": 0,
-          "color": { "mode": "thresholds" },
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "yellow", "value": 30 },
-              { "color": "green", "value": 50 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 30
+              },
+              {
+                "color": "green",
+                "value": 50
+              }
             ]
           }
         },
         "overrides": []
       },
       "options": {
-        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
         "orientation": "auto",
         "textMode": "auto",
         "colorMode": "background",
@@ -202,26 +327,50 @@
       "id": 6,
       "type": "stat",
       "title": "Today – Resting HR",
-      "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
-      "datasource": { "uid": "healthlog-db" },
+      "gridPos": {
+        "x": 20,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "suffix:bpm",
           "decimals": 0,
-          "color": { "mode": "thresholds" },
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 65 },
-              { "color": "red", "value": 75 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 65
+              },
+              {
+                "color": "red",
+                "value": 75
+              }
             ]
           }
         },
         "overrides": []
       },
       "options": {
-        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
         "orientation": "auto",
         "textMode": "auto",
         "colorMode": "background",
@@ -240,13 +389,22 @@
       "id": 7,
       "type": "barchart",
       "title": "Sleep Phases",
-      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
-      "datasource": { "uid": "healthlog-db" },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "suffix:h",
           "decimals": 1,
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {}
         },
         "overrides": []
@@ -256,8 +414,14 @@
         "barRadius": 0.1,
         "groupWidth": 0.7,
         "barWidth": 0.97,
-        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
-        "tooltip": { "mode": "multi" }
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
       },
       "targets": [
         {
@@ -271,13 +435,22 @@
       "id": 8,
       "type": "timeseries",
       "title": "HRV & Resting Heart Rate",
-      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
-      "datasource": { "uid": "healthlog-db" },
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "ms",
           "decimals": 0,
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "drawStyle": "line",
             "lineInterpolation": "smooth",
@@ -289,18 +462,40 @@
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "Resting HR (bpm)" },
+            "matcher": {
+              "id": "byName",
+              "options": "Resting HR (bpm)"
+            },
             "properties": [
-              { "id": "unit", "value": "suffix:bpm" },
-              { "id": "custom.axisPlacement", "value": "right" },
-              { "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }
+              {
+                "id": "unit",
+                "value": "suffix:bpm"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
             ]
           }
         ]
       },
       "options": {
-        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
-        "tooltip": { "mode": "multi", "sort": "none" }
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
       },
       "targets": [
         {
@@ -319,13 +514,22 @@
       "id": 9,
       "type": "barchart",
       "title": "Daily Steps",
-      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 7 },
-      "datasource": { "uid": "healthlog-db" },
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "decimals": 0,
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {}
         },
         "overrides": []
@@ -335,8 +539,14 @@
         "barRadius": 0.1,
         "groupWidth": 0.7,
         "barWidth": 0.97,
-        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
-        "tooltip": { "mode": "multi" }
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
       },
       "targets": [
         {
@@ -350,13 +560,22 @@
       "id": 10,
       "type": "barchart",
       "title": "Active Energy",
-      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 7 },
-      "datasource": { "uid": "healthlog-db" },
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "suffix:kcal",
           "decimals": 0,
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {}
         },
         "overrides": []
@@ -366,8 +585,14 @@
         "barRadius": 0.1,
         "groupWidth": 0.7,
         "barWidth": 0.97,
-        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
-        "tooltip": { "mode": "multi" }
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
       },
       "targets": [
         {
@@ -381,20 +606,34 @@
       "id": 11,
       "type": "table",
       "title": "Recent Findings",
-      "gridPos": { "x": 0, "y": 19, "w": 24, "h": 6 },
-      "datasource": { "uid": "healthlog-db" },
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 24,
+        "h": 6
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
       "fieldConfig": {
         "defaults": {},
         "overrides": []
       },
       "options": {
-        "sortBy": [{ "displayName": "Date", "desc": true }],
-        "footer": { "show": false }
+        "sortBy": [
+          {
+            "displayName": "Date",
+            "desc": true
+          }
+        ],
+        "footer": {
+          "show": false
+        }
       },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT TO_CHAR(ref_date, 'YYYY-MM-DD') AS \"Date\", kind AS \"Kind\", metric_a AS \"Metric\", note AS \"Note\", ROUND(severity::numeric, 2) AS \"Severity\" FROM findings WHERE kind IN ('anomaly', 'recovery_alert', 'training_load') ORDER BY ref_date DESC LIMIT 50",
+          "rawSql": "SELECT TO_CHAR(COALESCE(ref_date, window_end), 'YYYY-MM-DD') AS \"Date\", kind AS \"Kind\", metric_a AS \"Metric\", CASE kind WHEN 'anomaly' THEN ROUND((details->>'z')::numeric,1)::text || 'σ (val: ' || ROUND((details->>'value')::numeric,2)::text || ')' WHEN 'training_load' THEN 'ACWR ' || ROUND((details->>'ratio')::numeric,2)::text WHEN 'consistency' THEN ROUND((details->>'std_hours')::numeric,2)::text || 'h std' WHEN 'recovery_alert' THEN 'RHR z=' || ROUND((details->>'resting_heart_rate_z')::numeric,1)::text || ' HRV z=' || ROUND((details->>'heart_rate_variability_z')::numeric,1)::text WHEN 'correlation' THEN 'r=' || ROUND(coefficient::numeric,2)::text || ' lag=' || COALESCE(lag_days::text,'0') || 'd' ELSE ROUND(severity::numeric,2)::text END AS \"Detail\", note AS \"Note\" FROM findings WHERE kind IN ('anomaly', 'recovery_alert', 'training_load') ORDER BY COALESCE(ref_date, window_end) DESC LIMIT 50",
           "format": "table"
         }
       ]
