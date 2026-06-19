@@ -8,12 +8,27 @@
     "from": "now-30d",
     "to": "now"
   },
-  "refresh": "1h",
+  "refresh": "",
   "tags": [
     "healthlog"
   ],
   "templating": {
     "list": [
+      {
+        "name": "category",
+        "type": "query",
+        "label": "Category",
+        "datasource": {
+          "uid": "healthlog-db"
+        },
+        "query": "SELECT DISTINCT COALESCE(r.category, 'other') FROM (SELECT DISTINCT metric FROM metric_samples) m LEFT JOIN metric_registry r ON r.metric = m.metric ORDER BY 1",
+        "refresh": 1,
+        "sort": 1,
+        "multi": false,
+        "includeAll": false,
+        "current": {},
+        "options": []
+      },
       {
         "name": "metric",
         "type": "query",
@@ -21,11 +36,27 @@
         "datasource": {
           "uid": "healthlog-db"
         },
-        "query": "SELECT COALESCE(r.category, 'other') || ' · ' || COALESCE(r.display_name, m.metric) AS __text, m.metric AS __value FROM (SELECT DISTINCT metric FROM metric_samples) m LEFT JOIN metric_registry r ON r.metric = m.metric ORDER BY 1",
-        "refresh": 2,
+        "query": "SELECT COALESCE(r.display_name, m.metric) AS __text, m.metric AS __value FROM (SELECT DISTINCT metric FROM metric_samples) m LEFT JOIN metric_registry r ON r.metric = m.metric WHERE COALESCE(r.category, 'other') = '$category' ORDER BY 1",
+        "refresh": 1,
         "sort": 1,
         "multi": false,
         "includeAll": false,
+        "current": {},
+        "options": []
+      },
+      {
+        "name": "unit",
+        "type": "query",
+        "label": "Unit",
+        "datasource": {
+          "uid": "healthlog-db"
+        },
+        "query": "SELECT COALESCE(unit_canonical, '') FROM metric_registry WHERE metric = '$metric'",
+        "refresh": 1,
+        "sort": 0,
+        "multi": false,
+        "includeAll": false,
+        "hide": 2,
         "current": {},
         "options": []
       }
@@ -35,7 +66,7 @@
     {
       "id": 1,
       "type": "stat",
-      "title": "Latest Reading",
+      "title": "Latest Reading ($unit)",
       "gridPos": {
         "x": 0,
         "y": 0,
@@ -65,7 +96,7 @@
           "fields": ""
         },
         "orientation": "auto",
-        "textMode": "value",
+        "textMode": "auto",
         "colorMode": "value",
         "graphMode": "none",
         "justifyMode": "center"
@@ -73,7 +104,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT ROUND((CASE r.agg_default WHEN 'sum' THEN d.sum WHEN 'min' THEN d.vmin WHEN 'max' THEN d.vmax ELSE d.avg END)::numeric, 2)::text || ' ' || COALESCE(r.unit_canonical, '') AS \"Latest\" FROM daily_metrics d JOIN metric_registry r ON r.metric = d.metric WHERE d.metric = '$metric' ORDER BY d.day DESC LIMIT 1",
+          "rawSql": "SELECT ROUND((CASE r.agg_default WHEN 'sum' THEN d.sum WHEN 'min' THEN d.vmin WHEN 'max' THEN d.vmax ELSE d.avg END)::numeric, 2) AS \"Latest\" FROM daily_metrics d JOIN metric_registry r ON r.metric = d.metric WHERE d.metric = '$metric' ORDER BY d.day DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -81,7 +112,7 @@
     {
       "id": 2,
       "type": "stat",
-      "title": "7-Day Average",
+      "title": "7-Day Average ($unit)",
       "gridPos": {
         "x": 6,
         "y": 0,
@@ -127,7 +158,7 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "30-Day Minimum",
+      "title": "30-Day Minimum ($unit)",
       "gridPos": {
         "x": 12,
         "y": 0,
@@ -173,7 +204,7 @@
     {
       "id": 4,
       "type": "stat",
-      "title": "30-Day Maximum",
+      "title": "30-Day Maximum ($unit)",
       "gridPos": {
         "x": 18,
         "y": 0,
@@ -219,7 +250,7 @@
     {
       "id": 5,
       "type": "timeseries",
-      "title": "Daily Value — $metric",
+      "title": "Daily Value — ${metric:text} ($unit)",
       "gridPos": {
         "x": 0,
         "y": 4,
@@ -243,16 +274,22 @@
             "fillOpacity": 15,
             "spanNulls": false,
             "showPoints": "auto",
-            "axisLabel": "Daily aggregate"
+            "axisLabel": "$unit"
           }
         },
         "overrides": []
       },
       "options": {
         "legend": {
-          "displayMode": "list",
+          "displayMode": "table",
           "placement": "bottom",
-          "showLegend": true
+          "showLegend": true,
+          "calcs": [
+            "min",
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
         },
         "tooltip": {
           "mode": "multi",
@@ -270,7 +307,7 @@
     {
       "id": 6,
       "type": "timeseries",
-      "title": "Intraday Range (min / avg / max)",
+      "title": "Intraday Range — min / avg / max ($unit)",
       "gridPos": {
         "x": 0,
         "y": 13,
@@ -293,16 +330,23 @@
             "lineWidth": 2,
             "fillOpacity": 15,
             "spanNulls": false,
-            "showPoints": "auto"
+            "showPoints": "auto",
+            "axisLabel": "$unit"
           }
         },
         "overrides": []
       },
       "options": {
         "legend": {
-          "displayMode": "list",
+          "displayMode": "table",
           "placement": "bottom",
-          "showLegend": true
+          "showLegend": true,
+          "calcs": [
+            "min",
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
         },
         "tooltip": {
           "mode": "multi",
@@ -367,7 +411,7 @@
     {
       "id": 8,
       "type": "table",
-      "title": "Raw Samples — $metric  (newest 500)",
+      "title": "Raw Samples — ${metric:text}  (newest 500)",
       "gridPos": {
         "x": 0,
         "y": 21,
