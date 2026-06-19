@@ -149,10 +149,14 @@ The database has no published port — it's reachable only by the app over the
 `health` network. Put a TLS reverse proxy in front of the `healthlog` container
 before pointing HAE at it (see [Reverse proxy](#reverse-proxy)).
 
-> **Visualising the findings:** the analysis writes its results to the `findings`
-> table, so chart them with whatever you prefer — Grafana, Metabase, a notebook,
-> plain SQL. Attach that tool to the same `health` network and point it at
-> `healthlog-db`.
+**4. (Optional) Visualise with Grafana:**
+
+The analysis writes its results to the database, so chart them with whatever you
+prefer — Grafana, Metabase, a notebook, plain SQL. Attach that tool to the same
+`health` network and point it at `healthlog-db`. The repo ships four ready-made
+**Grafana dashboards** (Overview, Sleep, Training & Recovery, and a metric-agnostic
+Metrics Explorer) plus a read-only database user — see
+[`grafana/README.md`](grafana/README.md) for the import steps.
 
 ## Image
 
