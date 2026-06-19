@@ -63,14 +63,15 @@ Dashboards → New → Import → upload JSON file (repeat for each):
 | `dashboards/training.json` | Training & Recovery — TRIMP by sport, HRV, workouts table (30-day window) |
 | `dashboards/metrics.json` | Metrics Explorer — raw values for any metric, Apple-Health-style (30-day window) |
 
-The **Metrics Explorer** is metric-agnostic: a `Metric` dropdown at the top
-(grouped by category, e.g. `vital · Heart Rate`) selects which metric to inspect,
-and every panel follows it — latest reading, 7-day average, 30-day min/max, the
-agg-aware daily trend (sum / min / avg / max per the metric registry), the
-intraday min–avg–max range, daily sample count, and the raw `metric_samples`
-rows. The bottom **Data Catalog** lists every metric that has data with its unit,
-category, tier, day count, and last sample — so newly auto-registered metrics
-show up automatically without editing the dashboard.
+The **Metrics Explorer** is metric-agnostic: two cascading dropdowns at the top —
+`Category` first, then `Metric` (only the metrics that belong to the chosen
+category) — select what to inspect, and every panel follows. Latest reading,
+7-day average, 30-day min/max, the agg-aware daily trend (sum / min / avg / max
+per the metric registry), the intraday min–avg–max range, daily sample count,
+and the raw `metric_samples` rows. The canonical unit is shown in panel titles
+and chart axes. The bottom **Data Catalog** lists every metric that has data with
+its unit, category, tier, day count, and last sample — so newly auto-registered
+metrics show up automatically without editing the dashboard.
 
 ## Updating a dashboard
 
