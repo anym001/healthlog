@@ -1,8 +1,9 @@
 {
   "uid": "healthlog-sleep",
   "title": "HealthLog – Sleep",
+  "description": "30-day sleep analysis: phases, duration, efficiency, bedtime consistency, and sleep-related findings. Adjust the Timezone variable if you are not in Europe/Vienna.",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "timezone": "Europe/Vienna",
   "time": {
     "from": "now-30d",
@@ -12,14 +13,88 @@
   "tags": [
     "healthlog"
   ],
+  "links": [
+    {
+      "title": "Overview",
+      "url": "/d/healthlog-overview",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": true,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Overview dashboard"
+    },
+    {
+      "title": "Training",
+      "url": "/d/healthlog-training",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": true,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Training & Recovery dashboard"
+    },
+    {
+      "title": "Metrics Explorer",
+      "url": "/d/healthlog-metrics",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": true,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Metrics Explorer"
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "tz",
+        "type": "custom",
+        "label": "Timezone",
+        "description": "Timezone used to display bedtime and wake-up hours. Must match a valid PostgreSQL timezone name.",
+        "query": "Europe/Vienna,Europe/Berlin,Europe/London,America/New_York,America/Los_Angeles,UTC",
+        "current": {
+          "value": "Europe/Vienna",
+          "text": "Europe/Vienna"
+        },
+        "options": [
+          {"text": "Europe/Vienna", "value": "Europe/Vienna", "selected": true},
+          {"text": "Europe/Berlin", "value": "Europe/Berlin", "selected": false},
+          {"text": "Europe/London", "value": "Europe/London", "selected": false},
+          {"text": "America/New_York", "value": "America/New_York", "selected": false},
+          {"text": "America/Los_Angeles", "value": "America/Los_Angeles", "selected": false},
+          {"text": "UTC", "value": "UTC", "selected": false}
+        ],
+        "hide": 0,
+        "multi": false,
+        "includeAll": false,
+        "sort": 0,
+        "refresh": 0
+      }
+    ]
+  },
   "panels": [
+    {
+      "id": 100,
+      "type": "row",
+      "title": "7-Day Averages",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
     {
       "id": 1,
       "type": "stat",
       "title": "Avg Total Sleep (7d)",
+      "description": "Average total sleep duration over the last 7 nights. Yellow ≥ 6 h, green ≥ 7 h.",
       "gridPos": {
         "x": 0,
-        "y": 0,
+        "y": 1,
         "w": 6,
         "h": 4
       },
@@ -79,9 +154,10 @@
       "id": 2,
       "type": "stat",
       "title": "Avg Deep Sleep (7d)",
+      "description": "Average deep (slow-wave) sleep over the last 7 nights. Yellow ≥ 0.8 h, green ≥ 1.2 h.",
       "gridPos": {
         "x": 6,
-        "y": 0,
+        "y": 1,
         "w": 6,
         "h": 4
       },
@@ -141,9 +217,10 @@
       "id": 3,
       "type": "stat",
       "title": "Avg REM Sleep (7d)",
+      "description": "Average REM sleep over the last 7 nights. Yellow ≥ 1.0 h, green ≥ 1.5 h.",
       "gridPos": {
         "x": 12,
-        "y": 0,
+        "y": 1,
         "w": 6,
         "h": 4
       },
@@ -203,9 +280,10 @@
       "id": 4,
       "type": "stat",
       "title": "Avg Sleep Efficiency (7d)",
+      "description": "Average sleep efficiency over the last 7 nights. Calculated from in-bed timestamps when available, otherwise total_sleep / (sleep + awake). Yellow ≥ 75 %, green ≥ 85 %.",
       "gridPos": {
         "x": 18,
-        "y": 0,
+        "y": 1,
         "w": 6,
         "h": 4
       },
@@ -262,12 +340,25 @@
       ]
     },
     {
+      "id": 101,
+      "type": "row",
+      "title": "Sleep Phases",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
       "id": 5,
       "type": "barchart",
       "title": "Sleep Phases",
       "gridPos": {
         "x": 0,
-        "y": 4,
+        "y": 6,
         "w": 24,
         "h": 9
       },
@@ -308,12 +399,26 @@
       ]
     },
     {
+      "id": 102,
+      "type": "row",
+      "title": "Trends",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
       "id": 6,
       "type": "timeseries",
       "title": "Sleep Duration",
+      "description": "Total sleep per night. Dashed line is the 7-day moving average.",
       "gridPos": {
         "x": 0,
-        "y": 13,
+        "y": 16,
         "w": 12,
         "h": 8
       },
@@ -336,7 +441,36 @@
             "showPoints": "auto"
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "7d Trend (h)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {"fill": "dash", "dash": [8, 4]}
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "color",
+                "value": {"mode": "fixed", "fixedColor": "gray"}
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": {
@@ -354,6 +488,11 @@
           "refId": "A",
           "rawSql": "SELECT sleep_date AS time, total_sleep_h AS \"Total Sleep (h)\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
           "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "rawSql": "SELECT sleep_date AS time, ROUND(AVG(total_sleep_h) OVER (ORDER BY sleep_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 2) AS \"7d Trend (h)\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "format": "time_series"
         }
       ]
     },
@@ -361,9 +500,10 @@
       "id": 7,
       "type": "timeseries",
       "title": "Sleep Efficiency",
+      "description": "% of time in bed actually asleep. Calculated from in-bed timestamps when available, otherwise total_sleep / (sleep + awake). Dashed line is the 7-day moving average.",
       "gridPos": {
         "x": 12,
-        "y": 13,
+        "y": 16,
         "w": 12,
         "h": 8
       },
@@ -386,7 +526,36 @@
             "showPoints": "auto"
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "7d Trend (%)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {"fill": "dash", "dash": [8, 4]}
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "color",
+                "value": {"mode": "fixed", "fixedColor": "gray"}
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": {
@@ -404,6 +573,11 @@
           "refId": "A",
           "rawSql": "SELECT sleep_date AS time, (total_sleep_h / NULLIF(CASE WHEN in_bed_start IS NOT NULL AND in_bed_end IS NOT NULL THEN EXTRACT(EPOCH FROM (in_bed_end - in_bed_start))/3600.0 WHEN in_bed_h > 0 THEN in_bed_h WHEN (total_sleep_h + awake_h) > 0 THEN total_sleep_h + awake_h ELSE NULL END, 0.0) * 100) AS \"Sleep Efficiency (%)\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
           "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "rawSql": "SELECT sleep_date AS time, ROUND(AVG(total_sleep_h / NULLIF(CASE WHEN in_bed_start IS NOT NULL AND in_bed_end IS NOT NULL THEN EXTRACT(EPOCH FROM (in_bed_end - in_bed_start))/3600.0 WHEN in_bed_h > 0 THEN in_bed_h WHEN (total_sleep_h + awake_h) > 0 THEN total_sleep_h + awake_h ELSE NULL END, 0.0) * 100) OVER (ORDER BY sleep_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 1) AS \"7d Trend (%)\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "format": "time_series"
         }
       ]
     },
@@ -411,9 +585,10 @@
       "id": 8,
       "type": "timeseries",
       "title": "Bedtime",
+      "description": "Hour of sleep onset on a 20–30 scale (20 = 20:00, 24 = midnight, 26 = 02:00 next day). Uses the selected Timezone. Dashed line is the 7-day moving average.",
       "gridPos": {
         "x": 0,
-        "y": 21,
+        "y": 24,
         "w": 12,
         "h": 8
       },
@@ -434,12 +609,41 @@
             "fillOpacity": 15,
             "spanNulls": false,
             "showPoints": "auto",
-            "axisLabel": "Clock hour (Vienna)"
+            "axisLabel": "Clock hour ($tz)"
           },
           "min": 20,
           "max": 30
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "7d Trend (h)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {"fill": "dash", "dash": [8, 4]}
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "color",
+                "value": {"mode": "fixed", "fixedColor": "gray"}
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": {
@@ -455,7 +659,12 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT sleep_date AS time, EXTRACT(HOUR FROM (sleep_start AT TIME ZONE 'Europe/Vienna')) + EXTRACT(MINUTE FROM (sleep_start AT TIME ZONE 'Europe/Vienna'))/60.0 + CASE WHEN EXTRACT(HOUR FROM (sleep_start AT TIME ZONE 'Europe/Vienna')) < 12 THEN 24 ELSE 0 END AS \"Bedtime (h)\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) AND sleep_start IS NOT NULL ORDER BY sleep_date",
+          "rawSql": "SELECT sleep_date AS time, EXTRACT(HOUR FROM (sleep_start AT TIME ZONE '$tz')) + EXTRACT(MINUTE FROM (sleep_start AT TIME ZONE '$tz'))/60.0 + CASE WHEN EXTRACT(HOUR FROM (sleep_start AT TIME ZONE '$tz')) < 12 THEN 24 ELSE 0 END AS \"Bedtime (h)\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) AND sleep_start IS NOT NULL ORDER BY sleep_date",
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "rawSql": "SELECT sleep_date AS time, ROUND(AVG(EXTRACT(HOUR FROM (sleep_start AT TIME ZONE '$tz')) + EXTRACT(MINUTE FROM (sleep_start AT TIME ZONE '$tz'))/60.0 + CASE WHEN EXTRACT(HOUR FROM (sleep_start AT TIME ZONE '$tz')) < 12 THEN 24 ELSE 0 END) OVER (ORDER BY sleep_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 2) AS \"7d Trend (h)\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) AND sleep_start IS NOT NULL ORDER BY sleep_date",
           "format": "time_series"
         }
       ]
@@ -464,9 +673,10 @@
       "id": 9,
       "type": "timeseries",
       "title": "Wake-up Time",
+      "description": "Hour of wake-up in the selected Timezone. Dashed line is the 7-day moving average.",
       "gridPos": {
         "x": 12,
-        "y": 21,
+        "y": 24,
         "w": 12,
         "h": 8
       },
@@ -487,10 +697,39 @@
             "fillOpacity": 15,
             "spanNulls": false,
             "showPoints": "auto",
-            "axisLabel": "Clock hour (Vienna)"
+            "axisLabel": "Clock hour ($tz)"
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "7d Trend (h)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {"fill": "dash", "dash": [8, 4]}
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "color",
+                "value": {"mode": "fixed", "fixedColor": "gray"}
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": {
@@ -506,18 +745,37 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT sleep_date AS time, EXTRACT(HOUR FROM (sleep_end AT TIME ZONE 'Europe/Vienna')) + EXTRACT(MINUTE FROM (sleep_end AT TIME ZONE 'Europe/Vienna'))/60.0 AS \"Wake-up (h)\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) AND sleep_end IS NOT NULL ORDER BY sleep_date",
+          "rawSql": "SELECT sleep_date AS time, EXTRACT(HOUR FROM (sleep_end AT TIME ZONE '$tz')) + EXTRACT(MINUTE FROM (sleep_end AT TIME ZONE '$tz'))/60.0 AS \"Wake-up (h)\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) AND sleep_end IS NOT NULL ORDER BY sleep_date",
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "rawSql": "SELECT sleep_date AS time, ROUND(AVG(EXTRACT(HOUR FROM (sleep_end AT TIME ZONE '$tz')) + EXTRACT(MINUTE FROM (sleep_end AT TIME ZONE '$tz'))/60.0) OVER (ORDER BY sleep_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 2) AS \"7d Trend (h)\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) AND sleep_end IS NOT NULL ORDER BY sleep_date",
           "format": "time_series"
         }
       ]
     },
     {
+      "id": 103,
+      "type": "row",
+      "title": "Findings",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
       "id": 10,
       "type": "table",
       "title": "Sleep Findings",
+      "description": "Automatically detected sleep patterns. anomaly: z-score deviation from personal baseline (σ shows how many standard deviations from your norm). consistency: standard deviation of sleep timing in hours (higher = more irregular schedule).",
       "gridPos": {
         "x": 0,
-        "y": 29,
+        "y": 33,
         "w": 24,
         "h": 7
       },
