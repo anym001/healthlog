@@ -443,42 +443,6 @@
           "format": "table"
         }
       ]
-    },
-    {
-      "id": 9,
-      "type": "table",
-      "title": "All Metrics — Data Catalog",
-      "gridPos": {
-        "x": 0,
-        "y": 30,
-        "w": 24,
-        "h": 11
-      },
-      "datasource": {
-        "uid": "healthlog-db"
-      },
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": []
-      },
-      "options": {
-        "sortBy": [
-          {
-            "displayName": "Category",
-            "desc": false
-          }
-        ],
-        "footer": {
-          "show": false
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "rawSql": "SELECT COALESCE(r.display_name, agg.metric) AS \"Metric\", COALESCE(r.category, '—') AS \"Category\", COALESCE(r.unit_canonical, '') AS \"Unit\", COALESCE(r.tier, 'secondary') AS \"Tier\", agg.days AS \"Days\", TO_CHAR(agg.last_day, 'YYYY-MM-DD') AS \"Last Sample\" FROM (SELECT metric, COUNT(*) AS days, MAX(day) AS last_day FROM daily_metrics GROUP BY metric) agg LEFT JOIN metric_registry r ON r.metric = agg.metric ORDER BY \"Category\", \"Metric\"",
-          "format": "table"
-        }
-      ]
     }
   ]
 }

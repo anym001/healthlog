@@ -69,9 +69,7 @@ category) — select what to inspect, and every panel follows. Latest reading,
 7-day average, 30-day min/max, the agg-aware daily trend (sum / min / avg / max
 per the metric registry), the intraday min–avg–max range, daily sample count,
 and the raw `metric_samples` rows. The canonical unit is shown in panel titles
-and chart axes. The bottom **Data Catalog** lists every metric that has data with
-its unit, category, tier, day count, and last sample — so newly auto-registered
-metrics show up automatically without editing the dashboard.
+and chart axes.
 
 ## Updating a dashboard
 
