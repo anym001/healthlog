@@ -89,6 +89,21 @@ class SleepSession(Base):
     in_bed_h: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
+class WorkoutTypeGroup(Base):
+    """Maps canonical workout type slugs to display groups for Grafana.
+
+    Populated by migration 0008; extend by inserting new rows — no code change
+    needed. sort_order controls the series stacking order in bar charts.
+    """
+
+    __tablename__ = "workout_type_groups"
+
+    canonical_type: Mapped[str] = mapped_column(Text, primary_key=True)
+    group_name: Mapped[str] = mapped_column(Text, nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=99)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Workout(Base):
     """Workout summary keyed by HAE's stable UUID. The intra-workout HR time
     series (when HAE attaches it) lands in ``workout_hr_samples``; other
@@ -99,8 +114,9 @@ class Workout(Base):
     hae_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     start_time: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     end_time: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    # localised HAE name; normalised to a canonical type at analysis time (workout_types.py)
+    # Localised HAE name; canonical_type is the resolved slug (workout_types.py).
     name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    canonical_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     location: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_indoor: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     duration_s: Mapped[float | None] = mapped_column(Float, nullable=True)

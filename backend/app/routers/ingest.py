@@ -73,7 +73,7 @@ async def ingest_payload(
         audit.info("ingest.duplicate ip=%s", ip)
         return IngestResponse(status="duplicate")
 
-    parsed = ingest_svc.parse_payload(payload)
+    parsed = ingest_svc.parse_payload(payload, type_map=get_app_config().workouts.type_map)
     result = ingest_svc.store(db, parsed)
     db.commit()
 
