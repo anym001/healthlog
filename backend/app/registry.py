@@ -283,6 +283,13 @@ METRIC_REGISTRY: dict[str, MetricSpec] = {
         "category": "activity",
         "tier": "secondary",
     },
+    "cycling_distance": {
+        "display_name": "Cycling Distance",
+        "unit_canonical": "km",
+        "agg_default": "sum",
+        "category": "activity",
+        "tier": "secondary",
+    },
     "swimming_stroke_count": {
         "display_name": "Swimming Strokes",
         "unit_canonical": "count",
