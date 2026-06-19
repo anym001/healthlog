@@ -153,10 +153,9 @@ before pointing HAE at it (see [Reverse proxy](#reverse-proxy)).
 
 The analysis writes its results to the database, so chart them with whatever you
 prefer — Grafana, Metabase, a notebook, plain SQL. Attach that tool to the same
-`health` network and point it at `healthlog-db`. The repo ships four ready-made
-**Grafana dashboards** (Overview, Sleep, Training & Recovery, and a metric-agnostic
-Metrics Explorer) plus a read-only database user — see
-[`grafana/README.md`](grafana/README.md) for the import steps.
+`health` network and point it at `healthlog-db`. The repo ships ready-made
+**Grafana dashboards** and a read-only database user — see
+[`grafana/README.md`](grafana/README.md) for details.
 
 ## Image
 
