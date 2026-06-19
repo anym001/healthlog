@@ -35,6 +35,7 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from . import ingest as ingest_svc
+from .appconfig import get_app_config
 from .config import get_settings
 from .logging_config import configure_logging
 
@@ -74,7 +75,11 @@ def collect_files(paths: Iterable[str | Path], pattern: str = "*.json") -> list[
     return files
 
 
-def ingest_file(db: Session, path: Path) -> tuple[str, ingest_svc.StoreResult | None]:
+def ingest_file(
+    db: Session,
+    path: Path,
+    type_map: dict[str, str] | None = None,
+) -> tuple[str, ingest_svc.StoreResult | None]:
     """Archive + parse + store a single file. Returns ('stored'|'duplicate', result)."""
     body = path.read_bytes()
     payload = json.loads(body)
@@ -85,17 +90,22 @@ def ingest_file(db: Session, path: Path) -> tuple[str, ingest_svc.StoreResult | 
     if not ingest_svc.archive_raw(db, payload, content_hash, None):
         return "duplicate", None
 
-    result = ingest_svc.store(db, ingest_svc.parse_payload(payload))
+    result = ingest_svc.store(db, ingest_svc.parse_payload(payload, type_map=type_map))
     return "stored", result
 
 
-def run_backfill(db: Session, files: Sequence[Path], dry_run: bool = False) -> BackfillSummary:
+def run_backfill(
+    db: Session,
+    files: Sequence[Path],
+    dry_run: bool = False,
+    type_map: dict[str, str] | None = None,
+) -> BackfillSummary:
     """Import every file, committing per file. ``dry_run`` parses + reports only."""
     summary = BackfillSummary(files=len(files))
     for path in files:
         try:
             if dry_run:
-                parsed = ingest_svc.parse_payload(json.loads(path.read_bytes()))
+                parsed = ingest_svc.parse_payload(json.loads(path.read_bytes()), type_map=type_map)
                 summary.metric_rows += len(parsed.metric_rows)
                 summary.sleep_rows += len(parsed.sleep_rows)
                 summary.workout_rows += len(parsed.workout_rows)
@@ -110,7 +120,7 @@ def run_backfill(db: Session, files: Sequence[Path], dry_run: bool = False) -> B
                 )
                 continue
 
-            status, result = ingest_file(db, path)
+            status, result = ingest_file(db, path, type_map=type_map)
             db.commit()
             if status == "duplicate":
                 summary.duplicates += 1
@@ -179,9 +189,10 @@ def run(args: argparse.Namespace) -> int:
     # Imported lazily so --help works without a configured DATABASE_URL.
     from .database import SessionLocal
 
+    type_map = get_app_config().workouts.type_map
     db = SessionLocal()
     try:
-        summary = run_backfill(db, files, dry_run=args.dry_run)
+        summary = run_backfill(db, files, dry_run=args.dry_run, type_map=type_map)
     finally:
         db.close()
 

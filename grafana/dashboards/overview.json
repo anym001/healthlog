@@ -306,7 +306,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT ROUND((total_sleep_h / NULLIF(CASE WHEN in_bed_start IS NOT NULL AND in_bed_end IS NOT NULL THEN EXTRACT(EPOCH FROM (in_bed_end - in_bed_start))/3600.0 WHEN in_bed_h > 0 THEN in_bed_h WHEN (total_sleep_h + awake_h) > 0 THEN total_sleep_h + awake_h ELSE NULL END, 0.0) * 100)::numeric, 0) AS \"Sleep Efficiency\" FROM sleep_sessions ORDER BY sleep_date DESC LIMIT 1",
+          "rawSql": "SELECT ROUND(efficiency_pct::numeric, 0) AS \"Sleep Efficiency\" FROM sleep_metrics ORDER BY sleep_date DESC LIMIT 1",
           "format": "table"
         }
       ]

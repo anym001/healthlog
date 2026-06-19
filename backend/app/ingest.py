@@ -13,6 +13,7 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 
+import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.expression import literal_column
@@ -21,6 +22,7 @@ from . import units
 from .models import MetricRegistry, MetricSample, RawIngest, SleepSession, Workout, WorkoutHrSample
 from .registry import METRIC_REGISTRY, SLEEP_METRIC
 from .timeutil import parse_hae_datetime
+from .workout_types import canonical_workout_type
 
 log = logging.getLogger("healthlog.ingest")
 
@@ -152,7 +154,7 @@ def _hr_sample_bpm(point: dict) -> float | None:
     return _num(point.get("Avg")) if point.get("Avg") is not None else _num(point.get("qty"))
 
 
-def _parse_workout(w: dict, out: ParsedPayload) -> None:
+def _parse_workout(w: dict, out: ParsedPayload, type_map: dict[str, str] | None = None) -> None:
     raw_id = w.get("id")
     if not raw_id:
         return
@@ -178,12 +180,14 @@ def _parse_workout(w: dict, out: ParsedPayload) -> None:
                 out.workout_hr_rows.append({"workout_hae_id": hae_id, "ts": ts, "bpm": bpm})
 
     hr = w.get("heartRate") if isinstance(w.get("heartRate"), dict) else {}
+    name = w.get("name")
     out.workout_rows.append(
         {
             "hae_id": hae_id,
             "start_time": parse_hae_datetime(w.get("start")),
             "end_time": parse_hae_datetime(w.get("end")),
-            "name": w.get("name"),
+            "name": name,
+            "canonical_type": canonical_workout_type(name, type_map),
             "location": w.get("location"),
             "is_indoor": w.get("isIndoor"),
             "duration_s": _num(w.get("duration")),
@@ -204,8 +208,14 @@ def _parse_workout(w: dict, out: ParsedPayload) -> None:
     )
 
 
-def parse_payload(payload: dict) -> ParsedPayload:
-    """Translate an HAE payload into normalised rows. Pure, DB-free."""
+def parse_payload(payload: dict, type_map: dict[str, str] | None = None) -> ParsedPayload:
+    """Translate an HAE payload into normalised rows. Pure, DB-free.
+
+    ``type_map`` is the operator's ``workouts.type_map`` from config.yaml:
+    it maps custom localised workout names to canonical type slugs and is
+    layered on top of the built-in map (config wins, built-in is the fallback).
+    Pass ``None`` to use the built-in map only.
+    """
     out = ParsedPayload()
     data = payload.get("data") or {}
 
@@ -223,7 +233,7 @@ def parse_payload(payload: dict) -> ParsedPayload:
             _parse_metric(name, unit, point, out)
 
     for w in data.get("workouts") or []:
-        _parse_workout(w, out)
+        _parse_workout(w, out, type_map)
 
     return out
 
@@ -353,9 +363,16 @@ def store(db: Session, parsed: ParsedPayload) -> StoreResult:
     workout_new = 0
     for row in parsed.workout_rows:
         stmt = pg_insert(Workout).values(**row)
+        # canonical_type is only updated when the payload resolves it; a NULL
+        # in a new payload must not overwrite an already-resolved value.
+        update_set = {k: getattr(stmt.excluded, k) for k in row if k != "hae_id"}
+        if "canonical_type" in update_set:
+            update_set["canonical_type"] = sa.func.coalesce(
+                stmt.excluded.canonical_type, Workout.__table__.c.canonical_type
+            )
         stmt = stmt.on_conflict_do_update(
             index_elements=["hae_id"],
-            set_={k: getattr(stmt.excluded, k) for k in row if k != "hae_id"},
+            set_=update_set,
         ).returning(_XMAX_IS_NEW)
         workout_new += _count_new(db.execute(stmt))
 
