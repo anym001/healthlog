@@ -3,7 +3,7 @@
   "title": "HealthLog – Sleep",
   "description": "30-day sleep analysis: phases, duration, efficiency, bedtime consistency, and sleep-related findings. Adjust the Timezone variable if you are not in Europe/Vienna.",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "timezone": "Europe/Vienna",
   "time": {
     "from": "now-30d",
@@ -356,6 +356,7 @@
       "id": 5,
       "type": "barchart",
       "title": "Sleep Phases",
+      "description": "Stacked hours per phase for each night (Deep + Core + REM + Awake). Total bar height is time asleep plus awake-in-bed; the Awake segment on top shows fragmentation. Hover for the per-phase breakdown.",
       "gridPos": {
         "x": 0,
         "y": 6,
@@ -756,13 +757,176 @@
       ]
     },
     {
+      "id": 104,
+      "type": "row",
+      "title": "Overnight Vitals",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Respiratory Rate & Wrist Temperature",
+      "description": "Overnight recovery markers. Respiratory rate (left axis, breaths/min): a stable baseline is normal; sustained elevation can precede illness or follow hard training. Wrist temperature (right axis, °C) is shown as the deviation around your own baseline, not an absolute body temperature. Dashed lines are 7-day moving averages.",
+      "gridPos": {
+        "x": 0,
+        "y": 33,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:/min",
+          "decimals": 1,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "spanNulls": false,
+            "showPoints": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {"id": "byName", "options": "Wrist Temp (°C)"},
+            "properties": [
+              {"id": "unit", "value": "celsius"},
+              {"id": "custom.axisPlacement", "value": "right"},
+              {"id": "color", "value": {"mode": "fixed", "fixedColor": "orange"}}
+            ]
+          },
+          {
+            "matcher": {"id": "byName", "options": "Resp Rate Trend (/min)"},
+            "properties": [
+              {"id": "color", "value": {"mode": "fixed", "fixedColor": "blue"}},
+              {"id": "custom.lineStyle", "value": {"fill": "dash", "dash": [8, 4]}},
+              {"id": "custom.lineWidth", "value": 1},
+              {"id": "custom.fillOpacity", "value": 0},
+              {"id": "custom.showPoints", "value": "never"}
+            ]
+          },
+          {
+            "matcher": {"id": "byName", "options": "Wrist Temp Trend (°C)"},
+            "properties": [
+              {"id": "unit", "value": "celsius"},
+              {"id": "custom.axisPlacement", "value": "right"},
+              {"id": "color", "value": {"mode": "fixed", "fixedColor": "dark-orange"}},
+              {"id": "custom.lineStyle", "value": {"fill": "dash", "dash": [8, 4]}},
+              {"id": "custom.lineWidth", "value": 1},
+              {"id": "custom.fillOpacity", "value": 0},
+              {"id": "custom.showPoints", "value": "never"}
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "multi", "sort": "none"}
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT day AS time, avg AS \"Resp Rate (/min)\" FROM daily_metrics WHERE metric = 'respiratory_rate' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "rawSql": "SELECT day AS time, ROUND(avg::numeric, 2) AS \"Wrist Temp (°C)\" FROM daily_metrics WHERE metric = 'apple_sleeping_wrist_temperature' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
+        },
+        {
+          "refId": "C",
+          "rawSql": "SELECT day AS time, ROUND(AVG(avg) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 1) AS \"Resp Rate Trend (/min)\" FROM daily_metrics WHERE metric = 'respiratory_rate' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
+        },
+        {
+          "refId": "D",
+          "rawSql": "SELECT day AS time, ROUND(AVG(avg) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 2) AS \"Wrist Temp Trend (°C)\" FROM daily_metrics WHERE metric = 'apple_sleeping_wrist_temperature' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Blood Oxygen Saturation (SpO₂)",
+      "description": "Overnight blood oxygen saturation (%). Typical healthy range is ~95–100 %; brief dips can occur normally. Persistently low overnight values may warrant attention. Dashed line is the 7-day moving average.",
+      "gridPos": {
+        "x": 12,
+        "y": 33,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "spanNulls": false,
+            "showPoints": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {"id": "byName", "options": "7d Trend (%)"},
+            "properties": [
+              {"id": "custom.lineStyle", "value": {"fill": "dash", "dash": [8, 4]}},
+              {"id": "custom.lineWidth", "value": 1},
+              {"id": "custom.fillOpacity", "value": 0},
+              {"id": "custom.showPoints", "value": "never"},
+              {"id": "color", "value": {"mode": "fixed", "fixedColor": "gray"}}
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "multi", "sort": "none"}
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT day AS time, ROUND(avg::numeric, 1) AS \"SpO₂ (%)\" FROM daily_metrics WHERE metric = 'blood_oxygen_saturation' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "rawSql": "SELECT day AS time, ROUND(AVG(avg) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 1) AS \"7d Trend (%)\" FROM daily_metrics WHERE metric = 'blood_oxygen_saturation' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
       "id": 103,
       "type": "row",
       "title": "Findings",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 32,
+        "y": 41,
         "w": 24,
         "h": 1
       },
@@ -775,7 +939,7 @@
       "description": "Automatically detected sleep patterns. anomaly: z-score deviation from personal baseline (σ shows how many standard deviations from your norm). consistency: standard deviation of sleep timing in hours (higher = more irregular schedule).",
       "gridPos": {
         "x": 0,
-        "y": 33,
+        "y": 42,
         "w": 24,
         "h": 7
       },
