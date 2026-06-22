@@ -7,13 +7,12 @@ content hash, then parses + idempotently upserts. Audit events are logged here
 
 from __future__ import annotations
 
-import hashlib
 import ipaddress
-import json
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from .. import ingest as ingest_svc
 from .. import notify
@@ -26,6 +25,21 @@ from ..schemas import IngestResponse
 router = APIRouter()
 log = logging.getLogger("healthlog.api")
 audit = logging.getLogger("healthlog.audit")
+
+
+def _ingest(db: Session, body: bytes, ip: str | None, type_map: dict[str, str] | None):
+    """Run the shared ingest pipeline + commit, off the event loop.
+
+    ``ingest_svc.ingest_bytes`` (json.loads, SHA-256, the synchronous
+    SQLAlchemy work) and ``commit`` are all CPU/IO-bound and would otherwise
+    block every concurrent request, so the endpoint dispatches this via
+    ``run_in_threadpool``. ``type_map`` is the operator's ``workouts.type_map``
+    for workout-type normalisation. Returns ``(status, result)`` with a ``None``
+    result for a duplicate; raises ``ValueError`` for a malformed body (the
+    caller maps it to HTTP 400)."""
+    outcome, result = ingest_svc.ingest_bytes(db, body, ip, type_map=type_map)
+    db.commit()
+    return outcome, result
 
 
 def _client_ip(request: Request) -> str | None:
@@ -56,26 +70,16 @@ async def ingest_payload(
             detail=f"Payload exceeds {settings.max_payload_bytes} bytes.",
         )
 
-    try:
-        payload = json.loads(body)
-    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON body.") from exc
-
-    if not isinstance(payload, dict):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Expected a JSON object.")
-
-    content_hash = hashlib.sha256(body).digest()
     ip = _client_ip(request)
+    type_map = get_app_config().workouts.type_map
+    try:
+        outcome, result = await run_in_threadpool(_ingest, db, body, ip, type_map)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    inserted = ingest_svc.archive_raw(db, payload, content_hash, ip)
-    if not inserted:
-        db.commit()
+    if outcome == "duplicate":
         audit.info("ingest.duplicate ip=%s", ip)
         return IngestResponse(status="duplicate")
-
-    parsed = ingest_svc.parse_payload(payload, type_map=get_app_config().workouts.type_map)
-    result = ingest_svc.store(db, parsed)
-    db.commit()
 
     audit.info(
         "ingest.stored ip=%s metrics=%d(%d new) sleep=%d(%d new) workouts=%d(%d new) unknown=%d",

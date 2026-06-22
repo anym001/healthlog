@@ -9,6 +9,8 @@ and auto-registered as ``secondary`` stubs (PLAN.md §4.0/§5).
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
+import json
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -273,9 +275,10 @@ class StoreResult:
     workout_new: int = 0
 
 
-# Postgres caps a single statement at 65535 bound parameters; a metric row has
-# 9 columns, so a multi-year backfill (100k+ rows) must be inserted in chunks.
-_METRIC_INSERT_BATCH = 2000
+# Postgres caps a single statement at 65535 bound parameters, so a multi-year
+# backfill (100k+ rows) must be inserted in chunks. The per-chunk row count is
+# derived from the row's column count (below) so any table width stays safe.
+_MAX_BIND_PARAMS = 60000  # headroom under Postgres' 65535
 
 
 def _chunked(seq: list, size: int):
@@ -283,38 +286,18 @@ def _chunked(seq: list, size: int):
         yield seq[i : i + size]
 
 
-def _dedupe_metric_rows(rows: list[dict]) -> list[dict]:
-    """Last-wins de-dup on the (metric, time, source) key so a single INSERT
-    never upserts the same row twice ('ON CONFLICT ... affect row a second time')."""
+def _batch_size(n_cols: int) -> int:
+    """Rows per INSERT that keep the bound-parameter count under the cap."""
+    return max(1, _MAX_BIND_PARAMS // max(1, n_cols))
+
+
+def _dedupe(rows: list[dict], key: tuple[str, ...]) -> list[dict]:
+    """Last-wins de-dup on ``key`` so a single INSERT never upserts the same
+    conflict target twice ('ON CONFLICT ... affect row a second time')."""
     by_key: dict[tuple, dict] = {}
     for r in rows:
-        by_key[(r["metric"], r["time"], r["source"])] = r
+        by_key[tuple(r[k] for k in key)] = r
     return list(by_key.values())
-
-
-def _dedupe_workout_hr_rows(rows: list[dict]) -> list[dict]:
-    """Last-wins de-dup on (workout_hae_id, ts) — the natural PK — so a single
-    INSERT never touches the same conflict target twice."""
-    by_key: dict[tuple, dict] = {}
-    for r in rows:
-        by_key[(r["workout_hae_id"], r["ts"])] = r
-    return list(by_key.values())
-
-
-def store_workout_hr_samples(db: Session, rows: list[dict]) -> int:
-    """Idempotent upsert of intra-workout HR samples. The owning workout must
-    already be persisted (FK); within ``store`` this runs after the workout
-    upsert. Returns the number of rows submitted. Shared with the re-derive CLI,
-    which replays the raw archive into this table."""
-    deduped = _dedupe_workout_hr_rows(rows)
-    for chunk in _chunked(deduped, _METRIC_INSERT_BATCH):
-        stmt = pg_insert(WorkoutHrSample).values(chunk)
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["workout_hae_id", "ts"],
-            set_={"bpm": stmt.excluded.bpm},
-        )
-        db.execute(stmt)
-    return len(deduped)
 
 
 _XMAX_IS_NEW = literal_column("(xmax = 0)")
@@ -323,6 +306,45 @@ _XMAX_IS_NEW = literal_column("(xmax = 0)")
 def _count_new(cursor) -> int:
     """Count rows where xmax=0 (fresh insert, not a conflict-update)."""
     return sum(1 for (is_new,) in cursor if is_new)
+
+
+def _upsert(db: Session, model, rows: list[dict], *, set_keys, coalesce_keys: tuple[str, ...] = (), **conflict) -> int:
+    """Batched idempotent upsert; returns the count of freshly-inserted rows
+    (xmax=0). ``rows`` must already be de-duped on the conflict target. The
+    Postgres xmax trick (RETURNING xmax=0) tells fresh inserts from updates.
+
+    A column in ``coalesce_keys`` is updated as ``coalesce(excluded, existing)``
+    rather than overwritten, so a NULL in a replayed payload never clobbers an
+    already-resolved value (used for ``canonical_type``)."""
+    if not rows:
+        return 0
+    new = 0
+    for chunk in _chunked(rows, _batch_size(len(rows[0]))):
+        stmt = pg_insert(model).values(chunk)
+        set_ = {}
+        for k in set_keys:
+            excluded = getattr(stmt.excluded, k)
+            # coalesce(excluded, existing): a NULL in a replay keeps the stored value.
+            set_[k] = sa.func.coalesce(excluded, model.__table__.c[k]) if k in coalesce_keys else excluded
+        stmt = stmt.on_conflict_do_update(set_=set_, **conflict).returning(_XMAX_IS_NEW)
+        new += _count_new(db.execute(stmt))
+    return new
+
+
+def store_workout_hr_samples(db: Session, rows: list[dict]) -> int:
+    """Idempotent upsert of intra-workout HR samples. The owning workout must
+    already be persisted (FK); within ``store`` this runs after the workout
+    upsert. Returns the number of rows submitted (deduped). Shared with the
+    re-derive CLI, which replays the raw archive into this table."""
+    deduped = _dedupe(rows, ("workout_hae_id", "ts"))
+    for chunk in _chunked(deduped, _batch_size(2)):
+        stmt = pg_insert(WorkoutHrSample).values(chunk)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["workout_hae_id", "ts"],
+            set_={"bpm": stmt.excluded.bpm},
+        )
+        db.execute(stmt)
+    return len(deduped)
 
 
 def store(db: Session, parsed: ParsedPayload) -> StoreResult:
@@ -335,49 +357,38 @@ def store(db: Session, parsed: ParsedPayload) -> StoreResult:
     if parsed.unknown_metrics:
         _auto_register(db, parsed.unknown_metrics)
 
-    metric_new = 0
-    for chunk in _chunked(_dedupe_metric_rows(parsed.metric_rows), _METRIC_INSERT_BATCH):
-        stmt = pg_insert(MetricSample).values(chunk)
-        stmt = stmt.on_conflict_do_update(
-            constraint="uq_metric_samples",
-            set_={
-                "unit": stmt.excluded.unit,
-                "qty": stmt.excluded.qty,
-                "vmin": stmt.excluded.vmin,
-                "vavg": stmt.excluded.vavg,
-                "vmax": stmt.excluded.vmax,
-                "n": stmt.excluded.n,
-            },
-        ).returning(_XMAX_IS_NEW)
-        metric_new += _count_new(db.execute(stmt))
+    metric_rows = _dedupe(parsed.metric_rows, ("metric", "time", "source"))
+    metric_new = _upsert(
+        db,
+        MetricSample,
+        metric_rows,
+        set_keys=("unit", "qty", "vmin", "vavg", "vmax", "n"),
+        constraint="uq_metric_samples",
+    )
 
-    sleep_new = 0
-    for row in parsed.sleep_rows:
-        stmt = pg_insert(SleepSession).values(**row)
-        stmt = stmt.on_conflict_do_update(
-            constraint="uq_sleep_sessions",
-            set_={k: getattr(stmt.excluded, k) for k in row if k not in ("sleep_start", "source")},
-        ).returning(_XMAX_IS_NEW)
-        sleep_new += _count_new(db.execute(stmt))
+    sleep_rows = _dedupe(parsed.sleep_rows, ("sleep_start", "source"))
+    sleep_new = _upsert(
+        db,
+        SleepSession,
+        sleep_rows,
+        set_keys=[k for k in (sleep_rows[0] if sleep_rows else ()) if k not in ("sleep_start", "source")],
+        constraint="uq_sleep_sessions",
+    )
 
-    workout_new = 0
-    for row in parsed.workout_rows:
-        stmt = pg_insert(Workout).values(**row)
-        # canonical_type is only updated when the payload resolves it; a NULL
-        # in a new payload must not overwrite an already-resolved value.
-        update_set = {k: getattr(stmt.excluded, k) for k in row if k != "hae_id"}
-        if "canonical_type" in update_set:
-            update_set["canonical_type"] = sa.func.coalesce(
-                stmt.excluded.canonical_type, Workout.__table__.c.canonical_type
-            )
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["hae_id"],
-            set_=update_set,
-        ).returning(_XMAX_IS_NEW)
-        workout_new += _count_new(db.execute(stmt))
+    # canonical_type uses coalesce-on-conflict so a NULL in a replayed payload
+    # never overwrites an already-resolved value.
+    workout_rows = _dedupe(parsed.workout_rows, ("hae_id",))
+    workout_new = _upsert(
+        db,
+        Workout,
+        workout_rows,
+        set_keys=[k for k in (workout_rows[0] if workout_rows else ()) if k != "hae_id"],
+        coalesce_keys=("canonical_type",),
+        index_elements=["hae_id"],
+    )
 
     # After the workouts (FK target) exist in this transaction.
-    store_workout_hr_samples(db, parsed.workout_hr_rows)
+    workout_hr_rows = store_workout_hr_samples(db, parsed.workout_hr_rows)
 
     for metric, unit in parsed.flagged_units:
         log.warning("unit mismatch for %s: incoming '%s' kept as-is (no known conversion)", metric, unit)
@@ -386,7 +397,7 @@ def store(db: Session, parsed: ParsedPayload) -> StoreResult:
         metric_rows=len(parsed.metric_rows),
         sleep_rows=len(parsed.sleep_rows),
         workout_rows=len(parsed.workout_rows),
-        workout_hr_rows=len(_dedupe_workout_hr_rows(parsed.workout_hr_rows)),
+        workout_hr_rows=workout_hr_rows,
         unknown_metrics=len(parsed.unknown_metrics),
         metric_new=metric_new,
         sleep_new=sleep_new,
@@ -405,6 +416,37 @@ def archive_raw(db: Session, payload: dict, content_hash: bytes, source_ip: str 
     )
     result = db.execute(stmt).first()
     return result is not None
+
+
+def ingest_bytes(
+    db: Session,
+    body: bytes,
+    source_ip: str | None = None,
+    type_map: dict[str, str] | None = None,
+) -> tuple[str, StoreResult | None]:
+    """Archive + parse + idempotently store one raw HAE body.
+
+    The single ingest path shared by the HTTP endpoint and the backfill CLI, so
+    a file imported from disk behaves identically to a posted payload. Hashes
+    the body for the content-hash dedup, archives the verbatim payload, and (on
+    a first sighting) parses and upserts it. ``type_map`` is the operator's
+    ``workouts.type_map`` from config, threaded into workout-type normalisation.
+
+    Does not commit — the caller owns the transaction boundary. Returns
+    ``("duplicate", None)`` when the body was already archived, else
+    ``("stored", StoreResult)``. Raises ``ValueError`` for a malformed body
+    (invalid JSON or a non-object top level)."""
+    try:
+        payload = json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise ValueError("Invalid JSON body.") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("Expected a JSON object.")
+
+    content_hash = hashlib.sha256(body).digest()
+    if not archive_raw(db, payload, content_hash, source_ip):
+        return "duplicate", None
+    return "stored", store(db, parse_payload(payload, type_map=type_map))
 
 
 def now_utc() -> dt.datetime:

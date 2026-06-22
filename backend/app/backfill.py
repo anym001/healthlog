@@ -24,7 +24,6 @@ no-op for what already landed.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import logging
 import sys
@@ -53,6 +52,21 @@ class BackfillSummary:
     workout_rows: int = 0
     unknown_metrics: int = 0
 
+    def add_stored(self, result: ingest_svc.StoreResult) -> None:
+        """Fold one stored file's row counts into the running totals."""
+        self.stored += 1
+        self.metric_rows += result.metric_rows
+        self.sleep_rows += result.sleep_rows
+        self.workout_rows += result.workout_rows
+        self.unknown_metrics += result.unknown_metrics
+
+    def add_parsed(self, parsed: ingest_svc.ParsedPayload) -> None:
+        """Fold one parsed-only file's row counts into the totals (dry-run)."""
+        self.metric_rows += len(parsed.metric_rows)
+        self.sleep_rows += len(parsed.sleep_rows)
+        self.workout_rows += len(parsed.workout_rows)
+        self.unknown_metrics += len(parsed.unknown_metrics)
+
 
 def collect_files(paths: Iterable[str | Path], pattern: str = "*.json") -> list[Path]:
     """Expand the given paths into a sorted, de-duplicated list of JSON files.
@@ -80,18 +94,13 @@ def ingest_file(
     path: Path,
     type_map: dict[str, str] | None = None,
 ) -> tuple[str, ingest_svc.StoreResult | None]:
-    """Archive + parse + store a single file. Returns ('stored'|'duplicate', result)."""
-    body = path.read_bytes()
-    payload = json.loads(body)
-    if not isinstance(payload, dict):
-        raise ValueError("expected a JSON object at the top level")
+    """Archive + parse + store a single file via the shared ingest pipeline.
 
-    content_hash = hashlib.sha256(body).digest()
-    if not ingest_svc.archive_raw(db, payload, content_hash, None):
-        return "duplicate", None
-
-    result = ingest_svc.store(db, ingest_svc.parse_payload(payload, type_map=type_map))
-    return "stored", result
+    Identical to the HTTP endpoint's path (``ingest_svc.ingest_bytes``), so a
+    file imported from disk behaves exactly like a posted payload. ``type_map``
+    is threaded into workout-type normalisation. The commit is the caller's
+    (``run_backfill`` commits per file). Returns ('stored'|'duplicate', result)."""
+    return ingest_svc.ingest_bytes(db, path.read_bytes(), type_map=type_map)
 
 
 def run_backfill(
@@ -106,10 +115,7 @@ def run_backfill(
         try:
             if dry_run:
                 parsed = ingest_svc.parse_payload(json.loads(path.read_bytes()), type_map=type_map)
-                summary.metric_rows += len(parsed.metric_rows)
-                summary.sleep_rows += len(parsed.sleep_rows)
-                summary.workout_rows += len(parsed.workout_rows)
-                summary.unknown_metrics += len(parsed.unknown_metrics)
+                summary.add_parsed(parsed)
                 log.info(
                     "[dry-run] %s -> metrics=%d sleep=%d workouts=%d unknown=%d",
                     path.name,
@@ -126,11 +132,7 @@ def run_backfill(
                 summary.duplicates += 1
                 log.info("%s -> duplicate (already imported), skipped", path.name)
             else:
-                summary.stored += 1
-                summary.metric_rows += result.metric_rows
-                summary.sleep_rows += result.sleep_rows
-                summary.workout_rows += result.workout_rows
-                summary.unknown_metrics += result.unknown_metrics
+                summary.add_stored(result)
                 log.info(
                     "%s -> stored metrics=%d sleep=%d workouts=%d unknown=%d",
                     path.name,
