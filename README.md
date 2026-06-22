@@ -267,6 +267,23 @@ recompute the findings on demand:
 docker exec healthlog healthlog analyze
 ```
 
+To generate an on-demand health report from the current findings snapshot
+(requires [Ollama](https://ollama.com/) with `qwen2.5:14b` pulled, configured
+under `narrate:` in `config.yaml`):
+
+```bash
+docker exec healthlog healthlog narrate
+# With an optional focus note:
+docker exec healthlog healthlog narrate --note "Focus on the HRV/training link."
+# English report, last 14 days:
+docker exec healthlog healthlog narrate --language en --lookback-days 14
+```
+
+The report is printed to stdout and written to `/config/narration/YYYY-MM-DD.md`
+(the directory is created on first use). No health values leave your local
+network — only statistical findings (z-scores, slopes, ratios) are sent to
+the model.
+
 To check whether the raw archive carries the intra-workout heart-rate series
 that zone-based (Edwards) training load needs:
 
@@ -325,6 +342,10 @@ It holds:
   recovery is told apart from another's; unmapped workouts still feed the
   type-agnostic aggregate. `edwards` adds a parallel zone-based load series when
   the intra-workout HR series is present and self-gates off when it isn't.
+- **`narrate`** — Ollama endpoint (`ollama_url`), model (`qwen2.5:14b`),
+  report language (`de`/`en`), lookback window for time-anchored findings and
+  HTTP timeout. Off until `ollama_url` is set; used only when you run
+  `healthlog narrate`.
 - **`notify`** — push notifications (see below).
 
 Malformed YAML or an out-of-range value fails fast with a clear message. See the
