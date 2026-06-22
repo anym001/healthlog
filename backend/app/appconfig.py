@@ -156,8 +156,8 @@ class NarrateConfig(BaseModel):
     ollama_url: str | None = None
     # Ollama model identifier.
     model: str = "qwen2.5:14b"
-    # Report language. "de" = German, "en" = English.
-    language: Literal["de", "en"] = "de"
+    # Report language. "en" = English, "de" = German.
+    language: Literal["de", "en"] = "en"
     # How far back to look for ref_date-based findings (anomaly, recovery_alert,
     # training_load). Time-independent kinds (correlation, trend, seasonality,
     # consistency) are always included — they represent the current state.

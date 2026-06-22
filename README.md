@@ -16,8 +16,8 @@ ready to chart with whatever dashboard you prefer. An optional local LLM (Ollama
 can narrate the findings later.
 
 > **Status:** ingestion + storage (Phase 1), the nightly analysis pipeline
-> (Phase 3) and the Grafana dashboards (Phase 4) are in place; the optional
-> LLM narration is next.
+> (Phase 3), the Grafana dashboards and the optional local-LLM narration
+> (Phase 4) are all in place.
 > The full design and roadmap live in [`docs/PLAN.md`](docs/PLAN.md).
 
 ## Contents
@@ -30,6 +30,7 @@ can narrate the findings later.
 - [Sending data from your iPhone](#sending-data-from-your-iphone)
 - [Bulk backfill (full history)](#bulk-backfill-full-history)
 - [Analysis schedule](#analysis-schedule)
+- [LLM narration](#llm-narration)
 - [Configuration](#configuration)
 - [Operations](#operations)
 - [Reverse proxy](#reverse-proxy)
@@ -267,23 +268,6 @@ recompute the findings on demand:
 docker exec healthlog healthlog analyze
 ```
 
-To generate an on-demand health report from the current findings snapshot
-(requires [Ollama](https://ollama.com/) with `qwen2.5:14b` pulled, configured
-under `narrate:` in `config.yaml`):
-
-```bash
-docker exec healthlog healthlog narrate
-# With an optional focus note:
-docker exec healthlog healthlog narrate --note "Focus on the HRV/training link."
-# English report, last 14 days:
-docker exec healthlog healthlog narrate --language en --lookback-days 14
-```
-
-The report is printed to stdout and written to `/config/narration/YYYY-MM-DD.md`
-(the directory is created on first use). No health values leave your local
-network — only statistical findings (z-scores, slopes, ratios) are sent to
-the model.
-
 To check whether the raw archive carries the intra-workout heart-rate series
 that zone-based (Edwards) training load needs:
 
@@ -298,6 +282,75 @@ samples table once (idempotent; safe to re-run):
 ```bash
 docker exec healthlog healthlog rederive-workout-hr
 ```
+
+## LLM narration
+
+HealthLog can turn the current findings snapshot into a written health report
+using a **local** large language model via [Ollama](https://ollama.com/). The
+report summarises anomalies, recovery, training load, correlations, trends and
+sleep consistency in plain prose. Only statistical findings (z-scores, slopes,
+ratios) are sent to the model — **no raw health values ever leave your
+network**, and Ollama itself runs entirely on your own hardware.
+
+```bash
+docker exec healthlog healthlog narrate
+# With an optional focus note:
+docker exec healthlog healthlog narrate --note "Focus on the HRV/training link."
+# German report, last 14 days:
+docker exec healthlog healthlog narrate --language de --lookback-days 14
+```
+
+The report is printed to stdout and written to `/config/narration/YYYY-MM-DD.md`
+(the directory is created on first use). It is **off until you set
+`narrate.ollama_url`** in `config.yaml`.
+
+### Running Ollama on a Mac
+
+A Mac with Apple Silicon (unified memory) is well suited to running an 8–14B
+model locally. The analysis itself runs on your always-on server; only this
+optional narration step talks to the Mac.
+
+1. **Install Ollama** — download the app from
+   [ollama.com/download](https://ollama.com/download) (or `brew install ollama`).
+   See the [official docs](https://github.com/ollama/ollama/blob/main/README.md)
+   for details.
+
+2. **Pull the model** (≈9 GB; needs ~12 GB free RAM to run comfortably):
+
+   ```bash
+   ollama pull qwen2.5:14b
+   ```
+
+   On a 16 GB Mac, `qwen2.5:7b` is a lighter alternative — set it as
+   `narrate.model` in `config.yaml`.
+
+3. **Expose Ollama on your network.** By default Ollama only listens on
+   `127.0.0.1`, so the server can't reach it. Bind it to all interfaces by
+   setting `OLLAMA_HOST` (see the
+   [FAQ](https://github.com/ollama/ollama/blob/main/docs/faq.md#how-do-i-configure-ollama-server)):
+
+   ```bash
+   launchctl setenv OLLAMA_HOST "0.0.0.0:11434"   # then restart the Ollama app
+   ```
+
+   Keep this on a trusted LAN — Ollama has no authentication. Do **not** expose
+   port `11434` to the internet.
+
+4. **Point HealthLog at the Mac** in `config.yaml`, using the Mac's LAN IP:
+
+   ```yaml
+   narrate:
+     ollama_url: http://192.168.1.100:11434
+     model: qwen2.5:14b
+     language: en          # en | de
+   ```
+
+5. **Verify** the server can reach Ollama, then generate a report:
+
+   ```bash
+   docker exec healthlog curl -fsS http://192.168.1.100:11434/api/tags   # lists models
+   docker exec healthlog healthlog narrate
+   ```
 
 ## Configuration
 
@@ -343,9 +396,9 @@ It holds:
   type-agnostic aggregate. `edwards` adds a parallel zone-based load series when
   the intra-workout HR series is present and self-gates off when it isn't.
 - **`narrate`** — Ollama endpoint (`ollama_url`), model (`qwen2.5:14b`),
-  report language (`de`/`en`), lookback window for time-anchored findings and
-  HTTP timeout. Off until `ollama_url` is set; used only when you run
-  `healthlog narrate`.
+  report language (`en`/`de`, default `en`), lookback window for time-anchored
+  findings and HTTP timeout. Off until `ollama_url` is set; used only when you
+  run `healthlog narrate` (see [LLM narration](#llm-narration)).
 - **`notify`** — push notifications (see below).
 
 Malformed YAML or an out-of-range value fails fast with a clear message. See the

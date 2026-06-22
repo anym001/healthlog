@@ -136,18 +136,18 @@ def test_narrate_defaults(tmp_path):
     n = load_config(tmp_path / "nope.yaml").narrate
     assert n.ollama_url is None
     assert n.model == "qwen2.5:14b"
-    assert n.language == "de"
+    assert n.language == "en"
     assert n.lookback_days == 7
     assert n.timeout_s == 300
 
 
 def test_narrate_config_from_yaml(tmp_path):
     p = tmp_path / "config.yaml"
-    p.write_text("narrate:\n  ollama_url: http://mac:11434\n  lookback_days: 14\n  language: en\n")
+    p.write_text("narrate:\n  ollama_url: http://mac:11434\n  lookback_days: 14\n  language: de\n")
     n = load_config(p).narrate
     assert n.ollama_url == "http://mac:11434"
     assert n.lookback_days == 14
-    assert n.language == "en"
+    assert n.language == "de"
     assert n.model == "qwen2.5:14b"  # default preserved
 
 

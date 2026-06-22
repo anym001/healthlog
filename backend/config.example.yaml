@@ -79,7 +79,7 @@
 # narrate:
 #   ollama_url:               # required: http://192.168.1.100:11434
 #   model: qwen2.5:14b
-#   language: de              # de | en
+#   language: en              # en | de
 #   lookback_days: 7          # ref_date window for anomalies / recovery / load
 #   timeout_s: 300            # generous — 14B models take time
 
