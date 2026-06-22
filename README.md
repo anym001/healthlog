@@ -15,8 +15,9 @@ A nightly job computes statistical findings and stores them back in the database
 ready to chart with whatever dashboard you prefer. An optional local LLM (Ollama)
 can narrate the findings later.
 
-> **Status:** ingestion + storage (Phase 1) and the nightly analysis pipeline
-> (Phase 3) are in place; dashboards and the optional LLM narration are next.
+> **Status:** ingestion + storage (Phase 1), the nightly analysis pipeline
+> (Phase 3) and the Grafana dashboards (Phase 4) are in place; the optional
+> LLM narration is next.
 > The full design and roadmap live in [`docs/PLAN.md`](docs/PLAN.md).
 
 ## Contents
