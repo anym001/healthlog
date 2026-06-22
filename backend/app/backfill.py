@@ -24,7 +24,6 @@ no-op for what already landed.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import logging
 import sys
@@ -35,6 +34,7 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from . import ingest as ingest_svc
+from .appconfig import get_app_config
 from .config import get_settings
 from .logging_config import configure_logging
 
@@ -51,6 +51,21 @@ class BackfillSummary:
     sleep_rows: int = 0
     workout_rows: int = 0
     unknown_metrics: int = 0
+
+    def add_stored(self, result: ingest_svc.StoreResult) -> None:
+        """Fold one stored file's row counts into the running totals."""
+        self.stored += 1
+        self.metric_rows += result.metric_rows
+        self.sleep_rows += result.sleep_rows
+        self.workout_rows += result.workout_rows
+        self.unknown_metrics += result.unknown_metrics
+
+    def add_parsed(self, parsed: ingest_svc.ParsedPayload) -> None:
+        """Fold one parsed-only file's row counts into the totals (dry-run)."""
+        self.metric_rows += len(parsed.metric_rows)
+        self.sleep_rows += len(parsed.sleep_rows)
+        self.workout_rows += len(parsed.workout_rows)
+        self.unknown_metrics += len(parsed.unknown_metrics)
 
 
 def collect_files(paths: Iterable[str | Path], pattern: str = "*.json") -> list[Path]:
@@ -74,32 +89,33 @@ def collect_files(paths: Iterable[str | Path], pattern: str = "*.json") -> list[
     return files
 
 
-def ingest_file(db: Session, path: Path) -> tuple[str, ingest_svc.StoreResult | None]:
-    """Archive + parse + store a single file. Returns ('stored'|'duplicate', result)."""
-    body = path.read_bytes()
-    payload = json.loads(body)
-    if not isinstance(payload, dict):
-        raise ValueError("expected a JSON object at the top level")
+def ingest_file(
+    db: Session,
+    path: Path,
+    type_map: dict[str, str] | None = None,
+) -> tuple[str, ingest_svc.StoreResult | None]:
+    """Archive + parse + store a single file via the shared ingest pipeline.
 
-    content_hash = hashlib.sha256(body).digest()
-    if not ingest_svc.archive_raw(db, payload, content_hash, None):
-        return "duplicate", None
+    Identical to the HTTP endpoint's path (``ingest_svc.ingest_bytes``), so a
+    file imported from disk behaves exactly like a posted payload. ``type_map``
+    is threaded into workout-type normalisation. The commit is the caller's
+    (``run_backfill`` commits per file). Returns ('stored'|'duplicate', result)."""
+    return ingest_svc.ingest_bytes(db, path.read_bytes(), type_map=type_map)
 
-    result = ingest_svc.store(db, ingest_svc.parse_payload(payload))
-    return "stored", result
 
-
-def run_backfill(db: Session, files: Sequence[Path], dry_run: bool = False) -> BackfillSummary:
+def run_backfill(
+    db: Session,
+    files: Sequence[Path],
+    dry_run: bool = False,
+    type_map: dict[str, str] | None = None,
+) -> BackfillSummary:
     """Import every file, committing per file. ``dry_run`` parses + reports only."""
     summary = BackfillSummary(files=len(files))
     for path in files:
         try:
             if dry_run:
-                parsed = ingest_svc.parse_payload(json.loads(path.read_bytes()))
-                summary.metric_rows += len(parsed.metric_rows)
-                summary.sleep_rows += len(parsed.sleep_rows)
-                summary.workout_rows += len(parsed.workout_rows)
-                summary.unknown_metrics += len(parsed.unknown_metrics)
+                parsed = ingest_svc.parse_payload(json.loads(path.read_bytes()), type_map=type_map)
+                summary.add_parsed(parsed)
                 log.info(
                     "[dry-run] %s -> metrics=%d sleep=%d workouts=%d unknown=%d",
                     path.name,
@@ -110,17 +126,13 @@ def run_backfill(db: Session, files: Sequence[Path], dry_run: bool = False) -> B
                 )
                 continue
 
-            status, result = ingest_file(db, path)
+            status, result = ingest_file(db, path, type_map=type_map)
             db.commit()
             if status == "duplicate":
                 summary.duplicates += 1
                 log.info("%s -> duplicate (already imported), skipped", path.name)
             else:
-                summary.stored += 1
-                summary.metric_rows += result.metric_rows
-                summary.sleep_rows += result.sleep_rows
-                summary.workout_rows += result.workout_rows
-                summary.unknown_metrics += result.unknown_metrics
+                summary.add_stored(result)
                 log.info(
                     "%s -> stored metrics=%d sleep=%d workouts=%d unknown=%d",
                     path.name,
@@ -179,9 +191,10 @@ def run(args: argparse.Namespace) -> int:
     # Imported lazily so --help works without a configured DATABASE_URL.
     from .database import SessionLocal
 
+    type_map = get_app_config().workouts.type_map
     db = SessionLocal()
     try:
-        summary = run_backfill(db, files, dry_run=args.dry_run)
+        summary = run_backfill(db, files, dry_run=args.dry_run, type_map=type_map)
     finally:
         db.close()
 

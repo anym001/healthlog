@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 
-from app.ingest import parse_payload
+from app.ingest import _consolidate_sleep, parse_payload
 
 
 def test_heart_rate_parsed_as_minmax(sample_payload):
@@ -52,6 +52,33 @@ def test_sleep_routed_to_sleep_rows_with_wake_day(sample_payload):
     assert s["sleep_start"].hour == 22  # previous evening
     assert s["total_sleep_h"] == 7.5
     assert abs((s["deep_h"] + s["core_h"] + s["rem_h"]) - s["total_sleep_h"]) < 1e-6
+
+
+def test_consolidate_sleep_keeps_fullest_per_awakening():
+    end = dt.datetime(2026, 6, 22, 6, 11, tzinfo=dt.UTC)
+    nap_end = dt.datetime(2026, 6, 22, 14, 40, tzinfo=dt.UTC)
+    rows = [
+        {"sleep_start": 1, "sleep_end": end, "source": "w", "total_sleep_h": 5.0},
+        {"sleep_start": 2, "sleep_end": end, "source": "w", "total_sleep_h": 8.5},  # fullest
+        {"sleep_start": 3, "sleep_end": end, "source": "w", "total_sleep_h": 3.0},
+        {"sleep_start": 4, "sleep_end": nap_end, "source": "w", "total_sleep_h": 0.6},  # distinct
+    ]
+    out = _consolidate_sleep(rows)
+    by_end = {r["sleep_end"]: r for r in out}
+    assert len(out) == 2  # one night + one nap, not four
+    assert by_end[end]["total_sleep_h"] == 8.5
+    assert by_end[nap_end]["total_sleep_h"] == 0.6
+
+
+def test_consolidate_sleep_buckets_null_end_per_source():
+    rows = [
+        {"sleep_start": 1, "sleep_end": None, "source": "w", "total_sleep_h": 4.0},
+        {"sleep_start": 2, "sleep_end": None, "source": "w", "total_sleep_h": 7.0},  # fullest
+        {"sleep_start": 3, "sleep_end": None, "source": "phone", "total_sleep_h": 6.0},
+    ]
+    out = _consolidate_sleep(rows)
+    assert len(out) == 2  # one per source (NULL ends share a bucket)
+    assert {r["source"]: r["total_sleep_h"] for r in out} == {"w": 7.0, "phone": 6.0}
 
 
 def test_workout_uses_uuid_and_converts_energy(sample_payload):

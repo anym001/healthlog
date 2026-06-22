@@ -1,8 +1,9 @@
 {
   "uid": "healthlog-metrics",
   "title": "HealthLog – Metrics Explorer",
+  "description": "Apple Health-style deep-dive into any single metric. Select a Category, then a Metric from the cascading dropdowns. All panels update automatically: latest reading, 7-day average, 30-day min/max, daily trend with 7-day moving average, intraday range, sample count, and raw samples.",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 3,
   "timezone": "Europe/Vienna",
   "time": {
     "from": "now-30d",
@@ -12,12 +13,45 @@
   "tags": [
     "healthlog"
   ],
+  "links": [
+    {
+      "title": "Overview",
+      "url": "/d/healthlog-overview",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": true,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Overview dashboard"
+    },
+    {
+      "title": "Sleep",
+      "url": "/d/healthlog-sleep",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": true,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Sleep dashboard"
+    },
+    {
+      "title": "Training",
+      "url": "/d/healthlog-training",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": true,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Training & Recovery dashboard"
+    }
+  ],
   "templating": {
     "list": [
       {
         "name": "category",
         "type": "query",
         "label": "Category",
+        "description": "Metric category from the metric_registry table. Metrics without a registry entry appear under 'other'.",
         "datasource": {
           "uid": "healthlog-db"
         },
@@ -33,6 +67,7 @@
         "name": "metric",
         "type": "query",
         "label": "Metric",
+        "description": "Metric within the selected category. Display name comes from metric_registry.display_name; falls back to the raw metric key.",
         "datasource": {
           "uid": "healthlog-db"
         },
@@ -48,6 +83,7 @@
         "name": "unit",
         "type": "query",
         "label": "Unit",
+        "description": "Canonical unit for the selected metric (auto-populated from metric_registry, hidden from UI).",
         "datasource": {
           "uid": "healthlog-db"
         },
@@ -64,12 +100,26 @@
   },
   "panels": [
     {
-      "id": 1,
-      "type": "stat",
-      "title": "Latest Reading ($unit)",
+      "id": 100,
+      "type": "row",
+      "title": "Summary",
+      "collapsed": false,
       "gridPos": {
         "x": 0,
         "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Latest Reading ($unit)",
+      "description": "Most recent daily aggregated value. Aggregation method (sum/min/avg/max) is defined per metric in the metric_registry.",
+      "gridPos": {
+        "x": 0,
+        "y": 1,
         "w": 6,
         "h": 4
       },
@@ -98,14 +148,14 @@
         "orientation": "auto",
         "textMode": "auto",
         "colorMode": "value",
-        "graphMode": "none",
+        "graphMode": "area",
         "justifyMode": "center"
       },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT ROUND((CASE r.agg_default WHEN 'sum' THEN d.sum WHEN 'min' THEN d.vmin WHEN 'max' THEN d.vmax ELSE d.avg END)::numeric, 2) AS \"Latest\" FROM daily_metrics d JOIN metric_registry r ON r.metric = d.metric WHERE d.metric = '$metric' ORDER BY d.day DESC LIMIT 1",
-          "format": "table"
+          "rawSql": "SELECT d.day AS time, ROUND((CASE r.agg_default WHEN 'sum' THEN d.sum WHEN 'min' THEN d.vmin WHEN 'max' THEN d.vmax ELSE d.avg END)::numeric, 2) AS \"Latest\" FROM daily_metrics d JOIN metric_registry r ON r.metric = d.metric WHERE d.metric = '$metric' AND $__timeFilter(d.day::timestamptz) ORDER BY d.day",
+          "format": "time_series"
         }
       ]
     },
@@ -113,9 +163,10 @@
       "id": 2,
       "type": "stat",
       "title": "7-Day Average ($unit)",
+      "description": "Average of the daily aggregated values over the last 7 days.",
       "gridPos": {
         "x": 6,
-        "y": 0,
+        "y": 1,
         "w": 6,
         "h": 4
       },
@@ -159,9 +210,10 @@
       "id": 3,
       "type": "stat",
       "title": "30-Day Minimum ($unit)",
+      "description": "Minimum of the daily aggregated values within the last 30 days.",
       "gridPos": {
         "x": 12,
-        "y": 0,
+        "y": 1,
         "w": 6,
         "h": 4
       },
@@ -205,9 +257,10 @@
       "id": 4,
       "type": "stat",
       "title": "30-Day Maximum ($unit)",
+      "description": "Maximum of the daily aggregated values within the last 30 days.",
       "gridPos": {
         "x": 18,
-        "y": 0,
+        "y": 1,
         "w": 6,
         "h": 4
       },
@@ -248,12 +301,26 @@
       ]
     },
     {
+      "id": 101,
+      "type": "row",
+      "title": "Daily Trend",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
       "id": 5,
       "type": "timeseries",
       "title": "Daily Value — ${metric:text} ($unit)",
+      "description": "Daily aggregated value per the metric_registry agg_default (sum/min/avg/max). Dashed grey line is the 7-day moving average.",
       "gridPos": {
         "x": 0,
-        "y": 4,
+        "y": 6,
         "w": 24,
         "h": 9
       },
@@ -277,7 +344,36 @@
             "axisLabel": "$unit"
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "7d Trend"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {"fill": "dash", "dash": [8, 4]}
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "color",
+                "value": {"mode": "fixed", "fixedColor": "gray"}
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": {
@@ -301,16 +397,35 @@
           "refId": "A",
           "rawSql": "SELECT d.day AS time, ROUND((CASE r.agg_default WHEN 'sum' THEN d.sum WHEN 'min' THEN d.vmin WHEN 'max' THEN d.vmax ELSE d.avg END)::numeric, 2) AS \"Daily value\" FROM daily_metrics d JOIN metric_registry r ON r.metric = d.metric WHERE d.metric = '$metric' AND $__timeFilter(d.day::timestamptz) ORDER BY d.day",
           "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "rawSql": "SELECT d.day AS time, ROUND(AVG(CASE r.agg_default WHEN 'sum' THEN d.sum WHEN 'min' THEN d.vmin WHEN 'max' THEN d.vmax ELSE d.avg END) OVER (ORDER BY d.day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 2) AS \"7d Trend\" FROM daily_metrics d JOIN metric_registry r ON r.metric = d.metric WHERE d.metric = '$metric' AND $__timeFilter(d.day::timestamptz) ORDER BY d.day",
+          "format": "time_series"
         }
       ]
+    },
+    {
+      "id": 102,
+      "type": "row",
+      "title": "Detail",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
     },
     {
       "id": 6,
       "type": "timeseries",
       "title": "Intraday Range — min / avg / max ($unit)",
+      "description": "Daily intraday min, avg, and max from daily_metrics. Shows within-day variability. Only meaningful for metrics with multiple samples per day (e.g. heart rate, not step_count).",
       "gridPos": {
         "x": 0,
-        "y": 13,
+        "y": 16,
         "w": 12,
         "h": 8
       },
@@ -365,9 +480,10 @@
       "id": 7,
       "type": "barchart",
       "title": "Daily Sample Count",
+      "description": "Number of raw samples ingested per day. Gaps or sudden drops may indicate a device sync issue.",
       "gridPos": {
         "x": 12,
-        "y": 13,
+        "y": 16,
         "w": 12,
         "h": 8
       },
@@ -412,9 +528,10 @@
       "id": 8,
       "type": "table",
       "title": "Raw Samples — ${metric:text}  (newest 500)",
+      "description": "Newest 500 raw records from metric_samples within the selected time range. For high-frequency metrics this covers only a short period; narrow the time range to see older data.",
       "gridPos": {
         "x": 0,
-        "y": 21,
+        "y": 24,
         "w": 24,
         "h": 9
       },

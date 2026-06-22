@@ -66,10 +66,21 @@ class MetricSample(Base):
 
 
 class SleepSession(Base):
-    """Sleep is an interval with phases; assigned to the wake-up day."""
+    """Sleep is an interval with phases; assigned to the wake-up day.
+
+    Natural key is ``(sleep_end, source)`` — the awakening identity. Health Auto
+    Export's REST API re-captures the same night several times, each starting at
+    a later ``sleep_start`` but sharing the same ``sleep_end``; keying on the end
+    collapses those re-captures (the most complete one wins at upsert) while
+    keeping genuinely distinct sleep periods (e.g. a nap, with a different end)
+    separate. NULLS NOT DISTINCT so a rare NULL ``sleep_end`` still de-dupes on
+    replay instead of inserting a second row. See migration 0011.
+    """
 
     __tablename__ = "sleep_sessions"
-    __table_args__ = (UniqueConstraint("sleep_start", "source", name="uq_sleep_sessions"),)
+    __table_args__ = (
+        UniqueConstraint("sleep_end", "source", name="uq_sleep_sessions", postgresql_nulls_not_distinct=True),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     sleep_start: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
@@ -89,6 +100,21 @@ class SleepSession(Base):
     in_bed_h: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
+class WorkoutTypeGroup(Base):
+    """Maps canonical workout type slugs to display groups for Grafana.
+
+    Populated by migration 0008; extend by inserting new rows — no code change
+    needed. sort_order controls the series stacking order in bar charts.
+    """
+
+    __tablename__ = "workout_type_groups"
+
+    canonical_type: Mapped[str] = mapped_column(Text, primary_key=True)
+    group_name: Mapped[str] = mapped_column(Text, nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=99)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Workout(Base):
     """Workout summary keyed by HAE's stable UUID. The intra-workout HR time
     series (when HAE attaches it) lands in ``workout_hr_samples``; other
@@ -99,8 +125,9 @@ class Workout(Base):
     hae_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     start_time: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     end_time: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    # localised HAE name; normalised to a canonical type at analysis time (workout_types.py)
+    # Localised HAE name; canonical_type is the resolved slug (workout_types.py).
     name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    canonical_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     location: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_indoor: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     duration_s: Mapped[float | None] = mapped_column(Float, nullable=True)

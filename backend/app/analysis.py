@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -186,6 +186,11 @@ class Decomp:
     has_annual: bool = False
 
 
+def _daily_grid(s: pd.Series) -> pd.DatetimeIndex:
+    """Complete daily DatetimeIndex spanning the series' first..last date."""
+    return pd.date_range(s.index.min(), s.index.max(), freq="D")
+
+
 def _prepare_series(s: pd.Series) -> pd.Series:
     """Complete daily index with interior gaps interpolated (edges dropped).
 
@@ -195,8 +200,7 @@ def _prepare_series(s: pd.Series) -> pd.Series:
     s = s.dropna()
     if s.empty:
         return s
-    full = pd.date_range(s.index.min(), s.index.max(), freq="D")
-    return s.reindex(full).interpolate(method="time", limit_area="inside").dropna()
+    return s.reindex(_daily_grid(s)).interpolate(method="time", limit_area="inside").dropna()
 
 
 def decompose(s: pd.Series) -> Decomp | None:
@@ -386,8 +390,7 @@ def fill_zero_within_span(s: pd.Series) -> pd.Series:
     s = s.dropna()
     if s.empty:
         return s
-    full = pd.date_range(s.index.min(), s.index.max(), freq="D")
-    return s.reindex(full).fillna(0.0)
+    return s.reindex(_daily_grid(s)).fillna(0.0)
 
 
 def aggregate_workout_daily(
@@ -485,7 +488,7 @@ def load_sleep_frame(db: Session, tz: str) -> pd.DataFrame:
             """
             SELECT sleep_date, sleep_start, in_bed_start, in_bed_end,
                    total_sleep_h, deep_h, rem_h, in_bed_h
-            FROM sleep_sessions
+            FROM sleep_nightly
             WHERE sleep_date IS NOT NULL
             ORDER BY sleep_date
             """
@@ -515,12 +518,15 @@ def load_sleep_frame(db: Session, tz: str) -> pd.DataFrame:
             }
         )
     df = pd.DataFrame.from_records(records).set_index("day")
-    # Rare multiple sessions per wake-day: sum hours, earliest bedtime.
+    # sleep_nightly already yields one consolidated session per wake-day; the
+    # groupby is a defensive no-op. Use max (not sum) so any stray duplicate
+    # picks the most complete night instead of double-counting overlapping
+    # API re-captures (see migration 0010).
     agg = df.groupby(level=0).agg(
-        total_sleep_h=("total_sleep_h", "sum"),
-        deep_h=("deep_h", "sum"),
-        rem_h=("rem_h", "sum"),
-        in_bed_h=("in_bed_h", "sum"),
+        total_sleep_h=("total_sleep_h", "max"),
+        deep_h=("deep_h", "max"),
+        rem_h=("rem_h", "max"),
+        in_bed_h=("in_bed_h", "max"),
         bedtime=("bedtime", "min"),
     )
     with np.errstate(divide="ignore", invalid="ignore"):
@@ -595,15 +601,14 @@ def _series_from_rows(rows) -> pd.Series:
     idx = pd.to_datetime([r.day for r in rows])
     vals = [float(r.value) if r.value is not None else np.nan for r in rows]
     s = pd.Series(vals, index=idx, dtype="float64")
-    full = pd.date_range(s.index.min(), s.index.max(), freq="D")
-    return s.reindex(full)
+    return s.reindex(_daily_grid(s))
 
 
 def _reindex_full(s: pd.Series) -> pd.Series:
     s = s.dropna()
     if s.empty:
         return s
-    return s.reindex(pd.date_range(s.index.min(), s.index.max(), freq="D"))
+    return s.reindex(_daily_grid(s))
 
 
 # ===========================================================================
@@ -621,16 +626,14 @@ class AnalysisResult:
     consistency: int = 0
     training_load: int = 0
 
+    def counts(self) -> list[tuple[str, int]]:
+        """The (category, count) pairs in declaration order — the single source
+        for ``total()`` and the run summary, so a new finding kind is added by
+        declaring one field above."""
+        return [(f.name, getattr(self, f.name)) for f in fields(self)]
+
     def total(self) -> int:
-        return (
-            self.correlations
-            + self.anomalies
-            + self.trends
-            + self.seasonality
-            + self.recovery_alerts
-            + self.consistency
-            + self.training_load
-        )
+        return sum(count for _, count in self.counts())
 
 
 def core_metrics() -> list[str]:
@@ -740,8 +743,13 @@ def build_series(
     tz: str,
     profile: ProfileConfig | None = None,
     workouts: WorkoutConfig | None = None,
+    sleep: pd.DataFrame | None = None,
 ) -> dict[str, pd.Series]:
-    """All analysis series: core metrics + derived sleep + workout-load series."""
+    """All analysis series: core metrics + derived sleep + workout-load series.
+
+    ``sleep`` may be supplied by the caller (``run`` loads it once and shares it
+    with the consistency pass) to avoid a second ``load_sleep_frame`` query.
+    """
     profile = profile or _DEFAULT_APP_CONFIG.profile
     workouts = workouts or _DEFAULT_APP_CONFIG.workouts
     series: dict[str, pd.Series] = {}
@@ -750,7 +758,8 @@ def build_series(
         if not s.dropna().empty:
             series[metric] = s
 
-    sleep = load_sleep_frame(db, tz)
+    if sleep is None:
+        sleep = load_sleep_frame(db, tz)
     if not sleep.empty:
         mapping = {
             "sleep_total_h": "total_sleep_h",
@@ -767,7 +776,20 @@ def build_series(
     return series
 
 
-def _detrend_for_correlation(series: dict[str, pd.Series]) -> dict[str, pd.Series]:
+def _decompose_all(series: dict[str, pd.Series]) -> dict[str, Decomp | None]:
+    """STL/MSTL decomposition of every series, computed once.
+
+    Decomposition (MSTL(7, 365) over years of daily data) is the most expensive
+    step in the pipeline; both the correlation de-trending and the
+    trend/seasonality findings need it, so ``run`` computes it once here and
+    threads the result through both passes instead of decomposing twice.
+    """
+    return {name: decompose(s) for name, s in series.items()}
+
+
+def _detrend_for_correlation(
+    series: dict[str, pd.Series], decomps: dict[str, Decomp | None] | None = None
+) -> dict[str, pd.Series]:
     """Subtract each metric's long-run trend so correlations measure day-to-day
     co-movement, not shared drift.
 
@@ -776,10 +798,13 @@ def _detrend_for_correlation(series: dict[str, pd.Series]) -> dict[str, pd.Serie
     observations only: the series keeps its complete daily index (NaN at
     gaps/edges) so lag shifts stay calendar-correct, but no interpolated point
     enters a correlation. A series too short to decompose is dropped.
+
+    ``decomps`` reuses a precomputed decomposition cache when provided; absent
+    one (e.g. a direct test call) each series is decomposed on the fly.
     """
     out: dict[str, pd.Series] = {}
     for name, s in series.items():
-        decomp = decompose(s)
+        decomp = decomps.get(name) if decomps is not None else decompose(s)
         if decomp is None:
             continue
         detrended = s - decomp.trend.reindex(s.index)
@@ -802,10 +827,13 @@ def _is_workout_aggregate_child(a: str, b: str) -> bool:
 
 
 def _correlation_findings(
-    series: dict[str, pd.Series], computed_at: dt.datetime, cfg: AnalysisConfig | None = None
+    series: dict[str, pd.Series],
+    computed_at: dt.datetime,
+    cfg: AnalysisConfig | None = None,
+    decomps: dict[str, Decomp | None] | None = None,
 ) -> list[Finding]:
     cfg = cfg or _DEFAULTS
-    detrended = _detrend_for_correlation(series)
+    detrended = _detrend_for_correlation(series, decomps)
     names = list(detrended)
     candidates: list[tuple[str, str, int, Corr]] = []
     for i in range(len(names)):
@@ -889,12 +917,15 @@ def _anomaly_findings(
 
 
 def _trend_and_seasonality_findings(
-    series: dict[str, pd.Series], computed_at: dt.datetime, cfg: AnalysisConfig | None = None
+    series: dict[str, pd.Series],
+    computed_at: dt.datetime,
+    cfg: AnalysisConfig | None = None,
+    decomps: dict[str, Decomp | None] | None = None,
 ) -> tuple[list, list]:
     cfg = cfg or _DEFAULTS
     trends, seasons = [], []
     for name, s in series.items():
-        decomp = decompose(s)
+        decomp = decomps.get(name) if decomps is not None else decompose(s)
         if decomp is None:
             continue
         start, end = decomp.trend.index.min().date(), decomp.trend.index.max().date()
@@ -979,10 +1010,15 @@ def _recovery_findings(
 
 
 def _consistency_findings(
-    db: Session, tz: str, computed_at: dt.datetime, cfg: AnalysisConfig | None = None
+    db: Session,
+    tz: str,
+    computed_at: dt.datetime,
+    cfg: AnalysisConfig | None = None,
+    sleep: pd.DataFrame | None = None,
 ) -> list[Finding]:
     cfg = cfg or _DEFAULTS
-    sleep = load_sleep_frame(db, tz)
+    if sleep is None:
+        sleep = load_sleep_frame(db, tz)
     if sleep.empty:
         return []
     findings = []
@@ -1111,13 +1147,17 @@ def run(db: Session, tz: str | None = None, config: AppConfig | None = None) -> 
     app_cfg = config or _DEFAULT_APP_CONFIG
     cfg = app_cfg.analysis
     computed_at = dt.datetime.now(dt.UTC)
-    series = build_series(db, tz, app_cfg.profile, app_cfg.workouts)
+    # Load sleep once and share it across build_series + the consistency pass.
+    sleep = load_sleep_frame(db, tz)
+    series = build_series(db, tz, app_cfg.profile, app_cfg.workouts, sleep=sleep)
+    # Decompose once; correlation de-trending and trend/seasonality both reuse it.
+    decomps = _decompose_all(series)
 
-    correlations = _correlation_findings(series, computed_at, cfg)
+    correlations = _correlation_findings(series, computed_at, cfg, decomps)
     anomalies = _anomaly_findings(series, computed_at, cfg)
-    trends, seasons = _trend_and_seasonality_findings(series, computed_at, cfg)
+    trends, seasons = _trend_and_seasonality_findings(series, computed_at, cfg, decomps)
     recovery = _recovery_findings(series, computed_at, cfg)
-    consistency = _consistency_findings(db, tz, computed_at, cfg)
+    consistency = _consistency_findings(db, tz, computed_at, cfg, sleep=sleep)
     training_load = _training_load_findings(series, computed_at, cfg)
 
     db.execute(delete(Finding))  # snapshot: replace the previous run
@@ -1153,17 +1193,7 @@ def main() -> int:
     finally:
         db.close()
 
-    log.info(
-        "analysis done: correlations=%d anomalies=%d trends=%d seasonality=%d "
-        "recovery_alerts=%d consistency=%d training_load=%d",
-        result.correlations,
-        result.anomalies,
-        result.trends,
-        result.seasonality,
-        result.recovery_alerts,
-        result.consistency,
-        result.training_load,
-    )
+    log.info("analysis done: %s", " ".join(f"{name}={count}" for name, count in result.counts()))
 
     from .notify import notify_analysis
 

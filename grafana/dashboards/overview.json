@@ -1,8 +1,9 @@
 {
   "uid": "healthlog-overview",
   "title": "HealthLog – Overview",
+  "description": "Daily health snapshot: last night's sleep, current HRV & resting heart rate, steps, active energy, and key findings. Time window: 14 days.",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 4,
   "timezone": "Europe/Vienna",
   "time": {
     "from": "now-14d",
@@ -12,14 +13,60 @@
   "tags": [
     "healthlog"
   ],
+  "links": [
+    {
+      "title": "Sleep",
+      "url": "/d/healthlog-sleep",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": true,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Sleep dashboard"
+    },
+    {
+      "title": "Training",
+      "url": "/d/healthlog-training",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": true,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Training & Recovery dashboard"
+    },
+    {
+      "title": "Metrics Explorer",
+      "url": "/d/healthlog-metrics",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": true,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Metrics Explorer"
+    }
+  ],
   "panels": [
+    {
+      "id": 100,
+      "type": "row",
+      "title": "Today at a Glance",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
     {
       "id": 1,
       "type": "stat",
       "title": "Last Night – Total Sleep",
+      "description": "Total sleep duration for the most recent night. Yellow ≥ 6 h, green ≥ 7 h (WHO recommendation).",
       "gridPos": {
         "x": 0,
-        "y": 0,
+        "y": 1,
         "w": 4,
         "h": 4
       },
@@ -64,14 +111,14 @@
         "orientation": "auto",
         "textMode": "auto",
         "colorMode": "background",
-        "graphMode": "none",
+        "graphMode": "area",
         "justifyMode": "center"
       },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT total_sleep_h AS \"Total Sleep\" FROM sleep_sessions ORDER BY sleep_date DESC LIMIT 1",
-          "format": "table"
+          "rawSql": "SELECT sleep_date AS time, total_sleep_h AS \"Total Sleep\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "format": "time_series"
         }
       ]
     },
@@ -79,9 +126,10 @@
       "id": 2,
       "type": "stat",
       "title": "Last Night – Deep Sleep",
+      "description": "Deep (slow-wave) sleep for the most recent night. Yellow ≥ 0.8 h, green ≥ 1.2 h.",
       "gridPos": {
         "x": 4,
-        "y": 0,
+        "y": 1,
         "w": 4,
         "h": 4
       },
@@ -126,14 +174,14 @@
         "orientation": "auto",
         "textMode": "auto",
         "colorMode": "background",
-        "graphMode": "none",
+        "graphMode": "area",
         "justifyMode": "center"
       },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT deep_h AS \"Deep Sleep\" FROM sleep_sessions ORDER BY sleep_date DESC LIMIT 1",
-          "format": "table"
+          "rawSql": "SELECT sleep_date AS time, deep_h AS \"Deep Sleep\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "format": "time_series"
         }
       ]
     },
@@ -141,9 +189,10 @@
       "id": 3,
       "type": "stat",
       "title": "Last Night – REM Sleep",
+      "description": "REM sleep for the most recent night. Yellow ≥ 1.0 h, green ≥ 1.5 h.",
       "gridPos": {
         "x": 8,
-        "y": 0,
+        "y": 1,
         "w": 4,
         "h": 4
       },
@@ -188,14 +237,14 @@
         "orientation": "auto",
         "textMode": "auto",
         "colorMode": "background",
-        "graphMode": "none",
+        "graphMode": "area",
         "justifyMode": "center"
       },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT rem_h AS \"REM Sleep\" FROM sleep_sessions ORDER BY sleep_date DESC LIMIT 1",
-          "format": "table"
+          "rawSql": "SELECT sleep_date AS time, rem_h AS \"REM Sleep\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "format": "time_series"
         }
       ]
     },
@@ -203,9 +252,10 @@
       "id": 4,
       "type": "stat",
       "title": "Last Night – Sleep Efficiency",
+      "description": "% of time in bed actually asleep. Calculated from in-bed timestamps when available, otherwise total_sleep / (sleep + awake). Yellow ≥ 75 %, green ≥ 85 %.",
       "gridPos": {
         "x": 12,
-        "y": 0,
+        "y": 1,
         "w": 4,
         "h": 4
       },
@@ -250,14 +300,14 @@
         "orientation": "auto",
         "textMode": "auto",
         "colorMode": "background",
-        "graphMode": "none",
+        "graphMode": "area",
         "justifyMode": "center"
       },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT ROUND((total_sleep_h / NULLIF(CASE WHEN in_bed_start IS NOT NULL AND in_bed_end IS NOT NULL THEN EXTRACT(EPOCH FROM (in_bed_end - in_bed_start))/3600.0 WHEN in_bed_h > 0 THEN in_bed_h WHEN (total_sleep_h + awake_h) > 0 THEN total_sleep_h + awake_h ELSE NULL END, 0.0) * 100)::numeric, 0) AS \"Sleep Efficiency\" FROM sleep_sessions ORDER BY sleep_date DESC LIMIT 1",
-          "format": "table"
+          "rawSql": "SELECT sleep_date AS time, ROUND(efficiency_pct::numeric, 0) AS \"Sleep Efficiency\" FROM sleep_metrics WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "format": "time_series"
         }
       ]
     },
@@ -265,9 +315,10 @@
       "id": 5,
       "type": "stat",
       "title": "Today – HRV",
+      "description": "Latest daily HRV average (ms). Higher = better autonomic recovery. Yellow ≥ 30 ms, green ≥ 50 ms.",
       "gridPos": {
         "x": 16,
-        "y": 0,
+        "y": 1,
         "w": 4,
         "h": 4
       },
@@ -312,14 +363,14 @@
         "orientation": "auto",
         "textMode": "auto",
         "colorMode": "background",
-        "graphMode": "none",
+        "graphMode": "area",
         "justifyMode": "center"
       },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT avg AS \"HRV\" FROM daily_metrics WHERE metric = 'heart_rate_variability' ORDER BY day DESC LIMIT 1",
-          "format": "table"
+          "rawSql": "SELECT day AS time, avg AS \"HRV\" FROM daily_metrics WHERE metric = 'heart_rate_variability' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
         }
       ]
     },
@@ -327,9 +378,10 @@
       "id": 6,
       "type": "stat",
       "title": "Today – Resting HR",
+      "description": "Latest daily resting heart rate minimum (bpm). Lower = better cardiovascular fitness. Yellow ≥ 65 bpm, red ≥ 75 bpm.",
       "gridPos": {
         "x": 20,
-        "y": 0,
+        "y": 1,
         "w": 4,
         "h": 4
       },
@@ -374,24 +426,38 @@
         "orientation": "auto",
         "textMode": "auto",
         "colorMode": "background",
-        "graphMode": "none",
+        "graphMode": "area",
         "justifyMode": "center"
       },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT vmin AS \"Resting HR\" FROM daily_metrics WHERE metric = 'resting_heart_rate' ORDER BY day DESC LIMIT 1",
-          "format": "table"
+          "rawSql": "SELECT day AS time, vmin AS \"Resting HR\" FROM daily_metrics WHERE metric = 'resting_heart_rate' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
         }
       ]
+    },
+    {
+      "id": 101,
+      "type": "row",
+      "title": "Sleep & Recovery",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
     },
     {
       "id": 7,
       "type": "barchart",
       "title": "Sleep Phases",
+      "description": "Stacked hours per phase for each night (Deep + Core + REM + Awake). The total bar height is time in bed; Awake on top shows fragmentation. Hover for the per-phase breakdown.",
       "gridPos": {
         "x": 0,
-        "y": 4,
+        "y": 6,
         "w": 12,
         "h": 8
       },
@@ -426,7 +492,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT sleep_date AS time, deep_h AS \"Deep\", core_h AS \"Core\", rem_h AS \"REM\", awake_h AS \"Awake\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "rawSql": "SELECT sleep_date AS time, deep_h AS \"Deep\", core_h AS \"Core\", rem_h AS \"REM\", awake_h AS \"Awake\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
           "format": "time_series"
         }
       ]
@@ -435,9 +501,10 @@
       "id": 8,
       "type": "timeseries",
       "title": "HRV & Resting Heart Rate",
+      "description": "HRV (left axis, ms): higher = better autonomic recovery. Resting HR (right axis, bpm): lower = better cardiovascular fitness. Dashed lines show 7-day moving averages.",
       "gridPos": {
         "x": 12,
-        "y": 4,
+        "y": 6,
         "w": 12,
         "h": 8
       },
@@ -483,6 +550,82 @@
                 }
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "HRV Trend (ms)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [8, 4]
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Resting HR Trend (bpm)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:bpm"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "dark-orange"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [8, 4]
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              }
+            ]
           }
         ]
       },
@@ -507,16 +650,40 @@
           "refId": "B",
           "rawSql": "SELECT day AS time, vmin AS \"Resting HR (bpm)\" FROM daily_metrics WHERE metric = 'resting_heart_rate' AND $__timeFilter(day::timestamptz) ORDER BY day",
           "format": "time_series"
+        },
+        {
+          "refId": "C",
+          "rawSql": "SELECT day AS time, ROUND(AVG(avg) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 0) AS \"HRV Trend (ms)\" FROM daily_metrics WHERE metric = 'heart_rate_variability' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
+        },
+        {
+          "refId": "D",
+          "rawSql": "SELECT day AS time, ROUND(AVG(vmin) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 0) AS \"Resting HR Trend (bpm)\" FROM daily_metrics WHERE metric = 'resting_heart_rate' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
         }
       ]
+    },
+    {
+      "id": 102,
+      "type": "row",
+      "title": "Activity",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
     },
     {
       "id": 9,
       "type": "barchart",
       "title": "Daily Steps",
+      "description": "Total step count per day (sum of all intraday samples). A common general-health target is ~10,000 steps/day.",
       "gridPos": {
         "x": 0,
-        "y": 12,
+        "y": 15,
         "w": 12,
         "h": 7
       },
@@ -560,9 +727,10 @@
       "id": 10,
       "type": "barchart",
       "title": "Active Energy",
+      "description": "Active energy burned per day (kcal) — movement on top of basal metabolism. Sum of all intraday samples.",
       "gridPos": {
         "x": 12,
-        "y": 12,
+        "y": 15,
         "w": 12,
         "h": 7
       },
@@ -603,12 +771,26 @@
       ]
     },
     {
+      "id": 103,
+      "type": "row",
+      "title": "Findings",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
       "id": 11,
       "type": "table",
       "title": "Recent Findings",
+      "description": "Automatically detected patterns. anomaly: z-score deviation from personal baseline (σ > 2 is flagged). recovery_alert: combined Resting HR + HRV z-scores; positive z = elevated HR or suppressed HRV. training_load: Acute:Chronic Workload Ratio (ACWR); > 1.5 = high injury risk, < 0.8 = undertraining.",
       "gridPos": {
         "x": 0,
-        "y": 19,
+        "y": 23,
         "w": 24,
         "h": 6
       },

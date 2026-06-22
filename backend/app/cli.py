@@ -6,6 +6,8 @@ instead of a module path::
     healthlog backfill /config/import
     healthlog backfill --dry-run /config/import
     healthlog analyze                       # run the nightly analysis once now
+    healthlog narrate                       # generate a weekly health report via Ollama
+    healthlog narrate --note "…"            # with an optional focus note
     healthlog check-workout-hr              # is intra-workout HR in the archive?
     healthlog rederive-workout-hr           # backfill HR samples from the archive
 
@@ -19,7 +21,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import backfill, diagnostics, rederive
+from . import backfill, diagnostics, narrate, rederive
 
 
 def _run_analyze(_args: argparse.Namespace) -> int:
@@ -48,6 +50,10 @@ def build_parser() -> argparse.ArgumentParser:
     rwh = sub.add_parser("rederive-workout-hr", help="backfill intra-workout HR samples from the raw archive")
     rederive.add_arguments(rwh)
     rwh.set_defaults(func=rederive.run)
+
+    nar = sub.add_parser("narrate", help="generate a weekly health report via Ollama")
+    narrate.add_arguments(nar)
+    nar.set_defaults(func=narrate.run)
 
     return parser
 

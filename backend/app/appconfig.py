@@ -141,6 +141,31 @@ class NotifyConfig(BaseModel):
         return set(self.events)
 
 
+class NarrateConfig(BaseModel):
+    """LLM narration via a local Ollama instance (behaviour, not secrets).
+
+    Enabled by setting ``ollama_url``; everything else has a sensible default.
+    The secret Ollama token (if any) is not supported here — Ollama's default
+    setup has no auth, and the URL is infrastructure, not a secret.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Base URL of the Ollama instance — required to use ``healthlog narrate``.
+    # e.g. http://192.168.1.100:11434
+    ollama_url: str | None = None
+    # Ollama model identifier.
+    model: str = "qwen2.5:14b"
+    # Report language. "en" = English, "de" = German.
+    language: Literal["de", "en"] = "en"
+    # How far back to look for ref_date-based findings (anomaly, recovery_alert,
+    # training_load). Time-independent kinds (correlation, trend, seasonality,
+    # consistency) are always included — they represent the current state.
+    lookback_days: int = Field(default=7, ge=1, le=90)
+    # HTTP timeout in seconds for the Ollama call — generation can be slow.
+    timeout_s: int = Field(default=300, ge=10, le=3600)
+
+
 class AppConfig(BaseModel):
     """Root of ``config.yaml``."""
 
@@ -150,6 +175,7 @@ class AppConfig(BaseModel):
     workouts: WorkoutConfig = Field(default_factory=WorkoutConfig)
     analysis: AnalysisConfig = Field(default_factory=AnalysisConfig)
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
+    narrate: NarrateConfig = Field(default_factory=NarrateConfig)
 
 
 def load_config(path: str | Path) -> AppConfig:
