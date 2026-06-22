@@ -1,7 +1,7 @@
 """sleep_metrics: treat in_bed_h = 0 as missing when computing efficiency
 
-Revision ID: 0013_sleep_efficiency_zero_in_bed
-Revises: 0012_recategorize_recovery_vitals
+Revision ID: 0013_sleep_efficiency_fix
+Revises: 0012_recategorize_vitals
 Create Date: 2026-06-22
 
 The efficiency denominator used ``COALESCE(in_bed_h, <timestamps>, asleep+awake)``.
@@ -25,8 +25,8 @@ from collections.abc import Sequence
 
 from alembic import op
 
-revision: str = "0013_sleep_efficiency_zero_in_bed"
-down_revision: str | None = "0012_recategorize_recovery_vitals"
+revision: str = "0013_sleep_efficiency_fix"
+down_revision: str | None = "0012_recategorize_vitals"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

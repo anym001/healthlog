@@ -1,6 +1,6 @@
 """recategorize recovery vitals from `sleep` to `vital`
 
-Revision ID: 0012_recategorize_recovery_vitals
+Revision ID: 0012_recategorize_vitals
 Revises: 0011_sleep_awakening_key
 Create Date: 2026-06-22
 
@@ -20,7 +20,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0012_recategorize_recovery_vitals"
+revision: str = "0012_recategorize_vitals"
 down_revision: str | None = "0011_sleep_awakening_key"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
