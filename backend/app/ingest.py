@@ -417,8 +417,9 @@ def store(db: Session, parsed: ParsedPayload) -> StoreResult:
         SleepSession,
         sleep_rows,
         set_keys=[k for k in (sleep_rows[0] if sleep_rows else ()) if k not in ("sleep_end", "source")],
-        where=lambda s: sa.func.coalesce(s.excluded.total_sleep_h, -1.0)
-        > sa.func.coalesce(SleepSession.total_sleep_h, -1.0),
+        where=lambda s: (
+            sa.func.coalesce(s.excluded.total_sleep_h, -1.0) > sa.func.coalesce(SleepSession.total_sleep_h, -1.0)
+        ),
         constraint="uq_sleep_sessions",
     )
 
