@@ -3,7 +3,7 @@
   "title": "HealthLog – Metrics Explorer",
   "description": "Apple Health-style deep-dive into any single metric. Select a Category, then a Metric from the cascading dropdowns. All panels update automatically: latest reading, 7-day average, 30-day min/max, daily trend with 7-day moving average, intraday range, sample count, and raw samples.",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "timezone": "Europe/Vienna",
   "time": {
     "from": "now-30d",
@@ -148,14 +148,14 @@
         "orientation": "auto",
         "textMode": "auto",
         "colorMode": "value",
-        "graphMode": "none",
+        "graphMode": "area",
         "justifyMode": "center"
       },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT ROUND((CASE r.agg_default WHEN 'sum' THEN d.sum WHEN 'min' THEN d.vmin WHEN 'max' THEN d.vmax ELSE d.avg END)::numeric, 2) AS \"Latest\" FROM daily_metrics d JOIN metric_registry r ON r.metric = d.metric WHERE d.metric = '$metric' ORDER BY d.day DESC LIMIT 1",
-          "format": "table"
+          "rawSql": "SELECT d.day AS time, ROUND((CASE r.agg_default WHEN 'sum' THEN d.sum WHEN 'min' THEN d.vmin WHEN 'max' THEN d.vmax ELSE d.avg END)::numeric, 2) AS \"Latest\" FROM daily_metrics d JOIN metric_registry r ON r.metric = d.metric WHERE d.metric = '$metric' AND $__timeFilter(d.day::timestamptz) ORDER BY d.day",
+          "format": "time_series"
         }
       ]
     },

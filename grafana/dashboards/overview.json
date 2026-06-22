@@ -3,7 +3,7 @@
   "title": "HealthLog – Overview",
   "description": "Daily health snapshot: last night's sleep, current HRV & resting heart rate, steps, active energy, and key findings. Time window: 14 days.",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "timezone": "Europe/Vienna",
   "time": {
     "from": "now-14d",
@@ -111,14 +111,14 @@
         "orientation": "auto",
         "textMode": "auto",
         "colorMode": "background",
-        "graphMode": "none",
+        "graphMode": "area",
         "justifyMode": "center"
       },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT total_sleep_h AS \"Total Sleep\" FROM sleep_sessions ORDER BY sleep_date DESC LIMIT 1",
-          "format": "table"
+          "rawSql": "SELECT sleep_date AS time, total_sleep_h AS \"Total Sleep\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "format": "time_series"
         }
       ]
     },
@@ -174,14 +174,14 @@
         "orientation": "auto",
         "textMode": "auto",
         "colorMode": "background",
-        "graphMode": "none",
+        "graphMode": "area",
         "justifyMode": "center"
       },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT deep_h AS \"Deep Sleep\" FROM sleep_sessions ORDER BY sleep_date DESC LIMIT 1",
-          "format": "table"
+          "rawSql": "SELECT sleep_date AS time, deep_h AS \"Deep Sleep\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "format": "time_series"
         }
       ]
     },
@@ -237,14 +237,14 @@
         "orientation": "auto",
         "textMode": "auto",
         "colorMode": "background",
-        "graphMode": "none",
+        "graphMode": "area",
         "justifyMode": "center"
       },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT rem_h AS \"REM Sleep\" FROM sleep_sessions ORDER BY sleep_date DESC LIMIT 1",
-          "format": "table"
+          "rawSql": "SELECT sleep_date AS time, rem_h AS \"REM Sleep\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "format": "time_series"
         }
       ]
     },
@@ -300,14 +300,14 @@
         "orientation": "auto",
         "textMode": "auto",
         "colorMode": "background",
-        "graphMode": "none",
+        "graphMode": "area",
         "justifyMode": "center"
       },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT ROUND(efficiency_pct::numeric, 0) AS \"Sleep Efficiency\" FROM sleep_metrics ORDER BY sleep_date DESC LIMIT 1",
-          "format": "table"
+          "rawSql": "SELECT sleep_date AS time, ROUND(efficiency_pct::numeric, 0) AS \"Sleep Efficiency\" FROM sleep_metrics WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "format": "time_series"
         }
       ]
     },
@@ -363,14 +363,14 @@
         "orientation": "auto",
         "textMode": "auto",
         "colorMode": "background",
-        "graphMode": "none",
+        "graphMode": "area",
         "justifyMode": "center"
       },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT avg AS \"HRV\" FROM daily_metrics WHERE metric = 'heart_rate_variability' ORDER BY day DESC LIMIT 1",
-          "format": "table"
+          "rawSql": "SELECT day AS time, avg AS \"HRV\" FROM daily_metrics WHERE metric = 'heart_rate_variability' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
         }
       ]
     },
@@ -426,14 +426,14 @@
         "orientation": "auto",
         "textMode": "auto",
         "colorMode": "background",
-        "graphMode": "none",
+        "graphMode": "area",
         "justifyMode": "center"
       },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT vmin AS \"Resting HR\" FROM daily_metrics WHERE metric = 'resting_heart_rate' ORDER BY day DESC LIMIT 1",
-          "format": "table"
+          "rawSql": "SELECT day AS time, vmin AS \"Resting HR\" FROM daily_metrics WHERE metric = 'resting_heart_rate' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
         }
       ]
     },
@@ -454,6 +454,7 @@
       "id": 7,
       "type": "barchart",
       "title": "Sleep Phases",
+      "description": "Stacked hours per phase for each night (Deep + Core + REM + Awake). The total bar height is time in bed; Awake on top shows fragmentation. Hover for the per-phase breakdown.",
       "gridPos": {
         "x": 0,
         "y": 6,
@@ -679,6 +680,7 @@
       "id": 9,
       "type": "barchart",
       "title": "Daily Steps",
+      "description": "Total step count per day (sum of all intraday samples). A common general-health target is ~10,000 steps/day.",
       "gridPos": {
         "x": 0,
         "y": 15,
@@ -725,6 +727,7 @@
       "id": 10,
       "type": "barchart",
       "title": "Active Energy",
+      "description": "Active energy burned per day (kcal) — movement on top of basal metabolism. Sum of all intraday samples.",
       "gridPos": {
         "x": 12,
         "y": 15,

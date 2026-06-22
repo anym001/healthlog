@@ -3,7 +3,7 @@
   "title": "HealthLog – Training",
   "description": "30-day training load, recovery metrics, and workout history. Adjust HR Base and HR Reserve to match your physiology for accurate TRIMP values. Adjust Timezone if you are not in Europe/Vienna.",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "timezone": "Europe/Vienna",
   "time": {
     "from": "now-30d",
@@ -285,14 +285,14 @@
         "orientation": "auto",
         "textMode": "auto",
         "colorMode": "background",
-        "graphMode": "none",
+        "graphMode": "area",
         "justifyMode": "center"
       },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT avg AS \"HRV\" FROM daily_metrics WHERE metric = 'heart_rate_variability' ORDER BY day DESC LIMIT 1",
-          "format": "table"
+          "rawSql": "SELECT day AS time, avg AS \"HRV\" FROM daily_metrics WHERE metric = 'heart_rate_variability' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
         }
       ]
     },
@@ -348,14 +348,14 @@
         "orientation": "auto",
         "textMode": "auto",
         "colorMode": "background",
-        "graphMode": "none",
+        "graphMode": "area",
         "justifyMode": "center"
       },
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT vmin AS \"Resting HR\" FROM daily_metrics WHERE metric = 'resting_heart_rate' ORDER BY day DESC LIMIT 1",
-          "format": "table"
+          "rawSql": "SELECT day AS time, vmin AS \"Resting HR\" FROM daily_metrics WHERE metric = 'resting_heart_rate' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
         }
       ]
     },
@@ -927,6 +927,7 @@
       "id": 11,
       "type": "table",
       "title": "Workouts",
+      "description": "Individual workout sessions in the selected time range (newest first). Times are shown in the selected Timezone. Group comes from the workout_type_groups table; '—' means the workout type is not yet mapped to a group.",
       "gridPos": {
         "x": 0,
         "y": 33,

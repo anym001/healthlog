@@ -59,7 +59,7 @@ Dashboards → New → Import → upload JSON file (repeat for each):
 | File | Dashboard |
 |---|---|
 | `dashboards/overview.json` | Overview — daily summary (14-day window) |
-| `dashboards/sleep.json` | Sleep — phases, efficiency, bedtime (30-day window) |
+| `dashboards/sleep.json` | Sleep — phases, efficiency, bedtime, overnight vitals (30-day window) |
 | `dashboards/training.json` | Training & Recovery — TRIMP by sport, HRV, workouts table (30-day window) |
 | `dashboards/metrics.json` | Metrics Explorer — raw values for any metric, Apple-Health-style (30-day window) |
 
