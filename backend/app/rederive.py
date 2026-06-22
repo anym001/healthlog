@@ -60,7 +60,7 @@ def run_rederive(db: Session, dry_run: bool = False) -> RederiveSummary:
             payload = db.execute(select(RawIngest.payload).where(RawIngest.id == rid)).scalar_one()
             rows = ingest_svc.parse_payload(payload).workout_hr_rows
             if dry_run:
-                summary.samples += len(ingest_svc._dedupe_workout_hr_rows(rows))
+                summary.samples += len(ingest_svc._dedupe(rows, ("workout_hae_id", "ts")))
                 continue
             if rows:
                 summary.samples += ingest_svc.store_workout_hr_samples(db, rows)
