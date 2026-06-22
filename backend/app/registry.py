@@ -87,28 +87,7 @@ METRIC_REGISTRY: dict[str, MetricSpec] = {
         "category": "activity",
         "tier": "core",
     },
-    # --- core: sleep / recovery ------------------------------------------
-    "heart_rate_variability": {
-        "display_name": "Heart Rate Variability",
-        "unit_canonical": "ms",
-        "agg_default": "avg",
-        "category": "sleep",
-        "tier": "core",
-    },
-    "resting_heart_rate": {
-        "display_name": "Resting Heart Rate",
-        "unit_canonical": "count/min",
-        "agg_default": "min",
-        "category": "sleep",
-        "tier": "core",
-    },
-    "respiratory_rate": {
-        "display_name": "Respiratory Rate",
-        "unit_canonical": "count/min",
-        "agg_default": "avg",
-        "category": "sleep",
-        "tier": "core",
-    },
+    # --- core: sleep ------------------------------------------------------
     "apple_sleeping_wrist_temperature": {
         "display_name": "Sleeping Wrist Temperature",
         "unit_canonical": "degC",
@@ -131,6 +110,30 @@ METRIC_REGISTRY: dict[str, MetricSpec] = {
         "tier": "core",
     },
     # --- core: vital ------------------------------------------------------
+    # Recovery vitals: measured mostly overnight by the watch, but they are
+    # cardiovascular/respiratory vital signs, so they live under `vital` (not
+    # `sleep`). The Sleep dashboard still reads their columns directly.
+    "heart_rate_variability": {
+        "display_name": "Heart Rate Variability",
+        "unit_canonical": "ms",
+        "agg_default": "avg",
+        "category": "vital",
+        "tier": "core",
+    },
+    "resting_heart_rate": {
+        "display_name": "Resting Heart Rate",
+        "unit_canonical": "count/min",
+        "agg_default": "min",
+        "category": "vital",
+        "tier": "core",
+    },
+    "respiratory_rate": {
+        "display_name": "Respiratory Rate",
+        "unit_canonical": "count/min",
+        "agg_default": "avg",
+        "category": "vital",
+        "tier": "core",
+    },
     "heart_rate": {
         "display_name": "Heart Rate",
         "unit_canonical": "count/min",
