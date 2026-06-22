@@ -160,8 +160,17 @@ sleep_sessions (sleep_start TIMESTAMPTZ, sleep_end TIMESTAMPTZ,        -- sleepS
                 sleep_date DATE,         -- HAE-`date` = Mitternacht des Aufwach-Tags
                 total_sleep_h, deep_h, core_h, rem_h, awake_h,         -- Stunden, dezimal
                 asleep_h, in_bed_h DOUBLE PRECISION,
-                UNIQUE (sleep_start, source))
+                UNIQUE NULLS NOT DISTINCT (sleep_end, source))
 ```
+**Natürlicher Schlüssel = `(sleep_end, source)` (Aufwach-Identität, Migration 0011).**
+Der HAE-REST-API-Push erfasst dieselbe Nacht mehrfach — jeweils mit späterem
+`sleepStart`, aber identischem `sleepEnd`. Auf `sleep_end` zu schlüsseln lässt diese
+Re-Captures beim Upsert kollabieren (die vollständigste Aufzeichnung mit dem größten
+`total_sleep_h` gewinnt), während echte getrennte Perioden (z. B. ein Nickerchen mit
+anderem Ende) erhalten bleiben. `NULLS NOT DISTINCT` hält den Replay auch bei seltenem
+NULL-`sleep_end` idempotent. Die View `sleep_nightly` (Migration 0010) reduziert
+zusätzlich auf eine Zeile je Kalendernacht (`sleep_date`) für Dashboards/Analyse.
+
 **An echter Payload bestätigt:** HAE liefert pro Nacht ein Objekt mit `sleepStart`/
 `sleepEnd`/`inBedStart`/`inBedEnd`, den Phasen-**Stunden** (dezimal) `deep`/`core`/
 `rem`/`awake` und `totalSleep` (= `deep+core+rem`, verifiziert). `asleep`/`inBed` sind

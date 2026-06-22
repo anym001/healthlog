@@ -3,7 +3,7 @@
   "title": "HealthLog – Overview",
   "description": "Daily health snapshot: last night's sleep, current HRV & resting heart rate, steps, active energy, and key findings. Time window: 14 days.",
   "schemaVersion": 39,
-  "version": 3,
+  "version": 4,
   "timezone": "Europe/Vienna",
   "time": {
     "from": "now-14d",
@@ -117,7 +117,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT sleep_date AS time, total_sleep_h AS \"Total Sleep\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "rawSql": "SELECT sleep_date AS time, total_sleep_h AS \"Total Sleep\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
           "format": "time_series"
         }
       ]
@@ -180,7 +180,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT sleep_date AS time, deep_h AS \"Deep Sleep\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "rawSql": "SELECT sleep_date AS time, deep_h AS \"Deep Sleep\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
           "format": "time_series"
         }
       ]
@@ -243,7 +243,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT sleep_date AS time, rem_h AS \"REM Sleep\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "rawSql": "SELECT sleep_date AS time, rem_h AS \"REM Sleep\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
           "format": "time_series"
         }
       ]
@@ -492,7 +492,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT sleep_date AS time, deep_h AS \"Deep\", core_h AS \"Core\", rem_h AS \"REM\", awake_h AS \"Awake\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "rawSql": "SELECT sleep_date AS time, deep_h AS \"Deep\", core_h AS \"Core\", rem_h AS \"REM\", awake_h AS \"Awake\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
           "format": "time_series"
         }
       ]

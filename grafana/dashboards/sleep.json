@@ -3,7 +3,7 @@
   "title": "HealthLog – Sleep",
   "description": "30-day sleep analysis: phases, duration, efficiency, bedtime consistency, and sleep-related findings. Adjust the Timezone variable if you are not in Europe/Vienna.",
   "schemaVersion": 39,
-  "version": 3,
+  "version": 4,
   "timezone": "Europe/Vienna",
   "time": {
     "from": "now-30d",
@@ -145,7 +145,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT ROUND(AVG(total_sleep_h)::numeric, 1) AS \"Avg Total Sleep\" FROM sleep_sessions WHERE sleep_date >= CURRENT_DATE - INTERVAL '7 days'",
+          "rawSql": "SELECT ROUND(AVG(total_sleep_h)::numeric, 1) AS \"Avg Total Sleep\" FROM sleep_nightly WHERE sleep_date >= CURRENT_DATE - INTERVAL '7 days'",
           "format": "table"
         }
       ]
@@ -208,7 +208,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT ROUND(AVG(deep_h)::numeric, 1) AS \"Avg Deep Sleep\" FROM sleep_sessions WHERE sleep_date >= CURRENT_DATE - INTERVAL '7 days'",
+          "rawSql": "SELECT ROUND(AVG(deep_h)::numeric, 1) AS \"Avg Deep Sleep\" FROM sleep_nightly WHERE sleep_date >= CURRENT_DATE - INTERVAL '7 days'",
           "format": "table"
         }
       ]
@@ -271,7 +271,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT ROUND(AVG(rem_h)::numeric, 1) AS \"Avg REM Sleep\" FROM sleep_sessions WHERE sleep_date >= CURRENT_DATE - INTERVAL '7 days'",
+          "rawSql": "SELECT ROUND(AVG(rem_h)::numeric, 1) AS \"Avg REM Sleep\" FROM sleep_nightly WHERE sleep_date >= CURRENT_DATE - INTERVAL '7 days'",
           "format": "table"
         }
       ]
@@ -394,7 +394,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT sleep_date AS time, deep_h AS \"Deep\", core_h AS \"Core\", rem_h AS \"REM\", awake_h AS \"Awake\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "rawSql": "SELECT sleep_date AS time, deep_h AS \"Deep\", core_h AS \"Core\", rem_h AS \"REM\", awake_h AS \"Awake\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
           "format": "time_series"
         }
       ]
@@ -487,12 +487,12 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT sleep_date AS time, total_sleep_h AS \"Total Sleep (h)\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "rawSql": "SELECT sleep_date AS time, total_sleep_h AS \"Total Sleep (h)\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
           "format": "time_series"
         },
         {
           "refId": "B",
-          "rawSql": "SELECT sleep_date AS time, ROUND(AVG(total_sleep_h) OVER (ORDER BY sleep_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 2) AS \"7d Trend (h)\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "rawSql": "SELECT sleep_date AS time, ROUND(AVG(total_sleep_h) OVER (ORDER BY sleep_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 2) AS \"7d Trend (h)\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
           "format": "time_series"
         }
       ]
@@ -660,12 +660,12 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT sleep_date AS time, EXTRACT(HOUR FROM (sleep_start AT TIME ZONE '$tz')) + EXTRACT(MINUTE FROM (sleep_start AT TIME ZONE '$tz'))/60.0 + CASE WHEN EXTRACT(HOUR FROM (sleep_start AT TIME ZONE '$tz')) < 12 THEN 24 ELSE 0 END AS \"Bedtime (h)\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) AND sleep_start IS NOT NULL ORDER BY sleep_date",
+          "rawSql": "SELECT sleep_date AS time, EXTRACT(HOUR FROM (sleep_start AT TIME ZONE '$tz')) + EXTRACT(MINUTE FROM (sleep_start AT TIME ZONE '$tz'))/60.0 + CASE WHEN EXTRACT(HOUR FROM (sleep_start AT TIME ZONE '$tz')) < 12 THEN 24 ELSE 0 END AS \"Bedtime (h)\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) AND sleep_start IS NOT NULL ORDER BY sleep_date",
           "format": "time_series"
         },
         {
           "refId": "B",
-          "rawSql": "SELECT sleep_date AS time, ROUND(AVG(EXTRACT(HOUR FROM (sleep_start AT TIME ZONE '$tz')) + EXTRACT(MINUTE FROM (sleep_start AT TIME ZONE '$tz'))/60.0 + CASE WHEN EXTRACT(HOUR FROM (sleep_start AT TIME ZONE '$tz')) < 12 THEN 24 ELSE 0 END) OVER (ORDER BY sleep_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 2) AS \"7d Trend (h)\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) AND sleep_start IS NOT NULL ORDER BY sleep_date",
+          "rawSql": "SELECT sleep_date AS time, ROUND(AVG(EXTRACT(HOUR FROM (sleep_start AT TIME ZONE '$tz')) + EXTRACT(MINUTE FROM (sleep_start AT TIME ZONE '$tz'))/60.0 + CASE WHEN EXTRACT(HOUR FROM (sleep_start AT TIME ZONE '$tz')) < 12 THEN 24 ELSE 0 END) OVER (ORDER BY sleep_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 2) AS \"7d Trend (h)\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) AND sleep_start IS NOT NULL ORDER BY sleep_date",
           "format": "time_series"
         }
       ]
@@ -746,12 +746,12 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT sleep_date AS time, EXTRACT(HOUR FROM (sleep_end AT TIME ZONE '$tz')) + EXTRACT(MINUTE FROM (sleep_end AT TIME ZONE '$tz'))/60.0 AS \"Wake-up (h)\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) AND sleep_end IS NOT NULL ORDER BY sleep_date",
+          "rawSql": "SELECT sleep_date AS time, EXTRACT(HOUR FROM (sleep_end AT TIME ZONE '$tz')) + EXTRACT(MINUTE FROM (sleep_end AT TIME ZONE '$tz'))/60.0 AS \"Wake-up (h)\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) AND sleep_end IS NOT NULL ORDER BY sleep_date",
           "format": "time_series"
         },
         {
           "refId": "B",
-          "rawSql": "SELECT sleep_date AS time, ROUND(AVG(EXTRACT(HOUR FROM (sleep_end AT TIME ZONE '$tz')) + EXTRACT(MINUTE FROM (sleep_end AT TIME ZONE '$tz'))/60.0) OVER (ORDER BY sleep_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 2) AS \"7d Trend (h)\" FROM sleep_sessions WHERE $__timeFilter(sleep_date::timestamptz) AND sleep_end IS NOT NULL ORDER BY sleep_date",
+          "rawSql": "SELECT sleep_date AS time, ROUND(AVG(EXTRACT(HOUR FROM (sleep_end AT TIME ZONE '$tz')) + EXTRACT(MINUTE FROM (sleep_end AT TIME ZONE '$tz'))/60.0) OVER (ORDER BY sleep_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 2) AS \"7d Trend (h)\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) AND sleep_end IS NOT NULL ORDER BY sleep_date",
           "format": "time_series"
         }
       ]

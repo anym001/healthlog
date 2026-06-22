@@ -300,6 +300,29 @@ def _dedupe(rows: list[dict], key: tuple[str, ...]) -> list[dict]:
     return list(by_key.values())
 
 
+def _sleep_completeness(row: dict) -> float:
+    """Larger = more complete. The HAE API re-captures a night several times;
+    the earliest-starting capture has the most total sleep (and the only deep
+    sleep), so total_sleep_h is the completeness yardstick. NULL sorts lowest."""
+    total = row.get("total_sleep_h")
+    return total if total is not None else -1.0
+
+
+def _consolidate_sleep(rows: list[dict]) -> list[dict]:
+    """Keep one row per awakening identity ``(sleep_end, source)`` — the most
+    complete capture — so a single INSERT never hits the unique target twice and
+    overlapping API re-captures of one night collapse to the fullest. Rows with a
+    NULL ``sleep_end`` share one bucket per source, matching the constraint's
+    NULLS NOT DISTINCT semantics."""
+    best: dict[tuple, dict] = {}
+    for r in rows:
+        key = (r.get("sleep_end"), r.get("source"))
+        cur = best.get(key)
+        if cur is None or _sleep_completeness(r) > _sleep_completeness(cur):
+            best[key] = r
+    return list(best.values())
+
+
 _XMAX_IS_NEW = literal_column("(xmax = 0)")
 
 
@@ -308,14 +331,29 @@ def _count_new(cursor) -> int:
     return sum(1 for (is_new,) in cursor if is_new)
 
 
-def _upsert(db: Session, model, rows: list[dict], *, set_keys, coalesce_keys: tuple[str, ...] = (), **conflict) -> int:
+def _upsert(
+    db: Session,
+    model,
+    rows: list[dict],
+    *,
+    set_keys,
+    coalesce_keys: tuple[str, ...] = (),
+    where=None,
+    **conflict,
+) -> int:
     """Batched idempotent upsert; returns the count of freshly-inserted rows
     (xmax=0). ``rows`` must already be de-duped on the conflict target. The
     Postgres xmax trick (RETURNING xmax=0) tells fresh inserts from updates.
 
     A column in ``coalesce_keys`` is updated as ``coalesce(excluded, existing)``
     rather than overwritten, so a NULL in a replayed payload never clobbers an
-    already-resolved value (used for ``canonical_type``)."""
+    already-resolved value (used for ``canonical_type``).
+
+    ``where`` is an optional callable ``(stmt) -> clause`` building the DO UPDATE
+    predicate from the per-chunk insert statement (so it can reference
+    ``stmt.excluded``). When it evaluates false the conflicting row is left
+    untouched — used by sleep so a partial re-capture never overwrites the more
+    complete stored night."""
     if not rows:
         return 0
     new = 0
@@ -326,7 +364,10 @@ def _upsert(db: Session, model, rows: list[dict], *, set_keys, coalesce_keys: tu
             excluded = getattr(stmt.excluded, k)
             # coalesce(excluded, existing): a NULL in a replay keeps the stored value.
             set_[k] = sa.func.coalesce(excluded, model.__table__.c[k]) if k in coalesce_keys else excluded
-        stmt = stmt.on_conflict_do_update(set_=set_, **conflict).returning(_XMAX_IS_NEW)
+        update_kwargs = dict(set_=set_, **conflict)
+        if where is not None:
+            update_kwargs["where"] = where(stmt)
+        stmt = stmt.on_conflict_do_update(**update_kwargs).returning(_XMAX_IS_NEW)
         new += _count_new(db.execute(stmt))
     return new
 
@@ -366,12 +407,19 @@ def store(db: Session, parsed: ParsedPayload) -> StoreResult:
         constraint="uq_metric_samples",
     )
 
-    sleep_rows = _dedupe(parsed.sleep_rows, ("sleep_start", "source"))
+    # Consolidate on the awakening identity (sleep_end, source): overlapping API
+    # re-captures of one night collapse to the most complete row, and a partial
+    # capture arriving after the full one never downgrades it (the WHERE guards
+    # the DO UPDATE so only a fuller capture wins). See migration 0011.
+    sleep_rows = _consolidate_sleep(parsed.sleep_rows)
     sleep_new = _upsert(
         db,
         SleepSession,
         sleep_rows,
-        set_keys=[k for k in (sleep_rows[0] if sleep_rows else ()) if k not in ("sleep_start", "source")],
+        set_keys=[k for k in (sleep_rows[0] if sleep_rows else ()) if k not in ("sleep_end", "source")],
+        where=lambda s: (
+            sa.func.coalesce(s.excluded.total_sleep_h, -1.0) > sa.func.coalesce(SleepSession.total_sleep_h, -1.0)
+        ),
         constraint="uq_sleep_sessions",
     )
 

@@ -311,6 +311,43 @@ def test_build_series_includes_sleep_efficiency_and_consistency(db):
     assert {"sleep_total_h", "bedtime"} <= kinds
 
 
+def test_load_sleep_frame_one_row_per_day_picks_main_sleep(db):
+    # Two distinct sleep periods on one wake-day (a nap + the main night, with
+    # different sleep_end so both are kept by ingest). sleep_nightly must reduce
+    # them to one row per day, choosing the most complete (the main night), and
+    # the frame must not sum them. (Overlapping same-end re-captures can no longer
+    # reach the table at all — see the ingest constraint, migration 0011.)
+    wake = dt.date(2026, 2, 1)
+    main = SleepSession(
+        sleep_start=dt.datetime(2026, 1, 31, 22, tzinfo=UTC),
+        sleep_end=dt.datetime(wake.year, wake.month, wake.day, 6, tzinfo=UTC),
+        source="Apple Watch",
+        sleep_date=wake,
+        total_sleep_h=8.0,
+        deep_h=1.2,
+        rem_h=1.8,
+        in_bed_h=8.0,
+    )
+    nap = SleepSession(
+        sleep_start=dt.datetime(wake.year, wake.month, wake.day, 14, tzinfo=UTC),
+        sleep_end=dt.datetime(wake.year, wake.month, wake.day, 14, 40, tzinfo=UTC),
+        source="Apple Watch",
+        sleep_date=wake,
+        total_sleep_h=0.6,
+        rem_h=0.0,
+        in_bed_h=0.6,
+    )
+    db.add_all([main, nap])
+    db.flush()
+
+    frame = analysis.load_sleep_frame(db, "Europe/Vienna")
+    day = pd.Timestamp(wake)
+    assert len(frame) == 1
+    # The main night (8.0 h), not the 8.6 h sum of the two periods.
+    assert frame.loc[day, "total_sleep_h"] == 8.0
+    assert frame.loc[day, "deep_h"] == 1.2
+
+
 def test_run_with_no_data_is_clean(db):
     # No samples at all: run must not error and must write nothing.
     result = analysis.run(db)
