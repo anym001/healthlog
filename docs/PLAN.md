@@ -5,9 +5,12 @@
 > Anbieter.
 >
 > **Projektname:** HealthLog (Repo-Slug `healthlog`)
-> **Status:** Phasen 0, 1 und 3 umgesetzt — Ingestion + Storage + nächtliche
-> Analyse-Pipeline laufen (live auf Unraid, erster Voll-Backfill eingespielt).
-> Nächster Schritt: Phase 4 (Visualisierung). Fortschritt je Phase in §10.
+> **Status:** Phasen 0, 1, 3 und 4 umgesetzt — Ingestion + Storage + nächtliche
+> Analyse-Pipeline laufen (live auf Unraid, erster Voll-Backfill eingespielt),
+> Grafana-Dashboards stehen und die optionale lokale LLM-Narration
+> (`healthlog narrate` → Ollama am Mac) ist gebaut. Verbleibend: nur die bewusst
+> aufgeschobenen Infra-TODOs (§13) und das optionale Phase 5. Fortschritt je
+> Phase in §10.
 
 ## 1. Grundentscheidungen
 
@@ -440,10 +443,23 @@ Befund-Typen (`findings`, Snapshot pro Lauf):
 Die reine Analyse-Mathematik ist DB-frei und gegen synthetische Reihen (bekannter
 Lag/Anomalie/Trend/Jahres-Saison) mit festem Seed getestet (§7); dazu ein DB-End-to-End-Test.
 
-### Phase 4 – Visualisierung + optionales LLM
+### Phase 4 – Visualisierung + optionales LLM ✅ (umgesetzt)
 Grafana-Dashboards (Trainingslast vs. HRV/Ruhepuls, Schlaf-Trends, `findings` als
-Annotationen). Danach Ollama-Narration aus `findings` (Mac, 8–14B). Modell erhält
-nur strukturierte Befunde; Zahlen werden gegroundet, nicht halluziniert.
+Annotationen) stehen — vier Dashboards (Overview, Training, Sleep, Metrics Explorer).
+Die Ollama-Narration ist als manuelles CLI `healthlog narrate` umgesetzt
+(`app/narrate.py`): Server → Ollama am Mac (outbound HTTP an `/api/chat`,
+`stream=false`), liest die aktuelle `findings`-Snapshot, baut einen
+**privacy-sicheren** Kontext (nur statistische Größen: z-Scores, Slopes, ACWR-Ratios,
+Koeffizienten — **kein** Rohwert; `scrub_details()` entfernt `anomaly.value`) und
+schreibt den Report nach `/config/narration/YYYY-MM-DD.md` + stdout. Konfiguration
+unter `narrate:` in `config.yaml` (`ollama_url`, `model`, `language` en/de Default
+**en**, `lookback_days`, `timeout_s`); System-Prompts sind Code-Konstanten (de+en,
+enkodieren Privacy-/Diagnose-Grenzen). Optionaler `--note`-Freitext lenkt den Fokus,
+ohne den System-Prompt zu überschreiben. Zeit-unabhängige Befundtypen (correlation/
+trend/seasonality/consistency) immer einbezogen, ereignisbasierte (anomaly/
+recovery_alert/training_load) auf `lookback_days` gefiltert. 32 reine Tests
+(httpx MockTransport, kein DB) pinnen Scrubbing, Kontext und Wire-Format, dazu
+4 `NarrateConfig`-Tests in `test_appconfig.py`.
 
 ### Phase 5 (optional, später)
 Eigene Web-App im PocketLog-Stil.
@@ -538,5 +554,11 @@ Im Sample bewusst aus (ECG/GPX) bzw. ungenutzt. Das Modell verträgt sie jederze
 - **ECG/GPX bleiben bewusst aus** (rohe Waveforms/Standortdaten, kein Analysenutzen,
   Payload-/Privacy-Last).
 
-### Gated auf Phase 4
-- Konkretes Ollama-Modell + Prompt-/Grounding-Design für die Report-Narration.
+### Phase 4 — entschieden & umgesetzt ✅
+- **Ollama-Modell:** Default `qwen2.5:14b` (Config-überschreibbar via `narrate.model`;
+  `qwen2.5:7b` als leichtere Alternative für 16-GB-Macs dokumentiert).
+- **Prompt-/Grounding-Design:** System-Prompts als Code-Konstanten (de+en), die das
+  Modell auf die übergebenen Befunde grounden („keine erfundenen Zahlen", keine
+  Diagnosen). Kontext führt nur statistische Größen mit, keine Rohwerte (§4.8-Felder
+  via `scrub_details()` gefiltert). Trigger: manuell (`healthlog narrate`), nicht
+  automatisch. Output: `/config/narration/YYYY-MM-DD.md` + stdout.
