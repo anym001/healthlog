@@ -132,6 +132,39 @@ def test_notify_unknown_event_is_rejected(tmp_path):
         load_config(p)
 
 
+def test_narrate_defaults(tmp_path):
+    n = load_config(tmp_path / "nope.yaml").narrate
+    assert n.ollama_url is None
+    assert n.model == "qwen2.5:14b"
+    assert n.language == "en"
+    assert n.lookback_days == 7
+    assert n.timeout_s == 300
+
+
+def test_narrate_config_from_yaml(tmp_path):
+    p = tmp_path / "config.yaml"
+    p.write_text("narrate:\n  ollama_url: http://mac:11434\n  lookback_days: 14\n  language: de\n")
+    n = load_config(p).narrate
+    assert n.ollama_url == "http://mac:11434"
+    assert n.lookback_days == 14
+    assert n.language == "de"
+    assert n.model == "qwen2.5:14b"  # default preserved
+
+
+def test_narrate_invalid_language_rejected(tmp_path):
+    p = tmp_path / "config.yaml"
+    p.write_text("narrate:\n  language: fr\n")
+    with pytest.raises(ValueError):
+        load_config(p)
+
+
+def test_narrate_unknown_key_rejected(tmp_path):
+    p = tmp_path / "config.yaml"
+    p.write_text("narrate:\n  bogus_field: 1\n")
+    with pytest.raises(ValueError):
+        load_config(p)
+
+
 def test_analysis_defaults_are_stable():
     # These defaults are the single source of truth for analysis.py's module
     # constants; pin them so a change is deliberate.

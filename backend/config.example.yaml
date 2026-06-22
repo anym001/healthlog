@@ -70,6 +70,19 @@
 #   acwr_low: 0.8             # below => detraining flagged
 #   acwr_min_active_days: 8   # min training days in 28 before a (per-sport) ratio is trusted
 
+# --- LLM narration ---------------------------------------------------------
+# On-demand health report from a local Ollama instance. Reads the current
+# findings snapshot and asks the model to narrate it as a weekly summary.
+# Run manually: docker exec healthlog healthlog narrate [--note "…"]
+# Output: /config/narration/YYYY-MM-DD.md (also printed to stdout).
+# Off by default (no ollama_url set). Defaults shown.
+# narrate:
+#   ollama_url:               # required: http://192.168.1.100:11434
+#   model: qwen2.5:14b
+#   language: en              # en | de
+#   lookback_days: 7          # ref_date window for anomalies / recovery / load
+#   timeout_s: 300            # generous — 14B models take time
+
 # --- Notifications ---------------------------------------------------------
 # Push run outcomes / health alerts to a push-notification service. The
 # behaviour lives here; the SECRET token does NOT — set it via the NOTIFY_TOKEN
