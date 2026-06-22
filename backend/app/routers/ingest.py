@@ -7,9 +7,7 @@ content hash, then parses + idempotently upserts. Audit events are logged here
 
 from __future__ import annotations
 
-import hashlib
 import ipaddress
-import json
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
@@ -29,29 +27,18 @@ log = logging.getLogger("healthlog.api")
 audit = logging.getLogger("healthlog.audit")
 
 
-def _parse_and_store(db: Session, body: bytes, ip: str | None):
-    """JSON parse + content hash + idempotent DB store.
+def _ingest(db: Session, body: bytes, ip: str | None):
+    """Run the shared ingest pipeline + commit, off the event loop.
 
-    Runs off the event loop (``run_in_threadpool``): ``json.loads`` on a large
-    body and the synchronous SQLAlchemy work are both CPU/IO-bound and would
-    otherwise block every concurrent request. Returns ``(status, result)`` with
-    a ``None`` result for a duplicate; raises ``ValueError`` for a malformed
-    body (the caller maps it to HTTP 400)."""
-    try:
-        payload = json.loads(body)
-    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-        raise ValueError("Invalid JSON body.") from exc
-    if not isinstance(payload, dict):
-        raise ValueError("Expected a JSON object.")
-
-    content_hash = hashlib.sha256(body).digest()
-    if not ingest_svc.archive_raw(db, payload, content_hash, ip):
-        db.commit()
-        return "duplicate", None
-
-    result = ingest_svc.store(db, ingest_svc.parse_payload(payload))
+    ``ingest_svc.ingest_bytes`` (json.loads, SHA-256, the synchronous
+    SQLAlchemy work) and ``commit`` are all CPU/IO-bound and would otherwise
+    block every concurrent request, so the endpoint dispatches this via
+    ``run_in_threadpool``. Returns ``(status, result)`` with a ``None`` result
+    for a duplicate; raises ``ValueError`` for a malformed body (the caller maps
+    it to HTTP 400)."""
+    outcome, result = ingest_svc.ingest_bytes(db, body, ip)
     db.commit()
-    return "stored", result
+    return outcome, result
 
 
 def _client_ip(request: Request) -> str | None:
@@ -84,7 +71,7 @@ async def ingest_payload(
 
     ip = _client_ip(request)
     try:
-        outcome, result = await run_in_threadpool(_parse_and_store, db, body, ip)
+        outcome, result = await run_in_threadpool(_ingest, db, body, ip)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 

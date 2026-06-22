@@ -9,6 +9,8 @@ and auto-registered as ``secondary`` stubs (PLAN.md §4.0/§5).
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
+import json
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -395,6 +397,31 @@ def archive_raw(db: Session, payload: dict, content_hash: bytes, source_ip: str 
     )
     result = db.execute(stmt).first()
     return result is not None
+
+
+def ingest_bytes(db: Session, body: bytes, source_ip: str | None = None) -> tuple[str, StoreResult | None]:
+    """Archive + parse + idempotently store one raw HAE body.
+
+    The single ingest path shared by the HTTP endpoint and the backfill CLI, so
+    a file imported from disk behaves identically to a posted payload. Hashes
+    the body for the content-hash dedup, archives the verbatim payload, and (on
+    a first sighting) parses and upserts it.
+
+    Does not commit — the caller owns the transaction boundary. Returns
+    ``("duplicate", None)`` when the body was already archived, else
+    ``("stored", StoreResult)``. Raises ``ValueError`` for a malformed body
+    (invalid JSON or a non-object top level)."""
+    try:
+        payload = json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise ValueError("Invalid JSON body.") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("Expected a JSON object.")
+
+    content_hash = hashlib.sha256(body).digest()
+    if not archive_raw(db, payload, content_hash, source_ip):
+        return "duplicate", None
+    return "stored", store(db, parse_payload(payload))
 
 
 def now_utc() -> dt.datetime:

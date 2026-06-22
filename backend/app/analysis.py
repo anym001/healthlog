@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -186,6 +186,11 @@ class Decomp:
     has_annual: bool = False
 
 
+def _daily_grid(s: pd.Series) -> pd.DatetimeIndex:
+    """Complete daily DatetimeIndex spanning the series' first..last date."""
+    return pd.date_range(s.index.min(), s.index.max(), freq="D")
+
+
 def _prepare_series(s: pd.Series) -> pd.Series:
     """Complete daily index with interior gaps interpolated (edges dropped).
 
@@ -195,8 +200,7 @@ def _prepare_series(s: pd.Series) -> pd.Series:
     s = s.dropna()
     if s.empty:
         return s
-    full = pd.date_range(s.index.min(), s.index.max(), freq="D")
-    return s.reindex(full).interpolate(method="time", limit_area="inside").dropna()
+    return s.reindex(_daily_grid(s)).interpolate(method="time", limit_area="inside").dropna()
 
 
 def decompose(s: pd.Series) -> Decomp | None:
@@ -386,8 +390,7 @@ def fill_zero_within_span(s: pd.Series) -> pd.Series:
     s = s.dropna()
     if s.empty:
         return s
-    full = pd.date_range(s.index.min(), s.index.max(), freq="D")
-    return s.reindex(full).fillna(0.0)
+    return s.reindex(_daily_grid(s)).fillna(0.0)
 
 
 def aggregate_workout_daily(
@@ -595,15 +598,14 @@ def _series_from_rows(rows) -> pd.Series:
     idx = pd.to_datetime([r.day for r in rows])
     vals = [float(r.value) if r.value is not None else np.nan for r in rows]
     s = pd.Series(vals, index=idx, dtype="float64")
-    full = pd.date_range(s.index.min(), s.index.max(), freq="D")
-    return s.reindex(full)
+    return s.reindex(_daily_grid(s))
 
 
 def _reindex_full(s: pd.Series) -> pd.Series:
     s = s.dropna()
     if s.empty:
         return s
-    return s.reindex(pd.date_range(s.index.min(), s.index.max(), freq="D"))
+    return s.reindex(_daily_grid(s))
 
 
 # ===========================================================================
@@ -621,16 +623,14 @@ class AnalysisResult:
     consistency: int = 0
     training_load: int = 0
 
+    def counts(self) -> list[tuple[str, int]]:
+        """The (category, count) pairs in declaration order — the single source
+        for ``total()`` and the run summary, so a new finding kind is added by
+        declaring one field above."""
+        return [(f.name, getattr(self, f.name)) for f in fields(self)]
+
     def total(self) -> int:
-        return (
-            self.correlations
-            + self.anomalies
-            + self.trends
-            + self.seasonality
-            + self.recovery_alerts
-            + self.consistency
-            + self.training_load
-        )
+        return sum(count for _, count in self.counts())
 
 
 def core_metrics() -> list[str]:
@@ -1190,17 +1190,7 @@ def main() -> int:
     finally:
         db.close()
 
-    log.info(
-        "analysis done: correlations=%d anomalies=%d trends=%d seasonality=%d "
-        "recovery_alerts=%d consistency=%d training_load=%d",
-        result.correlations,
-        result.anomalies,
-        result.trends,
-        result.seasonality,
-        result.recovery_alerts,
-        result.consistency,
-        result.training_load,
-    )
+    log.info("analysis done: %s", " ".join(f"{name}={count}" for name, count in result.counts()))
 
     from .notify import notify_analysis
 
