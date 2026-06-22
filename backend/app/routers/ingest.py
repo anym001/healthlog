@@ -27,16 +27,17 @@ log = logging.getLogger("healthlog.api")
 audit = logging.getLogger("healthlog.audit")
 
 
-def _ingest(db: Session, body: bytes, ip: str | None):
+def _ingest(db: Session, body: bytes, ip: str | None, type_map: dict[str, str] | None):
     """Run the shared ingest pipeline + commit, off the event loop.
 
     ``ingest_svc.ingest_bytes`` (json.loads, SHA-256, the synchronous
     SQLAlchemy work) and ``commit`` are all CPU/IO-bound and would otherwise
     block every concurrent request, so the endpoint dispatches this via
-    ``run_in_threadpool``. Returns ``(status, result)`` with a ``None`` result
-    for a duplicate; raises ``ValueError`` for a malformed body (the caller maps
-    it to HTTP 400)."""
-    outcome, result = ingest_svc.ingest_bytes(db, body, ip)
+    ``run_in_threadpool``. ``type_map`` is the operator's ``workouts.type_map``
+    for workout-type normalisation. Returns ``(status, result)`` with a ``None``
+    result for a duplicate; raises ``ValueError`` for a malformed body (the
+    caller maps it to HTTP 400)."""
+    outcome, result = ingest_svc.ingest_bytes(db, body, ip, type_map=type_map)
     db.commit()
     return outcome, result
 
@@ -70,8 +71,9 @@ async def ingest_payload(
         )
 
     ip = _client_ip(request)
+    type_map = get_app_config().workouts.type_map
     try:
-        outcome, result = await run_in_threadpool(_ingest, db, body, ip)
+        outcome, result = await run_in_threadpool(_ingest, db, body, ip, type_map)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 

@@ -15,6 +15,7 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 
+import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.expression import literal_column
@@ -23,6 +24,7 @@ from . import units
 from .models import MetricRegistry, MetricSample, RawIngest, SleepSession, Workout, WorkoutHrSample
 from .registry import METRIC_REGISTRY, SLEEP_METRIC
 from .timeutil import parse_hae_datetime
+from .workout_types import canonical_workout_type
 
 log = logging.getLogger("healthlog.ingest")
 
@@ -154,7 +156,7 @@ def _hr_sample_bpm(point: dict) -> float | None:
     return _num(point.get("Avg")) if point.get("Avg") is not None else _num(point.get("qty"))
 
 
-def _parse_workout(w: dict, out: ParsedPayload) -> None:
+def _parse_workout(w: dict, out: ParsedPayload, type_map: dict[str, str] | None = None) -> None:
     raw_id = w.get("id")
     if not raw_id:
         return
@@ -180,12 +182,14 @@ def _parse_workout(w: dict, out: ParsedPayload) -> None:
                 out.workout_hr_rows.append({"workout_hae_id": hae_id, "ts": ts, "bpm": bpm})
 
     hr = w.get("heartRate") if isinstance(w.get("heartRate"), dict) else {}
+    name = w.get("name")
     out.workout_rows.append(
         {
             "hae_id": hae_id,
             "start_time": parse_hae_datetime(w.get("start")),
             "end_time": parse_hae_datetime(w.get("end")),
-            "name": w.get("name"),
+            "name": name,
+            "canonical_type": canonical_workout_type(name, type_map),
             "location": w.get("location"),
             "is_indoor": w.get("isIndoor"),
             "duration_s": _num(w.get("duration")),
@@ -206,8 +210,14 @@ def _parse_workout(w: dict, out: ParsedPayload) -> None:
     )
 
 
-def parse_payload(payload: dict) -> ParsedPayload:
-    """Translate an HAE payload into normalised rows. Pure, DB-free."""
+def parse_payload(payload: dict, type_map: dict[str, str] | None = None) -> ParsedPayload:
+    """Translate an HAE payload into normalised rows. Pure, DB-free.
+
+    ``type_map`` is the operator's ``workouts.type_map`` from config.yaml:
+    it maps custom localised workout names to canonical type slugs and is
+    layered on top of the built-in map (config wins, built-in is the fallback).
+    Pass ``None`` to use the built-in map only.
+    """
     out = ParsedPayload()
     data = payload.get("data") or {}
 
@@ -225,7 +235,7 @@ def parse_payload(payload: dict) -> ParsedPayload:
             _parse_metric(name, unit, point, out)
 
     for w in data.get("workouts") or []:
-        _parse_workout(w, out)
+        _parse_workout(w, out, type_map)
 
     return out
 
@@ -298,19 +308,25 @@ def _count_new(cursor) -> int:
     return sum(1 for (is_new,) in cursor if is_new)
 
 
-def _upsert(db: Session, model, rows: list[dict], *, set_keys, **conflict) -> int:
+def _upsert(db: Session, model, rows: list[dict], *, set_keys, coalesce_keys: tuple[str, ...] = (), **conflict) -> int:
     """Batched idempotent upsert; returns the count of freshly-inserted rows
     (xmax=0). ``rows`` must already be de-duped on the conflict target. The
-    Postgres xmax trick (RETURNING xmax=0) tells fresh inserts from updates."""
+    Postgres xmax trick (RETURNING xmax=0) tells fresh inserts from updates.
+
+    A column in ``coalesce_keys`` is updated as ``coalesce(excluded, existing)``
+    rather than overwritten, so a NULL in a replayed payload never clobbers an
+    already-resolved value (used for ``canonical_type``)."""
     if not rows:
         return 0
     new = 0
     for chunk in _chunked(rows, _batch_size(len(rows[0]))):
         stmt = pg_insert(model).values(chunk)
-        stmt = stmt.on_conflict_do_update(
-            set_={k: getattr(stmt.excluded, k) for k in set_keys},
-            **conflict,
-        ).returning(_XMAX_IS_NEW)
+        set_ = {}
+        for k in set_keys:
+            excluded = getattr(stmt.excluded, k)
+            # coalesce(excluded, existing): a NULL in a replay keeps the stored value.
+            set_[k] = sa.func.coalesce(excluded, model.__table__.c[k]) if k in coalesce_keys else excluded
+        stmt = stmt.on_conflict_do_update(set_=set_, **conflict).returning(_XMAX_IS_NEW)
         new += _count_new(db.execute(stmt))
     return new
 
@@ -359,12 +375,15 @@ def store(db: Session, parsed: ParsedPayload) -> StoreResult:
         constraint="uq_sleep_sessions",
     )
 
+    # canonical_type uses coalesce-on-conflict so a NULL in a replayed payload
+    # never overwrites an already-resolved value.
     workout_rows = _dedupe(parsed.workout_rows, ("hae_id",))
     workout_new = _upsert(
         db,
         Workout,
         workout_rows,
         set_keys=[k for k in (workout_rows[0] if workout_rows else ()) if k != "hae_id"],
+        coalesce_keys=("canonical_type",),
         index_elements=["hae_id"],
     )
 
@@ -399,13 +418,19 @@ def archive_raw(db: Session, payload: dict, content_hash: bytes, source_ip: str 
     return result is not None
 
 
-def ingest_bytes(db: Session, body: bytes, source_ip: str | None = None) -> tuple[str, StoreResult | None]:
+def ingest_bytes(
+    db: Session,
+    body: bytes,
+    source_ip: str | None = None,
+    type_map: dict[str, str] | None = None,
+) -> tuple[str, StoreResult | None]:
     """Archive + parse + idempotently store one raw HAE body.
 
     The single ingest path shared by the HTTP endpoint and the backfill CLI, so
     a file imported from disk behaves identically to a posted payload. Hashes
     the body for the content-hash dedup, archives the verbatim payload, and (on
-    a first sighting) parses and upserts it.
+    a first sighting) parses and upserts it. ``type_map`` is the operator's
+    ``workouts.type_map`` from config, threaded into workout-type normalisation.
 
     Does not commit — the caller owns the transaction boundary. Returns
     ``("duplicate", None)`` when the body was already archived, else
@@ -421,7 +446,7 @@ def ingest_bytes(db: Session, body: bytes, source_ip: str | None = None) -> tupl
     content_hash = hashlib.sha256(body).digest()
     if not archive_raw(db, payload, content_hash, source_ip):
         return "duplicate", None
-    return "stored", store(db, parse_payload(payload))
+    return "stored", store(db, parse_payload(payload, type_map=type_map))
 
 
 def now_utc() -> dt.datetime:
