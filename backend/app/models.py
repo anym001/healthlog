@@ -66,10 +66,21 @@ class MetricSample(Base):
 
 
 class SleepSession(Base):
-    """Sleep is an interval with phases; assigned to the wake-up day."""
+    """Sleep is an interval with phases; assigned to the wake-up day.
+
+    Natural key is ``(sleep_end, source)`` — the awakening identity. Health Auto
+    Export's REST API re-captures the same night several times, each starting at
+    a later ``sleep_start`` but sharing the same ``sleep_end``; keying on the end
+    collapses those re-captures (the most complete one wins at upsert) while
+    keeping genuinely distinct sleep periods (e.g. a nap, with a different end)
+    separate. NULLS NOT DISTINCT so a rare NULL ``sleep_end`` still de-dupes on
+    replay instead of inserting a second row. See migration 0011.
+    """
 
     __tablename__ = "sleep_sessions"
-    __table_args__ = (UniqueConstraint("sleep_start", "source", name="uq_sleep_sessions"),)
+    __table_args__ = (
+        UniqueConstraint("sleep_end", "source", name="uq_sleep_sessions", postgresql_nulls_not_distinct=True),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     sleep_start: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))

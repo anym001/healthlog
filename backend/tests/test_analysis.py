@@ -311,38 +311,39 @@ def test_build_series_includes_sleep_efficiency_and_consistency(db):
     assert {"sleep_total_h", "bedtime"} <= kinds
 
 
-def test_load_sleep_frame_consolidates_overlapping_sessions(db):
-    # The Health Auto Export REST API re-captures the same night several times,
-    # each starting later but ending at the same time (see migration 0010). Only
-    # the most complete row (largest total_sleep_h, here the first) is the real
-    # night; the frame must pick it, not sum the overlapping fragments.
+def test_load_sleep_frame_one_row_per_day_picks_main_sleep(db):
+    # Two distinct sleep periods on one wake-day (a nap + the main night, with
+    # different sleep_end so both are kept by ingest). sleep_nightly must reduce
+    # them to one row per day, choosing the most complete (the main night), and
+    # the frame must not sum them. (Overlapping same-end re-captures can no longer
+    # reach the table at all — see the ingest constraint, migration 0011.)
     wake = dt.date(2026, 2, 1)
-    sleep_end = dt.datetime(wake.year, wake.month, wake.day, 6, tzinfo=UTC)
-    fragments = [
-        # (sleep_start, total_sleep_h, deep_h, rem_h)
-        (dt.datetime(2026, 1, 31, 22, tzinfo=UTC), 8.0, 1.2, 1.8),  # full night
-        (dt.datetime(wake.year, wake.month, wake.day, 0, 30, tzinfo=UTC), 5.0, 0.0, 1.0),
-        (dt.datetime(wake.year, wake.month, wake.day, 2, 0, tzinfo=UTC), 3.0, 0.0, 0.5),
-    ]
-    for start, total, deep, rem in fragments:
-        db.add(
-            SleepSession(
-                sleep_start=start,
-                sleep_end=sleep_end,
-                source="Apple Watch",
-                sleep_date=wake,
-                total_sleep_h=total,
-                deep_h=deep,
-                rem_h=rem,
-                in_bed_h=total,
-            )
-        )
+    main = SleepSession(
+        sleep_start=dt.datetime(2026, 1, 31, 22, tzinfo=UTC),
+        sleep_end=dt.datetime(wake.year, wake.month, wake.day, 6, tzinfo=UTC),
+        source="Apple Watch",
+        sleep_date=wake,
+        total_sleep_h=8.0,
+        deep_h=1.2,
+        rem_h=1.8,
+        in_bed_h=8.0,
+    )
+    nap = SleepSession(
+        sleep_start=dt.datetime(wake.year, wake.month, wake.day, 14, tzinfo=UTC),
+        sleep_end=dt.datetime(wake.year, wake.month, wake.day, 14, 40, tzinfo=UTC),
+        source="Apple Watch",
+        sleep_date=wake,
+        total_sleep_h=0.6,
+        rem_h=0.0,
+        in_bed_h=0.6,
+    )
+    db.add_all([main, nap])
     db.flush()
 
     frame = analysis.load_sleep_frame(db, "Europe/Vienna")
     day = pd.Timestamp(wake)
     assert len(frame) == 1
-    # The complete night (8.0 h), not the 16.0 h sum of overlapping captures.
+    # The main night (8.0 h), not the 8.6 h sum of the two periods.
     assert frame.loc[day, "total_sleep_h"] == 8.0
     assert frame.loc[day, "deep_h"] == 1.2
 
