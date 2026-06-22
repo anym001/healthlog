@@ -488,7 +488,7 @@ def load_sleep_frame(db: Session, tz: str) -> pd.DataFrame:
             """
             SELECT sleep_date, sleep_start, in_bed_start, in_bed_end,
                    total_sleep_h, deep_h, rem_h, in_bed_h
-            FROM sleep_sessions
+            FROM sleep_nightly
             WHERE sleep_date IS NOT NULL
             ORDER BY sleep_date
             """
@@ -518,12 +518,15 @@ def load_sleep_frame(db: Session, tz: str) -> pd.DataFrame:
             }
         )
     df = pd.DataFrame.from_records(records).set_index("day")
-    # Rare multiple sessions per wake-day: sum hours, earliest bedtime.
+    # sleep_nightly already yields one consolidated session per wake-day; the
+    # groupby is a defensive no-op. Use max (not sum) so any stray duplicate
+    # picks the most complete night instead of double-counting overlapping
+    # API re-captures (see migration 0010).
     agg = df.groupby(level=0).agg(
-        total_sleep_h=("total_sleep_h", "sum"),
-        deep_h=("deep_h", "sum"),
-        rem_h=("rem_h", "sum"),
-        in_bed_h=("in_bed_h", "sum"),
+        total_sleep_h=("total_sleep_h", "max"),
+        deep_h=("deep_h", "max"),
+        rem_h=("rem_h", "max"),
+        in_bed_h=("in_bed_h", "max"),
         bedtime=("bedtime", "min"),
     )
     with np.errstate(divide="ignore", invalid="ignore"):
