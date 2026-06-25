@@ -801,8 +801,22 @@ def _decompose_all(series: dict[str, pd.Series]) -> dict[str, Decomp | None]:
     return {name: decompose(s) for name, s in series.items()}
 
 
+def _calendar_coverage(s: pd.Series) -> float:
+    """Fraction of a series' calendar span (first..last observation) carrying a
+    real observation. ~1.0 for a gap-free daily series; low for one measured only
+    on scattered days (e.g. a workout-only vital). Used to decide whether a trend
+    is trustworthy enough to subtract before correlating."""
+    obs = s.dropna()
+    if len(obs) < 2:
+        return 0.0
+    span_days = (obs.index.max() - obs.index.min()).days + 1
+    return len(obs) / span_days if span_days > 0 else 0.0
+
+
 def _detrend_for_correlation(
-    series: dict[str, pd.Series], decomps: dict[str, Decomp | None] | None = None
+    series: dict[str, pd.Series],
+    decomps: dict[str, Decomp | None] | None = None,
+    cfg: AnalysisConfig | None = None,
 ) -> dict[str, pd.Series]:
     """Subtract each metric's long-run trend so correlations measure day-to-day
     co-movement, not shared drift.
@@ -813,14 +827,23 @@ def _detrend_for_correlation(
     gaps/edges) so lag shifts stay calendar-correct, but no interpolated point
     enters a correlation. A series too short to decompose is dropped.
 
+    A series whose real observations cover less than ``cfg.corr_min_coverage`` of
+    its calendar span is also dropped: its trend is estimated over interpolated
+    gaps, and subtracting that unreliable trend manufactures spurious
+    (de-trending-only) correlations. This is why e.g. ``cardio_recovery`` —
+    measured only on training days — is excluded from correlation analysis.
+
     ``decomps`` reuses a precomputed decomposition cache when provided; absent
     one (e.g. a direct test call) each series is decomposed on the fly.
     """
+    cfg = cfg or _DEFAULTS
     out: dict[str, pd.Series] = {}
     for name, s in series.items():
         decomp = decomps.get(name) if decomps is not None else decompose(s)
         if decomp is None:
             continue
+        if _calendar_coverage(s) < cfg.corr_min_coverage:
+            continue  # too gappy to de-trend without manufacturing structure
         detrended = s - decomp.trend.reindex(s.index)
         if not detrended.dropna().empty:
             out[name] = detrended
@@ -960,7 +983,7 @@ def _correlation_findings(
     decomps: dict[str, Decomp | None] | None = None,
 ) -> list[Finding]:
     cfg = cfg or _DEFAULTS
-    detrended = _detrend_for_correlation(series, decomps)
+    detrended = _detrend_for_correlation(series, decomps, cfg)
     names = list(detrended)
     candidates: list[tuple[str, str, int, Corr]] = []
     for i in range(len(names)):

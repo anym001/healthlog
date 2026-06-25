@@ -290,8 +290,12 @@ the anomaly). Non-applicable fields stay NULL.
 - **correlation** — Spearman on **de-trended** series (trend component subtracted, so
   opposing long-term trends can't produce a spurious correlation), lags 0–3 days (both
   directions), FDR `p_value_adj`; per metric pair only the **strongest** lag/direction
-  (dedup). Two relevance filters cut structural noise: an **effect-size floor**
-  (`analysis.corr_min_abs`, default 0.3) drops significant-but-negligible pairs, and
+  (dedup). A **coverage gate** (`analysis.corr_min_coverage`, default 0.5) drops a series
+  whose real observations cover less than half its calendar span before correlating: its
+  trend would be interpolated across the gaps, and subtracting that unreliable trend
+  manufactures spurious (de-trending-only) correlations — this is why a workout-only vital
+  like `cardio_recovery` is excluded. Two relevance filters cut structural noise: an
+  **effect-size floor** (`analysis.corr_min_abs`, default 0.3) drops significant-but-negligible pairs, and
   **activity-volume suppression** drops a pair when *both* series measure how much you
   moved/trained (workout-derived metrics — load/duration/count/intensity — or Apple
   activity-ring metrics — see `_is_activity_volume` in `app/analysis.py`); an activity
