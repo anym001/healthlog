@@ -55,13 +55,13 @@ TimescaleDB  ───────────────►  dashboard of your
    (raw samples + findings)
 ```
 
-The image runs two supervised processes — the ingest API and the analysis
-scheduler — plus a one-shot database migration on start, under PUID/PGID with a
-`/config` volume (the LinuxServer/Unraid convention). Ingestion is
-**metric-agnostic and tolerant**: unknown Apple Health metrics are never
-rejected, they are stored and auto-registered, so adopting a new metric is a
-data row, not a code change. Every raw payload is archived verbatim, and all
-writes are idempotent — re-sending an overlapping export never double-counts.
+The container runs the ingest API and the nightly analysis under PUID/PGID with a
+`/config` volume (the Unraid convention), migrating the database on start. Two
+guarantees matter day to day: unknown Apple Health metrics are accepted
+automatically — you never update anything to start tracking something new — and
+every export is de-duplicated server-side, so re-sending an overlapping sync
+never double-counts. Raw payloads are archived verbatim. The *why* behind all of
+this is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## What it computes
 
@@ -514,10 +514,9 @@ platform's log retention. Each ingest and the nightly analysis run are logged at
 
 ## Development
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md). TL;DR: feature branch → PR against
-`dev`; a release is a `vX.Y.Z` tag on `main`, which builds and publishes the
-versioned image to GHCR. The test suite (`ruff` + `pytest` against a real
-TimescaleDB + a Docker smoke boot) gates every PR.
+Contributing, the test/lint workflow and a map of the codebase live in
+[`CONTRIBUTING.md`](CONTRIBUTING.md) and [`CLAUDE.md`](CLAUDE.md). In short:
+feature branch → PR against `dev`; release by tagging `vX.Y.Z` on `main`.
 
 ## License
 

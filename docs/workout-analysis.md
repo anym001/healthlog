@@ -114,18 +114,10 @@ workouts:
     Radfahren: cycling
     Krafttraining: strength
 
-analysis:                 # module constants in analysis.py serve as defaults
-  max_lag: 3
-  min_overlap: 42
-  corr_keep_alpha: 0.10
-  fdr_alpha: 0.05
-  anomaly_window: 28
-  anomaly_threshold: 3.5
-  anomaly_recent_days: 14
-  trend_strength_min: 0.30
-  seasonality_strength_min: 0.20
-  recovery_recent_days: 14
-  recovery_z: 1.5
+analysis:                 # nightly-pipeline tunables (lags, anomaly window, ACWR
+  max_lag: 3              #   bands, …). The full set with defaults lives in
+  # …                     #   backend/config.example.yaml — the single source;
+                          #   analysis.py module constants are the fallback.
 
 notify:                   # token stays in ENV (NOTIFY_TOKEN)
   url:

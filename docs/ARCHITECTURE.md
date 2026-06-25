@@ -227,35 +227,31 @@ the incoming `unit` is checked against it → on mismatch **convert** (known fac
 kJ→kcal ×0.239006) **or flag**, never silently accept. Exactly this case occurred in
 the real export — the guard is no theoretical construct. A test pins it.
 
-### 4.6 Metric inventory (from real payload)
+### 4.6 Metric inventory & tiering
 
-30 metrics in the export, curated (tier/unit/`agg_default` per metric, pinned by
-`test_registry.py`):
+The curated registry — every metric's tier, canonical unit, daily aggregate
+(`agg_default`) and category — is **seeded and owned by code**: `app/registry.py`
+(the seed) plus the curation migrations (`0003_curate_metrics`,
+`0006_curate_cycling_distance`, `0008_workout_categories`, …), with
+`test_registry.py` pinning its consistency. That is the single source of truth;
+this section explains how it is organised rather than re-listing it here (where it
+would only drift). For the live state run `healthlog audit`.
 
-- **core – activity:** `step_count`, `active_energy` (kJ), `apple_exercise_time`,
-  `walking_running_distance`, `flights_climbed`, `physical_effort`, `apple_stand_time`
-- **core – sleep/recovery:** `sleep_analysis` (→ §4.3), `heart_rate_variability`,
-  `resting_heart_rate`, `respiratory_rate`, `apple_sleeping_wrist_temperature`,
-  `breathing_disturbances`, `time_in_daylight`
-- **core – vital:** `heart_rate` (Min/Avg/Max), `blood_oxygen_saturation`,
-  `walking_heart_rate_average`, `vo2_max`, `weight_body_mass`
-- **secondary – mobility:** `walking_speed`, `walking_step_length`,
-  `walking_asymmetry_percentage`, `walking_double_support_percentage`,
-  `stair_speed_up`, `stair_speed_down`, `six_minute_walking_test_distance`
-- **secondary – activity/environment:** `basal_energy_burned`, `apple_stand_hour`,
-  `environmental_audio_exposure`, `headphone_audio_exposure`
+Two axes:
 
-**Re-curated after the first full backfill** (nine initially auto-registered metrics,
-migration `0003_curate_metrics`): `cardio_recovery` as **core – vital**
-(one-minute heart-rate recovery, a cardio-fitness marker → into the pipeline);
-secondary `waist_circumference`, `height`, `atrial_fibrillation_burden` (vital),
-`swimming_distance`, `swimming_stroke_count`, `handwashing` (activity),
-`mindful_minutes` (mindfulness), `dietary_water` (nutrition). The categories
-`mindfulness`/`nutrition` were added with this.
+- **`tier`** — `core` metrics drive the correlation/anomaly/trend pipeline by
+  default (bounding the multiple-testing load, §11); `secondary` metrics are
+  ingested and stay queryable but are kept out of the default analysis. Roughly:
+  activity totals, the heart/HRV/resting-HR vitals, sleep, `vo2_max` and
+  `cardio_recovery` are `core`; the walking-gait/mobility metrics, audio exposure
+  and `basal_energy_burned` are `secondary`.
+- **`category`** — `activity` | `sleep` | `vital` | `mobility` | `environment`,
+  plus `mindfulness`/`nutrition` (added when the first backfill surfaced
+  `mindful_minutes`/`dietary_water`).
 
-Because the model is generic, carrying all 30 costs practically nothing — new metrics
-in future exports land automatically in the raw archive and in `metric_samples` and
-are only "adopted" via a registry row.
+Because the model is generic (§4.0), carrying more metrics costs practically
+nothing — new ones land automatically in the raw archive and in `metric_samples`
+and are "adopted" with a single registry row, no schema change.
 
 ### 4.7 Daily aggregates (view)
 
