@@ -35,9 +35,9 @@ ruff check . && ruff format --check . && python -m pytest -q
   messages, PR titles/descriptions.
 - **Schema changes:** generate an Alembic revision, never manual `ALTER TABLE`.
   Keep TimescaleDB-specific DDL guarded so the suite runs on plain Postgres.
-- **Metrics are extensible by design** (see `docs/PLAN.md` §4.0): adopting a
+- **Metrics are extensible by design** (see `docs/ARCHITECTURE.md` §4.0): adopting a
   metric is a `metric_registry` row, not a migration.
-- **Money/precision** and other domain rules: see `docs/PLAN.md`.
+- **Money/precision** and other domain rules: see `docs/ARCHITECTURE.md`.
 
 ## Dependencies
 

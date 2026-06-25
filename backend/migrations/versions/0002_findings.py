@@ -4,7 +4,7 @@ Revision ID: 0002_findings
 Revises: 0001_initial
 Create Date: 2026-06-16
 
-Holds the nightly statistical findings (PLAN.md §4.7). Written as a fresh
+Holds the nightly statistical findings (ARCHITECTURE.md §4.8). Written as a fresh
 snapshot each analysis run. DDL is idempotent (guarded by an inspector) so a
 partial/replayed migration is safe.
 """

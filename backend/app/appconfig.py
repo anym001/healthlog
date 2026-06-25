@@ -85,6 +85,17 @@ class AnalysisConfig(BaseModel):
     min_overlap: int = Field(default=42, ge=2)
     corr_keep_alpha: float = Field(default=0.10, gt=0.0, le=1.0)
     fdr_alpha: float = Field(default=0.05, gt=0.0, le=1.0)
+    # Minimum non-zero (active) days each series must have within a pair's
+    # overlap before the correlation is trusted. Guards 0-filled sparse series
+    # (per-sport workout load): without it a mostly-zero series correlates on a
+    # handful of coincidental active days. Continuous series (HR, sleep) are
+    # never zero, so the guard never bites them. 0 disables it.
+    corr_min_active: int = Field(default=10, ge=0)
+    # Minimum absolute Spearman coefficient to report a correlation. With years
+    # of daily data even a negligible effect clears the FDR gate (significance is
+    # not relevance); this effect-size floor keeps only relationships of at least
+    # moderate strength. 0 disables it.
+    corr_min_abs: float = Field(default=0.3, ge=0.0, le=1.0)
     # Anomaly
     anomaly_window: int = Field(default=28, ge=2)
     anomaly_threshold: float = Field(default=3.5, gt=0.0)
@@ -164,6 +175,11 @@ class NarrateConfig(BaseModel):
     lookback_days: int = Field(default=7, ge=1, le=90)
     # HTTP timeout in seconds for the Ollama call — generation can be slow.
     timeout_s: int = Field(default=300, ge=10, le=3600)
+    # Layer-2 curation: cap the correlations passed to the LLM at this many,
+    # highest report_priority first (cross-domain + effect size + lag); the rest
+    # are summarised as a count so the report leads with the informative links
+    # rather than expected/structural ones. 0 = no cap (pass them all).
+    max_correlations: int = Field(default=15, ge=0, le=200)
 
 
 class AppConfig(BaseModel):

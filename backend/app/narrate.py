@@ -26,6 +26,10 @@ from typing import TYPE_CHECKING
 
 import httpx
 
+# report_priority (and its helpers) live in analysis.py next to the metric
+# taxonomy, so the nightly pipeline can stamp each correlation with its tier and
+# the narration/Grafana rank by the same rule. Re-exported here for tests.
+from .analysis import _metric_domain, _pair_tier, report_priority  # noqa: F401
 from .appconfig import NarrateConfig, load_config
 from .config import get_settings
 from .logging_config import configure_logging, safe
@@ -202,6 +206,7 @@ def build_context(
     *,
     note: str | None = None,
     language: str = "de",
+    max_correlations: int | None = None,
 ) -> str:
     """Format findings as a structured plain-text context for the LLM.
 
@@ -292,7 +297,18 @@ def build_context(
     lines.append("")
 
     # --- Correlations ---
-    corrs = by_kind.get("correlation", [])
+    # Layer-2 curation: lead with the informative cross-domain links and, when a
+    # cap is set, drop the long tail of expected/structural pairs (summarised as
+    # a count) so the model isn't swamped by them.
+    corrs = sorted(
+        by_kind.get("correlation", []),
+        key=lambda f: report_priority(f.get("metric_a"), f.get("metric_b"), f.get("coefficient"), f.get("lag_days")),
+        reverse=True,
+    )
+    omitted = 0
+    if max_correlations and len(corrs) > max_correlations:
+        omitted = len(corrs) - max_correlations
+        corrs = corrs[:max_correlations]
     if language == "de":
         lines.append("=== KORRELATIONEN ===")
     else:
@@ -312,6 +328,11 @@ def build_context(
             lines.append(f"{_label(f, 'metric_a')} → {_label(f, 'metric_b')} ({lag_label}): r={coef}, p_adj={p}, N={n}")
     else:
         lines.append("–")
+    if omitted:
+        if language == "de":
+            lines.append(f"(+{omitted} weitere, niedrigere Priorität — erwartbar/strukturell, ausgelassen)")
+        else:
+            lines.append(f"(+{omitted} more, lower priority — expected/structural, omitted)")
     lines.append("")
 
     # --- Trends ---
@@ -522,6 +543,7 @@ def run(args: argparse.Namespace) -> int:
         today,
         note=args.note,
         language=cfg.language,
+        max_correlations=cfg.max_correlations,
     )
 
     client = OllamaClient(cfg.ollama_url, cfg.model, timeout=float(cfg.timeout_s))

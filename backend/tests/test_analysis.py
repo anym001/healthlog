@@ -190,6 +190,154 @@ def test_correlation_keeps_one_finding_per_pair():
     assert {findings[0].metric_a, findings[0].metric_b} == {"a", "b"}
 
 
+# --- Activity-volume suppression --------------------------------------------
+
+
+def test_is_workout_load_family():
+    for name in (
+        "workout_trimp",
+        "workout_load",
+        "workout_edwards",
+        "workout_duration",
+        "workout_count",
+        "workout_intensity",
+        "workout_load_stair_stepper",
+        "workout_edwards_yoga",
+    ):
+        assert analysis._is_workout_load_family(name), name
+    for name in ("workout_pace", "resting_heart_rate", "step_count", "sleep_total_h"):
+        assert not analysis._is_workout_load_family(name), name
+
+
+def test_is_activity_volume():
+    # Workout load-family and Apple activity-ring metrics are both activity volume.
+    for name in (
+        "workout_trimp",
+        "workout_load_yoga",
+        "workout_intensity",
+        "apple_exercise_time",
+        "apple_stand_time",
+        "active_energy",
+        "step_count",
+        "walking_running_distance",
+        "flights_climbed",
+    ):
+        assert analysis._is_activity_volume(name), name
+    # Body-state metrics are not activity volume.
+    for name in ("resting_heart_rate", "sleep_total_h", "respiratory_rate", "heart_rate"):
+        assert not analysis._is_activity_volume(name), name
+
+
+def test_is_redundant_activity_pair():
+    # Both activity-volume -> movement/training composition, not a health insight.
+    assert analysis._is_redundant_activity_pair("workout_trimp", "workout_load")  # load cross-measure
+    assert analysis._is_redundant_activity_pair("workout_load", "workout_duration")  # load vs duration
+    assert analysis._is_redundant_activity_pair("workout_trimp", "workout_trimp_running")  # aggregate vs child
+    assert analysis._is_redundant_activity_pair("workout_load_yoga", "workout_load_stair_stepper")  # sport vs sport
+    assert analysis._is_redundant_activity_pair("step_count", "walking_running_distance")  # ring vs ring
+    assert analysis._is_redundant_activity_pair("active_energy", "apple_stand_time")  # ring vs ring
+    assert analysis._is_redundant_activity_pair("apple_exercise_time", "workout_duration")  # ring vs load
+    assert analysis._is_redundant_activity_pair("active_energy", "workout_load")  # ring vs load
+    assert analysis._is_redundant_activity_pair("workout_load", "workout_intensity")  # intensity vs load
+    assert analysis._is_redundant_activity_pair("workout_intensity", "active_energy")  # intensity vs ring
+    # Kept: an activity-volume series vs any body-state metric (the useful pairs).
+    assert not analysis._is_redundant_activity_pair("workout_load_running", "resting_heart_rate")
+    assert not analysis._is_redundant_activity_pair("step_count", "resting_heart_rate")
+    assert not analysis._is_redundant_activity_pair("active_energy", "sleep_total_h")
+    assert not analysis._is_redundant_activity_pair("workout_intensity", "sleep_total_h")  # the kept gem
+
+
+def test_correlation_finding_stamps_priority_tier():
+    # The finding carries the layer-2 priority tier so narration/Grafana can rank
+    # by the same rule: cross-subsystem -> 2, sleep-architecture self -> 0.
+    rng = np.random.default_rng(7)
+    base = rng.normal(size=80)
+    idx = pd.date_range("2026-01-01", periods=80, freq="D")
+    cross = analysis._correlation_findings(
+        {
+            "sleep_total_h": pd.Series(base, index=idx),
+            "respiratory_rate": pd.Series(-0.8 * base + rng.normal(scale=0.3, size=80), index=idx),
+        },
+        dt.datetime.now(UTC),
+    )
+    assert cross and cross[0].details["priority_tier"] == 2
+    within = analysis._correlation_findings(
+        {
+            "sleep_total_h": pd.Series(base, index=idx),
+            "sleep_rem_h": pd.Series(0.7 * base + rng.normal(scale=0.3, size=80), index=idx),
+        },
+        dt.datetime.now(UTC),
+    )
+    assert within and within[0].details["priority_tier"] == 0
+
+
+def test_correlation_suppresses_same_target_cross_measure():
+    # trimp and edwards of the same target move together by construction; even a
+    # perfect relationship must not be emitted as a "finding".
+    rng = np.random.default_rng(33)
+    base = _daily(rng.normal(size=120))
+    series = {"workout_trimp_yoga": base, "workout_edwards_yoga": base * 1.4 + 0.01}
+    assert analysis._correlation_findings(series, dt.datetime.now(UTC)) == []
+
+
+def test_correlation_suppresses_activity_ring_vs_load():
+    # Apple's exercise minutes track workout duration almost perfectly; that is
+    # the same activity logged two ways, so no finding must be emitted.
+    rng = np.random.default_rng(34)
+    base = _daily(rng.normal(size=120))
+    series = {"apple_exercise_time": base, "workout_duration": base * 1.1 + 0.01}
+    assert analysis._correlation_findings(series, dt.datetime.now(UTC)) == []
+
+
+# --- Sparse-series guard (min_active) ---------------------------------------
+
+
+def test_spearman_lag_min_active_filters_mostly_zero_series():
+    # Two 0-filled series with only a few coincidental active days: enough grid
+    # overlap to clear min_overlap, but far too few non-zero days to trust.
+    rng = np.random.default_rng(44)
+    n = 120
+    a = np.zeros(n)
+    b = np.zeros(n)
+    for k in (10, 40, 70, 100):  # 4 coincidental active days
+        a[k] = rng.uniform(1, 5)
+        b[k + 1] = rng.uniform(1, 5)
+    sa, sb = _daily(a), _daily(b)
+    # Without the guard a result is produced; with it (min_active=10) it is None.
+    assert spearman_lag(sa, sb, 1, min_overlap=42) is not None
+    assert spearman_lag(sa, sb, 1, min_overlap=42, min_active=10) is None
+
+
+def test_spearman_lag_min_active_keeps_dense_series():
+    # A continuous (never-zero) pair is unaffected by the active-day guard.
+    rng = np.random.default_rng(45)
+    base = rng.normal(size=120)
+    a = _daily(base + 100 + rng.normal(scale=0.1, size=120))
+    b = _daily(base + 100 + rng.normal(scale=0.1, size=120))
+    res = spearman_lag(a, b, 0, min_overlap=42, min_active=10)
+    assert res is not None and res.coef > 0.8
+
+
+# --- Effect-size floor (corr_min_abs) ---------------------------------------
+
+
+def test_correlation_effect_size_floor_drops_weak_pairs():
+    # A weak but, over a long series, "significant" correlation: ~0.15. The
+    # default floor (0.3) must drop it; disabling the floor must keep it.
+    rng = np.random.default_rng(55)
+    n = 600
+    base = rng.normal(size=n)
+    a = _daily(base)
+    b = _daily(0.16 * base + rng.normal(size=n))  # weak shared component
+    raw = spearman_lag(a, b, 0)
+    assert raw is not None and 0.05 < abs(raw.coef) < 0.30  # weak-but-present
+
+    series = {"a": a, "b": b}
+    assert analysis._correlation_findings(series, dt.datetime.now(UTC)) == []  # default floor 0.3
+    kept = analysis._correlation_findings(series, dt.datetime.now(UTC), AnalysisConfig(corr_min_abs=0.0))
+    assert len(kept) == 1 and abs(float(kept[0].coefficient)) < 0.30
+
+
 # --- Bedtime offset (circular) ---------------------------------------------
 
 
@@ -248,9 +396,11 @@ def _add_metric(db, metric, values, start_date=dt.date(2026, 1, 1)):
 def test_run_writes_correlation_findings_as_snapshot(db):
     rng = np.random.default_rng(10)
     steps = rng.integers(3000, 12000, size=60).astype(float)
-    energy = 0.04 * steps + rng.normal(scale=5.0, size=60)  # strongly correlated, same day
+    # Resting HR falls as daily activity rises: a strong *cross-domain* pair
+    # (activity volume vs body state) that the activity-volume suppression keeps.
+    rhr = 80.0 - 0.002 * steps + rng.normal(scale=1.0, size=60)
     _add_metric(db, "step_count", steps)
-    _add_metric(db, "active_energy", energy)
+    _add_metric(db, "resting_heart_rate", rhr)
     db.flush()
 
     result = analysis.run(db)
@@ -261,14 +411,14 @@ def test_run_writes_correlation_findings_as_snapshot(db):
         db.execute(
             select(Finding).where(
                 Finding.kind == "correlation",
-                Finding.metric_a.in_(["step_count", "active_energy"]),
-                Finding.metric_b.in_(["step_count", "active_energy"]),
+                Finding.metric_a.in_(["step_count", "resting_heart_rate"]),
+                Finding.metric_b.in_(["step_count", "resting_heart_rate"]),
             )
         )
         .scalars()
         .all()
     )
-    assert pair, "expected a step_count<->active_energy correlation"
+    assert pair, "expected a step_count<->resting_heart_rate correlation"
     assert pair[0].p_value_adj is not None
 
     # Snapshot: a second run replaces, not accumulates.
@@ -604,15 +754,6 @@ def test_canonical_workout_type_config_overrides_builtin():
 
 def test_canonical_workout_type_slugs_spaces():
     assert canonical_workout_type("X", {"X": "Trail Running"}) == "trail_running"
-
-
-def test_is_workout_aggregate_child():
-    assert analysis._is_workout_aggregate_child("workout_trimp", "workout_trimp_running")
-    assert analysis._is_workout_aggregate_child("workout_load_cycling", "workout_load")
-    # Different families / two aggregates / two sports are NOT mechanical pairs.
-    assert not analysis._is_workout_aggregate_child("workout_trimp", "workout_load")
-    assert not analysis._is_workout_aggregate_child("workout_trimp_running", "workout_trimp_cycling")
-    assert not analysis._is_workout_aggregate_child("workout_trimp", "resting_heart_rate")
 
 
 # --- Workout series: DB end-to-end -----------------------------------------

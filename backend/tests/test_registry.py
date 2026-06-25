@@ -1,6 +1,6 @@
 """Pins the finalised metric-registry curation (Phase 0 close-out).
 
-The registry is *data* (PLAN.md §4.0/§4.5): a metric's canonical unit, daily
+The registry is *data* (ARCHITECTURE.md §4.0/§4.5): a metric's canonical unit, daily
 aggregate, category and tier live here, not in code. These tests guard that
 the curated seed stays internally consistent and that the migration seeds the
 table from it verbatim.
@@ -39,7 +39,7 @@ def test_energy_metrics_are_canonical_kcal():
 
 
 def test_summing_metrics_use_sum_aggregate():
-    # Counts/totals must sum, never average (PLAN.md §11 aggregate semantics).
+    # Counts/totals must sum, never average (ARCHITECTURE.md §11 aggregate semantics).
     for metric in ("step_count", "active_energy", "walking_running_distance", "flights_climbed"):
         assert METRIC_REGISTRY[metric]["agg_default"] == "sum"
 

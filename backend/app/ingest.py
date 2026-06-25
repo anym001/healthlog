@@ -3,7 +3,7 @@
 ``parse_payload`` is a pure function (no DB) returning normalised rows, so it
 is unit-tested directly. ``store`` performs idempotent upserts via Postgres
 ``ON CONFLICT``. Unknown metrics are accepted, never rejected: they are stored
-and auto-registered as ``secondary`` stubs (PLAN.md §4.0/§5).
+and auto-registered as ``secondary`` stubs (ARCHITECTURE.md §4.0/§5).
 """
 
 from __future__ import annotations

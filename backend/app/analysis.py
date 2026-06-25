@@ -8,7 +8,7 @@ The pure-math helpers (top of the file) take pandas objects and no DB/IO, so
 they are unit-tested against synthetic series with a fixed seed. The DB
 orchestration (loaders + ``run``) is kept separate.
 
-Findings (PLAN.md §4.7), all derived, never medical advice:
+Findings (ARCHITECTURE.md §4.8), all derived, never medical advice:
 - correlation    Spearman on de-trended series, lags 0..3 days (both
                  directions), FDR-corrected, best lag/direction per pair.
 - anomaly        28-day trailing median + MAD robust z; only recent days.
@@ -67,6 +67,8 @@ MAX_LAG = _DEFAULTS.max_lag  # Spearman lag range in days
 MIN_OVERLAP = _DEFAULTS.min_overlap  # >= ~6 weeks of paired days before trusted
 CORR_KEEP_ALPHA = _DEFAULTS.corr_keep_alpha  # keep when FDR-adjusted p <= this
 FDR_ALPHA = _DEFAULTS.fdr_alpha
+CORR_MIN_ACTIVE = _DEFAULTS.corr_min_active  # min non-zero days per series in a pair's overlap
+CORR_MIN_ABS = _DEFAULTS.corr_min_abs  # effect-size floor: min |coefficient| to report
 
 ANOMALY_WINDOW = _DEFAULTS.anomaly_window  # trailing days for median + MAD baseline
 ANOMALY_THRESHOLD = _DEFAULTS.anomaly_threshold  # robust z (|0.6745*(x-med)/MAD|)
@@ -122,12 +124,22 @@ def _mad(x: np.ndarray) -> float:
     return float(np.median(np.abs(x - np.median(x))))
 
 
-def spearman_lag(a: pd.Series, b: pd.Series, lag: int, *, min_overlap: int = MIN_OVERLAP) -> Corr | None:
+def spearman_lag(
+    a: pd.Series,
+    b: pd.Series,
+    lag: int,
+    *,
+    min_overlap: int = MIN_OVERLAP,
+    min_active: int = 0,
+) -> Corr | None:
     """Spearman correlation of ``a[t]`` with ``b[t + lag]`` on common days.
 
     Both series must be on a complete daily index so the positional shift is
     calendar-correct. Returns None when overlap is too small or a series is
-    constant over the overlap.
+    constant over the overlap. With ``min_active`` set, also returns None unless
+    *each* series has at least that many non-zero days in the overlap — the
+    effective sample size for 0-filled sparse series (per-sport workout load),
+    where the grid length overstates how much real co-variation there is.
     """
     if lag < 0:
         return None
@@ -138,6 +150,8 @@ def spearman_lag(a: pd.Series, b: pd.Series, lag: int, *, min_overlap: int = MIN
     x = paired.iloc[:, 0].to_numpy()
     y = paired.iloc[:, 1].to_numpy()
     if np.std(x) == 0 or np.std(y) == 0:
+        return None
+    if min_active and (int(np.count_nonzero(x)) < min_active or int(np.count_nonzero(y)) < min_active):
         return None
     res = stats.spearmanr(x, y)
     coef, p = float(res.statistic), float(res.pvalue)
@@ -813,17 +827,130 @@ def _detrend_for_correlation(
     return out
 
 
-_WORKOUT_AGGREGATES = ("workout_trimp", "workout_load", "workout_edwards")
+# An "activity-volume" series measures *how much you moved or trained*, not a
+# body state. Two of them correlating is structural, not a health insight — it
+# just says the same activity was logged two ways. The family has two sub-groups:
+#
+#   * Workout-derived metrics: per-target training load — Banister TRIMP, active-
+#     energy load, zone-based Edwards, plus session duration, count and intensity
+#     (the type-agnostic aggregate, its per-sport children, one sport vs another).
+#     Intensity is load-per-time off the same sessions, so it co-moves with load
+#     by construction (intensity vs trimp/load/edwards ~ 0.65).
+#   * Apple activity metrics: the move/exercise/stand ring and its raw drivers —
+#     exercise minutes, stand time, active energy, steps, distance, flights.
+#
+# Correlating *within* this family is tautological, whether load-vs-load, ring-
+# vs-ring (step_count vs walking_running_distance), or load-vs-ring
+# (apple_exercise_time vs workout_duration ~ 0.9). What *is* informative pairs an
+# activity-volume series with a body-state metric (recovery, sleep, vital) — e.g.
+# workout_load_running vs resting_heart_rate, or workout_intensity vs sleep — and
+# is kept.
+_WORKOUT_LOAD_FAMILY = ("trimp", "load", "edwards", "duration", "count", "intensity")
+_APPLE_ACTIVITY_METRICS = frozenset(
+    {
+        "apple_exercise_time",
+        "apple_stand_time",
+        "active_energy",
+        "step_count",
+        "walking_running_distance",
+        "flights_climbed",
+    }
+)
 
 
-def _is_workout_aggregate_child(a: str, b: str) -> bool:
-    """True when one name is a workout load aggregate and the other its own
-    per-sport series (e.g. ``workout_trimp`` vs ``workout_trimp_running``); their
-    correlation is mechanical, not informative. Sport-vs-sport and sport-vs-other
-    pairs are kept — as are cross-metric comparisons (trimp vs load vs edwards),
-    whose agreement/divergence is itself informative."""
-    lo, hi = sorted((a, b), key=len)
-    return lo in _WORKOUT_AGGREGATES and hi.startswith(lo + "_")
+def _is_workout_load_family(name: str) -> bool:
+    """True for ``workout_{trimp,load,edwards,duration,count,intensity}[_sport]``."""
+    return any(name == f"workout_{m}" or name.startswith(f"workout_{m}_") for m in _WORKOUT_LOAD_FAMILY)
+
+
+def _is_activity_volume(name: str) -> bool:
+    """True for any activity-volume series: a workout load-family metric or an
+    Apple activity-ring metric (exercise/stand time, active energy, steps,
+    distance, flights)."""
+    return _is_workout_load_family(name) or name in _APPLE_ACTIVITY_METRICS
+
+
+def _is_redundant_activity_pair(a: str, b: str) -> bool:
+    """True when *both* names are activity-volume series: their correlation is
+    training/movement composition, not a health relationship, so it is
+    suppressed. An activity-volume series against any body-state metric
+    (recovery, sleep, vital) is kept — that is where the value is."""
+    return _is_activity_volume(a) and _is_activity_volume(b)
+
+
+# --- Correlation prioritisation (layer 2) -----------------------------------
+# Suppression removes structural pairs; the survivors still span a quality
+# gradient. A lagged cross-subsystem link (training load -> next-day respiratory
+# rate) is a real insight, while same-day pairs inside one subsystem (total vs
+# deep sleep, average vs resting heart rate) are expected and only crowd the
+# report. Each metric maps to a coarse physiological domain; a pair gets a tier
+# from those domains. The tier is stored on the finding (``details.priority_tier``)
+# so both the narration and Grafana rank by the same rule without re-deriving it.
+_AUTONOMIC = frozenset({"respiratory_rate", "heart_rate_variability", "cardio_recovery"})
+_HR_RATE = frozenset({"heart_rate", "resting_heart_rate", "walking_heart_rate_average"})
+_VITAL = frozenset(
+    {
+        "vo2_max",
+        "apple_sleeping_wrist_temperature",
+        "weight_body_mass",
+        "blood_oxygen_saturation",
+        "body_temperature",
+        "breathing_disturbances",
+    }
+)
+_PHYSIO = frozenset({"sleep", "autonomic", "hr_rate", "vital", "activity"})
+
+
+def _metric_domain(name: str | None) -> str:
+    """Coarse physiological domain of a metric, for correlation prioritisation."""
+    if not name:
+        return "other"
+    if name.startswith("sleep_"):
+        return "sleep"
+    if name in _AUTONOMIC:
+        return "autonomic"
+    if name in _HR_RATE:
+        return "hr_rate"
+    if name in _VITAL:
+        return "vital"
+    if name == "physical_effort" or _is_activity_volume(name):
+        return "activity"
+    if name == "time_in_daylight":
+        return "env"
+    return "other"
+
+
+def _pair_tier(domain_a: str, domain_b: str) -> int:
+    """Priority tier for a correlation between two metric domains.
+
+    2 = informative cross-subsystem link, 1 = neutral, 0 = expected/structural
+    (a subsystem correlated with itself, or a trivially-coupled pair: exercise
+    raises average HR; sunny days mean more movement).
+    """
+    pair = frozenset({domain_a, domain_b})
+    if domain_a == domain_b and domain_a in {"sleep", "hr_rate", "activity"}:
+        return 0
+    if pair == {"hr_rate", "activity"}:
+        return 0
+    if pair == {"env", "activity"}:
+        return 0
+    if domain_a in _PHYSIO and domain_b in _PHYSIO:
+        return 2
+    return 1
+
+
+def report_priority(
+    metric_a: str | None, metric_b: str | None, coefficient: float | None, lag_days: int | None
+) -> float:
+    """Rank score for a correlation finding (higher = lead the report).
+
+    The domain-crossing tier dominates, then the effect size, then a small bonus
+    for lagged (directional, causally plausible) relationships.
+    """
+    tier = _pair_tier(_metric_domain(metric_a), _metric_domain(metric_b))
+    strength = abs(coefficient) if coefficient is not None else 0.0
+    lag_bonus = 0.05 * min(lag_days or 0, 3)
+    return tier * 10.0 + strength + lag_bonus
 
 
 def _correlation_findings(
@@ -839,18 +966,19 @@ def _correlation_findings(
     for i in range(len(names)):
         for j in range(i + 1, len(names)):
             a, b = names[i], names[j]
-            if _is_workout_aggregate_child(a, b):
-                continue  # a per-sport series vs its own aggregate is trivially correlated
-            c0 = spearman_lag(detrended[a], detrended[b], 0, min_overlap=cfg.min_overlap)
+            if _is_redundant_activity_pair(a, b):
+                continue  # both measure activity volume (load or Apple ring) — structural, not health
+            ma = cfg.corr_min_active
+            c0 = spearman_lag(detrended[a], detrended[b], 0, min_overlap=cfg.min_overlap, min_active=ma)
             if c0:
                 candidates.append((a, b, 0, c0))
             for lag in range(1, cfg.max_lag + 1):
-                cab = spearman_lag(detrended[a], detrended[b], lag, min_overlap=cfg.min_overlap)  # a leads b
+                cab = spearman_lag(detrended[a], detrended[b], lag, min_overlap=cfg.min_overlap, min_active=ma)
                 if cab:
-                    candidates.append((a, b, lag, cab))
-                cba = spearman_lag(detrended[b], detrended[a], lag, min_overlap=cfg.min_overlap)  # b leads a
+                    candidates.append((a, b, lag, cab))  # a leads b
+                cba = spearman_lag(detrended[b], detrended[a], lag, min_overlap=cfg.min_overlap, min_active=ma)
                 if cba:
-                    candidates.append((b, a, lag, cba))
+                    candidates.append((b, a, lag, cba))  # b leads a
 
     if not candidates:
         return []
@@ -861,8 +989,8 @@ def _correlation_findings(
     # metric pair, so a slow pair isn't listed 5x across lags and directions.
     best: dict[frozenset[str], tuple[str, str, int, Corr, float]] = {}
     for (a, b, lag, c), p_adj in zip(candidates, adj, strict=True):
-        if p_adj > cfg.corr_keep_alpha:
-            continue
+        if p_adj > cfg.corr_keep_alpha or abs(c.coef) < cfg.corr_min_abs:
+            continue  # not significant, or too weak to be worth reporting
         key = frozenset((a, b))
         prev = best.get(key)
         if prev is None or abs(c.coef) > abs(prev[3].coef):
@@ -883,7 +1011,7 @@ def _correlation_findings(
                 window_start=c.start,
                 window_end=c.end,
                 severity=round(abs(c.coef), 4),
-                details={"n": c.n},
+                details={"n": c.n, "priority_tier": _pair_tier(_metric_domain(a), _metric_domain(b))},
             )
         )
     return findings
