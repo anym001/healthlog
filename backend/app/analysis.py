@@ -67,6 +67,7 @@ MAX_LAG = _DEFAULTS.max_lag  # Spearman lag range in days
 MIN_OVERLAP = _DEFAULTS.min_overlap  # >= ~6 weeks of paired days before trusted
 CORR_KEEP_ALPHA = _DEFAULTS.corr_keep_alpha  # keep when FDR-adjusted p <= this
 FDR_ALPHA = _DEFAULTS.fdr_alpha
+CORR_MIN_ACTIVE = _DEFAULTS.corr_min_active  # min non-zero days per series in a pair's overlap
 
 ANOMALY_WINDOW = _DEFAULTS.anomaly_window  # trailing days for median + MAD baseline
 ANOMALY_THRESHOLD = _DEFAULTS.anomaly_threshold  # robust z (|0.6745*(x-med)/MAD|)
@@ -122,12 +123,22 @@ def _mad(x: np.ndarray) -> float:
     return float(np.median(np.abs(x - np.median(x))))
 
 
-def spearman_lag(a: pd.Series, b: pd.Series, lag: int, *, min_overlap: int = MIN_OVERLAP) -> Corr | None:
+def spearman_lag(
+    a: pd.Series,
+    b: pd.Series,
+    lag: int,
+    *,
+    min_overlap: int = MIN_OVERLAP,
+    min_active: int = 0,
+) -> Corr | None:
     """Spearman correlation of ``a[t]`` with ``b[t + lag]`` on common days.
 
     Both series must be on a complete daily index so the positional shift is
     calendar-correct. Returns None when overlap is too small or a series is
-    constant over the overlap.
+    constant over the overlap. With ``min_active`` set, also returns None unless
+    *each* series has at least that many non-zero days in the overlap — the
+    effective sample size for 0-filled sparse series (per-sport workout load),
+    where the grid length overstates how much real co-variation there is.
     """
     if lag < 0:
         return None
@@ -138,6 +149,8 @@ def spearman_lag(a: pd.Series, b: pd.Series, lag: int, *, min_overlap: int = MIN
     x = paired.iloc[:, 0].to_numpy()
     y = paired.iloc[:, 1].to_numpy()
     if np.std(x) == 0 or np.std(y) == 0:
+        return None
+    if min_active and (int(np.count_nonzero(x)) < min_active or int(np.count_nonzero(y)) < min_active):
         return None
     res = stats.spearmanr(x, y)
     coef, p = float(res.statistic), float(res.pvalue)
@@ -814,16 +827,52 @@ def _detrend_for_correlation(
 
 
 _WORKOUT_AGGREGATES = ("workout_trimp", "workout_load", "workout_edwards")
+# The three load *measures* of one and the same workout (Banister TRIMP,
+# active-energy load, zone-based Edwards). Correlating two of them for the same
+# target (aggregate or one sport) is definitional, not an insight — they are the
+# same training session expressed three ways (observed r ~ 1.0).
+_WORKOUT_MEASURES = ("trimp", "load", "edwards")
 
 
 def _is_workout_aggregate_child(a: str, b: str) -> bool:
     """True when one name is a workout load aggregate and the other its own
     per-sport series (e.g. ``workout_trimp`` vs ``workout_trimp_running``); their
     correlation is mechanical, not informative. Sport-vs-sport and sport-vs-other
-    pairs are kept — as are cross-metric comparisons (trimp vs load vs edwards),
-    whose agreement/divergence is itself informative."""
+    pairs are kept."""
     lo, hi = sorted((a, b), key=len)
     return lo in _WORKOUT_AGGREGATES and hi.startswith(lo + "_")
+
+
+def _parse_workout_load(name: str) -> tuple[str, str] | None:
+    """Split a workout load-series name into ``(measure, target)``.
+
+    ``workout_trimp`` -> ``("trimp", "")`` (the type-agnostic aggregate);
+    ``workout_load_stair_stepper`` -> ``("load", "stair_stepper")``. Returns
+    None for anything that is not a workout load series.
+    """
+    for measure in _WORKOUT_MEASURES:
+        prefix = f"workout_{measure}"
+        if name == prefix:
+            return (measure, "")
+        if name.startswith(prefix + "_"):
+            return (measure, name[len(prefix) + 1 :])
+    return None
+
+
+def _is_redundant_workout_pair(a: str, b: str) -> bool:
+    """True for workout pairs whose correlation is structural, not informative.
+
+    Two cases are suppressed: an aggregate vs its own per-sport child of the same
+    measure (``_is_workout_aggregate_child``), and two *different load measures*
+    of the same target (same sport, or both aggregates) — e.g.
+    ``workout_trimp_stair_stepper`` vs ``workout_load_stair_stepper``, or
+    ``workout_trimp`` vs ``workout_edwards``. Cross-target pairs (different
+    sports, or sport-vs-aggregate) are kept: their lagged relationship can be
+    real (one sport's load affecting another's recovery)."""
+    if _is_workout_aggregate_child(a, b):
+        return True
+    pa, pb = _parse_workout_load(a), _parse_workout_load(b)
+    return pa is not None and pb is not None and pa[1] == pb[1] and pa[0] != pb[0]
 
 
 def _correlation_findings(
@@ -839,18 +888,19 @@ def _correlation_findings(
     for i in range(len(names)):
         for j in range(i + 1, len(names)):
             a, b = names[i], names[j]
-            if _is_workout_aggregate_child(a, b):
-                continue  # a per-sport series vs its own aggregate is trivially correlated
-            c0 = spearman_lag(detrended[a], detrended[b], 0, min_overlap=cfg.min_overlap)
+            if _is_redundant_workout_pair(a, b):
+                continue  # same workout measured two ways, or aggregate vs its own child
+            ma = cfg.corr_min_active
+            c0 = spearman_lag(detrended[a], detrended[b], 0, min_overlap=cfg.min_overlap, min_active=ma)
             if c0:
                 candidates.append((a, b, 0, c0))
             for lag in range(1, cfg.max_lag + 1):
-                cab = spearman_lag(detrended[a], detrended[b], lag, min_overlap=cfg.min_overlap)  # a leads b
+                cab = spearman_lag(detrended[a], detrended[b], lag, min_overlap=cfg.min_overlap, min_active=ma)
                 if cab:
-                    candidates.append((a, b, lag, cab))
-                cba = spearman_lag(detrended[b], detrended[a], lag, min_overlap=cfg.min_overlap)  # b leads a
+                    candidates.append((a, b, lag, cab))  # a leads b
+                cba = spearman_lag(detrended[b], detrended[a], lag, min_overlap=cfg.min_overlap, min_active=ma)
                 if cba:
-                    candidates.append((b, a, lag, cba))
+                    candidates.append((b, a, lag, cba))  # b leads a
 
     if not candidates:
         return []

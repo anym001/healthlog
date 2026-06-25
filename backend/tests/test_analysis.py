@@ -190,6 +190,68 @@ def test_correlation_keeps_one_finding_per_pair():
     assert {findings[0].metric_a, findings[0].metric_b} == {"a", "b"}
 
 
+# --- Redundant workout-measure suppression ----------------------------------
+
+
+def test_parse_workout_load_splits_measure_and_target():
+    assert analysis._parse_workout_load("workout_trimp") == ("trimp", "")
+    assert analysis._parse_workout_load("workout_load_stair_stepper") == ("load", "stair_stepper")
+    assert analysis._parse_workout_load("workout_edwards_yoga") == ("edwards", "yoga")
+    assert analysis._parse_workout_load("resting_heart_rate") is None
+    assert analysis._parse_workout_load("workout_duration") is None  # not a load measure
+
+
+def test_is_redundant_workout_pair():
+    # Same target, different load measure -> definitional (suppressed).
+    assert analysis._is_redundant_workout_pair("workout_trimp", "workout_load")
+    assert analysis._is_redundant_workout_pair("workout_trimp", "workout_edwards")
+    assert analysis._is_redundant_workout_pair("workout_trimp_stair_stepper", "workout_load_stair_stepper")
+    # Aggregate vs its own per-sport child (existing rule, still covered).
+    assert analysis._is_redundant_workout_pair("workout_trimp", "workout_trimp_running")
+    # Kept: different sports, sport-vs-aggregate, and non-workout pairs.
+    assert not analysis._is_redundant_workout_pair("workout_load_yoga", "workout_load_stair_stepper")
+    assert not analysis._is_redundant_workout_pair("workout_trimp", "workout_load_yoga")
+    assert not analysis._is_redundant_workout_pair("workout_trimp", "resting_heart_rate")
+
+
+def test_correlation_suppresses_same_target_cross_measure():
+    # trimp and edwards of the same target move together by construction; even a
+    # perfect relationship must not be emitted as a "finding".
+    rng = np.random.default_rng(33)
+    base = _daily(rng.normal(size=120))
+    series = {"workout_trimp_yoga": base, "workout_edwards_yoga": base * 1.4 + 0.01}
+    assert analysis._correlation_findings(series, dt.datetime.now(UTC)) == []
+
+
+# --- Sparse-series guard (min_active) ---------------------------------------
+
+
+def test_spearman_lag_min_active_filters_mostly_zero_series():
+    # Two 0-filled series with only a few coincidental active days: enough grid
+    # overlap to clear min_overlap, but far too few non-zero days to trust.
+    rng = np.random.default_rng(44)
+    n = 120
+    a = np.zeros(n)
+    b = np.zeros(n)
+    for k in (10, 40, 70, 100):  # 4 coincidental active days
+        a[k] = rng.uniform(1, 5)
+        b[k + 1] = rng.uniform(1, 5)
+    sa, sb = _daily(a), _daily(b)
+    # Without the guard a result is produced; with it (min_active=10) it is None.
+    assert spearman_lag(sa, sb, 1, min_overlap=42) is not None
+    assert spearman_lag(sa, sb, 1, min_overlap=42, min_active=10) is None
+
+
+def test_spearman_lag_min_active_keeps_dense_series():
+    # A continuous (never-zero) pair is unaffected by the active-day guard.
+    rng = np.random.default_rng(45)
+    base = rng.normal(size=120)
+    a = _daily(base + 100 + rng.normal(scale=0.1, size=120))
+    b = _daily(base + 100 + rng.normal(scale=0.1, size=120))
+    res = spearman_lag(a, b, 0, min_overlap=42, min_active=10)
+    assert res is not None and res.coef > 0.8
+
+
 # --- Bedtime offset (circular) ---------------------------------------------
 
 
