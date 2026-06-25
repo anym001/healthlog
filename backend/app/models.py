@@ -1,6 +1,6 @@
 """SQLAlchemy ORM models.
 
-The data model is deliberately metric-agnostic (see docs/PLAN.md §4.0): a new
+The data model is deliberately metric-agnostic (see docs/ARCHITECTURE.md §4.0): a new
 metric needs no schema change, only a registry row. ``metric_samples`` carries
 the metric name as a column and never gains per-metric columns.
 """
@@ -182,7 +182,7 @@ class MetricRegistry(Base):
 
 
 class Finding(Base):
-    """A statistical finding from the nightly pipeline (PLAN.md §4.7).
+    """A statistical finding from the nightly pipeline (ARCHITECTURE.md §4.8).
 
     Written as a fresh snapshot each run (the analysis deletes the previous
     batch). ``kind`` is one of: correlation, anomaly, trend, seasonality,

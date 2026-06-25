@@ -9,7 +9,7 @@ The ``daily_metrics`` view (migration 0001) read ``avg(vavg)``/``min(vmin)``/
 ``avg(coalesce(vavg, qty))`` etc. For the 29 of 30 metrics that fill ``qty``
 (only ``heart_rate`` fills Min/Avg/Max), the view therefore returned NULL where
 the analysis sees a real value — so Grafana dashboards and the pipeline disagreed
-on the daily number (PLAN.md §4.7 caveat, §13).
+on the daily number (ARCHITECTURE.md §4.7).
 
 This redefines the view to COALESCE onto ``qty`` exactly like the loader, so the
 two sources line up. The ``sum`` column stays ``sum(qty)`` (a sum is qty-only by

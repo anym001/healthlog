@@ -7,18 +7,20 @@
 
 Self-hosted, privacy-first analysis of your **Apple Health** data — correlations,
 anomalies, trends and seasonality, computed on your own hardware. No third
-parties, no cloud, no telemetry.
+parties, no cloud, no telemetry: your iPhone exports to your server and nothing
+leaves it.
 
-Your iPhone exports to your server and nothing leaves it: data flows from
-**Health Auto Export** (HAE) → a FastAPI ingest endpoint → **TimescaleDB**.
-A nightly job computes statistical findings and stores them back in the database,
-ready to chart with whatever dashboard you prefer. An optional local LLM (Ollama)
-can narrate the findings later.
+Data flows from **Health Auto Export** (HAE) on your iPhone → a FastAPI ingest
+endpoint → **TimescaleDB**. A nightly job computes statistical findings and
+stores them back in the database, ready to chart in **Grafana** (dashboards
+included) or any tool you like. An optional local LLM (Ollama) can turn the
+findings into a written weekly report — still entirely on your own machines.
 
-> **Status:** ingestion + storage (Phase 1), the nightly analysis pipeline
-> (Phase 3), the Grafana dashboards and the optional local-LLM narration
-> (Phase 4) are all in place.
-> The full design and roadmap live in [`docs/PLAN.md`](docs/PLAN.md).
+**What you'll need:** a machine that runs Docker (a NAS, an Unraid box, a home
+server), an iPhone with the **Health Auto Export** app, and a TLS reverse proxy
+in front of the ingest endpoint. Everything else ships in the image.
+
+> The full design and rationale live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Contents
 
@@ -53,13 +55,13 @@ TimescaleDB  ───────────────►  dashboard of your
    (raw samples + findings)
 ```
 
-The image runs two supervised processes — the ingest API and the analysis
-scheduler — plus a one-shot database migration on start, under PUID/PGID with a
-`/config` volume (the LinuxServer/Unraid convention). Ingestion is
-**metric-agnostic and tolerant**: unknown Apple Health metrics are never
-rejected, they are stored and auto-registered, so adopting a new metric is a
-data row, not a code change. Every raw payload is archived verbatim, and all
-writes are idempotent — re-sending an overlapping export never double-counts.
+The container runs the ingest API and the nightly analysis under PUID/PGID with a
+`/config` volume (the Unraid convention), migrating the database on start. Two
+guarantees matter day to day: unknown Apple Health metrics are accepted
+automatically — you never update anything to start tracking something new — and
+every export is de-duplicated server-side, so re-sending an overlapping sync
+never double-counts. Raw payloads are archived verbatim. The *why* behind all of
+this is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## What it computes
 
@@ -87,7 +89,7 @@ in any dashboard tool:
   sharpen with an optional `profile` (see below).
 
 All statistics run on the server; only the optional LLM narration is intended
-for a Mac. The full method list and tuning live in [`docs/PLAN.md`](docs/PLAN.md).
+for a Mac. The full method list and tuning live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Requirements
 
@@ -512,10 +514,9 @@ platform's log retention. Each ingest and the nightly analysis run are logged at
 
 ## Development
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md). TL;DR: feature branch → PR against
-`dev`; a release is a `vX.Y.Z` tag on `main`, which builds and publishes the
-versioned image to GHCR. The test suite (`ruff` + `pytest` against a real
-TimescaleDB + a Docker smoke boot) gates every PR.
+Contributing, the test/lint workflow and a map of the codebase live in
+[`CONTRIBUTING.md`](CONTRIBUTING.md) and [`CLAUDE.md`](CLAUDE.md). In short:
+feature branch → PR against `dev`; release by tagging `vX.Y.Z` on `main`.
 
 ## License
 
