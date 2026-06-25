@@ -831,9 +831,11 @@ def _detrend_for_correlation(
 # body state. Two of them correlating is structural, not a health insight — it
 # just says the same activity was logged two ways. The family has two sub-groups:
 #
-#   * Workout load-family: per-target training load — Banister TRIMP, active-
-#     energy load, zone-based Edwards, plus session duration and count (the
-#     type-agnostic aggregate, its per-sport children, one sport vs another).
+#   * Workout-derived metrics: per-target training load — Banister TRIMP, active-
+#     energy load, zone-based Edwards, plus session duration, count and intensity
+#     (the type-agnostic aggregate, its per-sport children, one sport vs another).
+#     Intensity is load-per-time off the same sessions, so it co-moves with load
+#     by construction (intensity vs trimp/load/edwards ~ 0.65).
 #   * Apple activity metrics: the move/exercise/stand ring and its raw drivers —
 #     exercise minutes, stand time, active energy, steps, distance, flights.
 #
@@ -841,8 +843,9 @@ def _detrend_for_correlation(
 # vs-ring (step_count vs walking_running_distance), or load-vs-ring
 # (apple_exercise_time vs workout_duration ~ 0.9). What *is* informative pairs an
 # activity-volume series with a body-state metric (recovery, sleep, vital) — e.g.
-# workout_load_running vs resting_heart_rate — and is kept.
-_WORKOUT_LOAD_FAMILY = ("trimp", "load", "edwards", "duration", "count")
+# workout_load_running vs resting_heart_rate, or workout_intensity vs sleep — and
+# is kept.
+_WORKOUT_LOAD_FAMILY = ("trimp", "load", "edwards", "duration", "count", "intensity")
 _APPLE_ACTIVITY_METRICS = frozenset(
     {
         "apple_exercise_time",
@@ -856,7 +859,7 @@ _APPLE_ACTIVITY_METRICS = frozenset(
 
 
 def _is_workout_load_family(name: str) -> bool:
-    """True for ``workout_{trimp,load,edwards,duration,count}[_sport]``."""
+    """True for ``workout_{trimp,load,edwards,duration,count,intensity}[_sport]``."""
     return any(name == f"workout_{m}" or name.startswith(f"workout_{m}_") for m in _WORKOUT_LOAD_FAMILY)
 
 

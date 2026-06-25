@@ -200,11 +200,12 @@ def test_is_workout_load_family():
         "workout_edwards",
         "workout_duration",
         "workout_count",
+        "workout_intensity",
         "workout_load_stair_stepper",
         "workout_edwards_yoga",
     ):
         assert analysis._is_workout_load_family(name), name
-    for name in ("workout_intensity", "resting_heart_rate", "step_count", "sleep_total_h"):
+    for name in ("workout_pace", "resting_heart_rate", "step_count", "sleep_total_h"):
         assert not analysis._is_workout_load_family(name), name
 
 
@@ -213,6 +214,7 @@ def test_is_activity_volume():
     for name in (
         "workout_trimp",
         "workout_load_yoga",
+        "workout_intensity",
         "apple_exercise_time",
         "apple_stand_time",
         "active_energy",
@@ -222,7 +224,7 @@ def test_is_activity_volume():
     ):
         assert analysis._is_activity_volume(name), name
     # Body-state metrics are not activity volume.
-    for name in ("resting_heart_rate", "sleep_total_h", "respiratory_rate", "workout_intensity"):
+    for name in ("resting_heart_rate", "sleep_total_h", "respiratory_rate", "heart_rate"):
         assert not analysis._is_activity_volume(name), name
 
 
@@ -236,11 +238,13 @@ def test_is_redundant_activity_pair():
     assert analysis._is_redundant_activity_pair("active_energy", "apple_stand_time")  # ring vs ring
     assert analysis._is_redundant_activity_pair("apple_exercise_time", "workout_duration")  # ring vs load
     assert analysis._is_redundant_activity_pair("active_energy", "workout_load")  # ring vs load
+    assert analysis._is_redundant_activity_pair("workout_load", "workout_intensity")  # intensity vs load
+    assert analysis._is_redundant_activity_pair("workout_intensity", "active_energy")  # intensity vs ring
     # Kept: an activity-volume series vs any body-state metric (the useful pairs).
     assert not analysis._is_redundant_activity_pair("workout_load_running", "resting_heart_rate")
     assert not analysis._is_redundant_activity_pair("step_count", "resting_heart_rate")
     assert not analysis._is_redundant_activity_pair("active_energy", "sleep_total_h")
-    assert not analysis._is_redundant_activity_pair("workout_load", "workout_intensity")
+    assert not analysis._is_redundant_activity_pair("workout_intensity", "sleep_total_h")  # the kept gem
 
 
 def test_correlation_suppresses_same_target_cross_measure():
