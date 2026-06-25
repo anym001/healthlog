@@ -49,6 +49,8 @@
 #   min_overlap: 42           # min paired days before a correlation is trusted
 #   corr_keep_alpha: 0.10     # keep a correlation when FDR-adjusted p <= this
 #   fdr_alpha: 0.05
+#   corr_min_active: 10       # min non-zero days per series in a pair's overlap
+#                             # (guards 0-filled sparse per-sport workout load)
 #   # Anomaly (robust rolling median + MAD)
 #   anomaly_window: 28        # trailing days for the baseline
 #   anomaly_threshold: 3.5    # robust z above which a day is flagged

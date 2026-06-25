@@ -85,6 +85,12 @@ class AnalysisConfig(BaseModel):
     min_overlap: int = Field(default=42, ge=2)
     corr_keep_alpha: float = Field(default=0.10, gt=0.0, le=1.0)
     fdr_alpha: float = Field(default=0.05, gt=0.0, le=1.0)
+    # Minimum non-zero (active) days each series must have within a pair's
+    # overlap before the correlation is trusted. Guards 0-filled sparse series
+    # (per-sport workout load): without it a mostly-zero series correlates on a
+    # handful of coincidental active days. Continuous series (HR, sleep) are
+    # never zero, so the guard never bites them. 0 disables it.
+    corr_min_active: int = Field(default=10, ge=0)
     # Anomaly
     anomaly_window: int = Field(default=28, ge=2)
     anomaly_threshold: float = Field(default=3.5, gt=0.0)
