@@ -270,6 +270,15 @@ recompute the findings on demand:
 docker exec healthlog healthlog analyze
 ```
 
+Before trusting the findings, run a read-only data-quality audit. It reports the
+latest findings snapshot (per kind), per-metric coverage — flagging core metrics
+that have no data or fewer than the ~6-week correlation floor (`analysis.min_overlap`)
+— and any stored unit that diverges from its canonical unit:
+
+```bash
+docker exec healthlog healthlog audit
+```
+
 To check whether the raw archive carries the intra-workout heart-rate series
 that zone-based (Edwards) training load needs:
 
