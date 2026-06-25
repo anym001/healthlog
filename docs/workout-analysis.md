@@ -173,12 +173,7 @@ Once the series are in the dict, among others these fall out:
 - `workout_trimp[t]` → **HRV[t+1]** (a hard day depresses next-day HRV)
 - `workout_trimp[t]` → **resting_heart_rate[t+1]**
 - `workout_trimp[t]` → **sleep_deep_h / sleep_total_h / sleep_efficiency**
-- `workout_trimp[t]` → **respiratory_rate**
-
-`cardio_recovery` is measured only on training days, so over a multi-year window it
-covers too little of the calendar to de-trend reliably; the coverage gate
-(`analysis.corr_min_coverage`, ARCHITECTURE §4.8) drops it from correlation analysis to
-avoid de-trending artefacts. It still feeds anomaly/trend findings on its own series.
+- `workout_trimp[t]` → **respiratory_rate**, **cardio_recovery**
 
 ## 7. Where it lives in the code
 
