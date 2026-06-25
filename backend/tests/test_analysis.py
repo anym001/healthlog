@@ -368,9 +368,11 @@ def _add_metric(db, metric, values, start_date=dt.date(2026, 1, 1)):
 def test_run_writes_correlation_findings_as_snapshot(db):
     rng = np.random.default_rng(10)
     steps = rng.integers(3000, 12000, size=60).astype(float)
-    energy = 0.04 * steps + rng.normal(scale=5.0, size=60)  # strongly correlated, same day
+    # Resting HR falls as daily activity rises: a strong *cross-domain* pair
+    # (activity volume vs body state) that the activity-volume suppression keeps.
+    rhr = 80.0 - 0.002 * steps + rng.normal(scale=1.0, size=60)
     _add_metric(db, "step_count", steps)
-    _add_metric(db, "active_energy", energy)
+    _add_metric(db, "resting_heart_rate", rhr)
     db.flush()
 
     result = analysis.run(db)
@@ -381,14 +383,14 @@ def test_run_writes_correlation_findings_as_snapshot(db):
         db.execute(
             select(Finding).where(
                 Finding.kind == "correlation",
-                Finding.metric_a.in_(["step_count", "active_energy"]),
-                Finding.metric_b.in_(["step_count", "active_energy"]),
+                Finding.metric_a.in_(["step_count", "resting_heart_rate"]),
+                Finding.metric_b.in_(["step_count", "resting_heart_rate"]),
             )
         )
         .scalars()
         .all()
     )
-    assert pair, "expected a step_count<->active_energy correlation"
+    assert pair, "expected a step_count<->resting_heart_rate correlation"
     assert pair[0].p_value_adj is not None
 
     # Snapshot: a second run replaces, not accumulates.
