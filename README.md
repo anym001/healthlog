@@ -317,6 +317,12 @@ The report is printed to stdout and written to `/config/narration/YYYY-MM-DD.md`
 (the directory is created on first use). It is **off until you set
 `narrate.ollama_url`** in `config.yaml`.
 
+To keep the report focused, only the highest-priority correlations are narrated
+(cross-domain links — e.g. training load vs next-day respiratory rate — rank
+above expected within-subsystem pairs like total vs deep sleep); the rest are
+summarised as a count. Tune the cap with `narrate.max_correlations` (default 15,
+`0` = narrate them all).
+
 ### Running Ollama on a Mac
 
 A Mac with Apple Silicon (unified memory) is well suited to running an 8–14B
