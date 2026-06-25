@@ -7,16 +7,19 @@
 
 Self-hosted, privacy-first analysis of your **Apple Health** data — correlations,
 anomalies, trends and seasonality, computed on your own hardware. No third
-parties, no cloud, no telemetry.
+parties, no cloud, no telemetry: your iPhone exports to your server and nothing
+leaves it.
 
-Your iPhone exports to your server and nothing leaves it: data flows from
-**Health Auto Export** (HAE) → a FastAPI ingest endpoint → **TimescaleDB**.
-A nightly job computes statistical findings and stores them back in the database,
-ready to chart with whatever dashboard you prefer. An optional local LLM (Ollama)
-can narrate the findings later.
+Data flows from **Health Auto Export** (HAE) on your iPhone → a FastAPI ingest
+endpoint → **TimescaleDB**. A nightly job computes statistical findings and
+stores them back in the database, ready to chart in **Grafana** (dashboards
+included) or any tool you like. An optional local LLM (Ollama) can turn the
+findings into a written weekly report — still entirely on your own machines.
 
-> **Status:** ingestion + storage, the nightly analysis pipeline, the Grafana
-> dashboards and the optional local-LLM narration are all in place.
+**What you'll need:** a machine that runs Docker (a NAS, an Unraid box, a home
+server), an iPhone with the **Health Auto Export** app, and a TLS reverse proxy
+in front of the ingest endpoint. Everything else ships in the image.
+
 > The full design and rationale live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Contents
