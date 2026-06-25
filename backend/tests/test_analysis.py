@@ -247,6 +247,30 @@ def test_is_redundant_activity_pair():
     assert not analysis._is_redundant_activity_pair("workout_intensity", "sleep_total_h")  # the kept gem
 
 
+def test_correlation_finding_stamps_priority_tier():
+    # The finding carries the layer-2 priority tier so narration/Grafana can rank
+    # by the same rule: cross-subsystem -> 2, sleep-architecture self -> 0.
+    rng = np.random.default_rng(7)
+    base = rng.normal(size=80)
+    idx = pd.date_range("2026-01-01", periods=80, freq="D")
+    cross = analysis._correlation_findings(
+        {
+            "sleep_total_h": pd.Series(base, index=idx),
+            "respiratory_rate": pd.Series(-0.8 * base + rng.normal(scale=0.3, size=80), index=idx),
+        },
+        dt.datetime.now(UTC),
+    )
+    assert cross and cross[0].details["priority_tier"] == 2
+    within = analysis._correlation_findings(
+        {
+            "sleep_total_h": pd.Series(base, index=idx),
+            "sleep_rem_h": pd.Series(0.7 * base + rng.normal(scale=0.3, size=80), index=idx),
+        },
+        dt.datetime.now(UTC),
+    )
+    assert within and within[0].details["priority_tier"] == 0
+
+
 def test_correlation_suppresses_same_target_cross_measure():
     # trimp and edwards of the same target move together by construction; even a
     # perfect relationship must not be emitted as a "finding".

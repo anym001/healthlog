@@ -26,7 +26,10 @@ from typing import TYPE_CHECKING
 
 import httpx
 
-from .analysis import _is_activity_volume  # the activity-volume family predicate (layer-2 ranking)
+# report_priority (and its helpers) live in analysis.py next to the metric
+# taxonomy, so the nightly pipeline can stamp each correlation with its tier and
+# the narration/Grafana rank by the same rule. Re-exported here for tests.
+from .analysis import _metric_domain, _pair_tier, report_priority  # noqa: F401
 from .appconfig import NarrateConfig, load_config
 from .config import get_settings
 from .logging_config import configure_logging, safe
@@ -153,86 +156,6 @@ def load_findings(db: Session, lookback_days: int) -> list[dict]:
                 d["details"] = {}
         result.append(d)
     return result
-
-
-# ---------------------------------------------------------------------------
-# Correlation prioritisation (layer 2)
-#
-# The analysis already suppresses structural pairs (activity-volume vs itself),
-# but the survivors still span a quality gradient: a lagged cross-domain link
-# (training load -> next-day respiratory rate) is a real insight, while same-day
-# pairs within one physiological subsystem (total vs deep sleep, average vs
-# resting heart rate) are expected and only crowd the report. report_priority()
-# ranks findings so the narration leads with the informative ones. This is
-# presentation-only — it never changes which findings are computed or stored.
-# ---------------------------------------------------------------------------
-
-_AUTONOMIC = frozenset({"respiratory_rate", "heart_rate_variability", "cardio_recovery"})
-_HR_RATE = frozenset({"heart_rate", "resting_heart_rate", "walking_heart_rate_average"})
-_VITAL = frozenset(
-    {
-        "vo2_max",
-        "apple_sleeping_wrist_temperature",
-        "weight_body_mass",
-        "blood_oxygen_saturation",
-        "body_temperature",
-        "breathing_disturbances",
-    }
-)
-_PHYSIO = frozenset({"sleep", "autonomic", "hr_rate", "vital", "activity"})
-
-
-def _metric_domain(name: str | None) -> str:
-    """Coarse physiological domain of a metric, for correlation prioritisation."""
-    if not name:
-        return "other"
-    if name.startswith("sleep_"):
-        return "sleep"
-    if name in _AUTONOMIC:
-        return "autonomic"
-    if name in _HR_RATE:
-        return "hr_rate"
-    if name in _VITAL:
-        return "vital"
-    if name == "physical_effort" or _is_activity_volume(name):
-        return "activity"
-    if name == "time_in_daylight":
-        return "env"
-    return "other"
-
-
-def _pair_tier(domain_a: str, domain_b: str) -> int:
-    """Priority tier for a correlation between two metric domains.
-
-    2 = informative cross-domain (the layer-2 insights), 1 = neutral,
-    0 = expected/structural (demoted): a subsystem correlated with itself, or a
-    trivially-coupled pairing (exercise raises average HR; sunny days mean more
-    movement).
-    """
-    pair = frozenset({domain_a, domain_b})
-    if domain_a == domain_b and domain_a in {"sleep", "hr_rate", "activity"}:
-        return 0  # self-correlation within one family
-    if pair == {"hr_rate", "activity"}:
-        return 0  # exercise raises average HR — trivial
-    if pair == {"env", "activity"}:
-        return 0  # sunny days = more movement — behavioural
-    if domain_a in _PHYSIO and domain_b in _PHYSIO:
-        return 2  # cross-subsystem physiological link
-    return 1
-
-
-def report_priority(
-    metric_a: str | None, metric_b: str | None, coefficient: float | None, lag_days: int | None
-) -> float:
-    """Rank score for a correlation finding (higher = lead the report).
-
-    The domain-crossing tier dominates, then the effect size, then a small bonus
-    for lagged (directional, causally plausible) relationships.
-    """
-    tier = _pair_tier(_metric_domain(metric_a), _metric_domain(metric_b))
-    strength = abs(coefficient) if coefficient is not None else 0.0
-    lag_bonus = 0.05 * min(lag_days or 0, 3)
-    return tier * 10.0 + strength + lag_bonus
 
 
 # ---------------------------------------------------------------------------

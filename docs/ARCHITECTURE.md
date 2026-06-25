@@ -295,7 +295,11 @@ the anomaly). Non-applicable fields stay NULL.
   **activity-volume suppression** drops a pair when *both* series measure how much you
   moved/trained (workout-derived metrics — load/duration/count/intensity — or Apple
   activity-ring metrics — see `_is_activity_volume` in `app/analysis.py`); an activity
-  series vs a body-state metric (recovery/sleep/vital) is kept.
+  series vs a body-state metric (recovery/sleep/vital) is kept. Each surviving
+  correlation is stamped with a **priority tier** (`details.priority_tier`, via
+  `_pair_tier`): cross-subsystem links rank above expected within-subsystem pairs, so
+  the narration (`narrate.report_priority`) and the Grafana "Top Correlations" panel
+  lead with the informative ones without re-deriving the rule.
 - **anomaly** — 28-day trailing median + MAD (robust z), last 14 days only.
 - **trend** — STL trend component (slope + trend strength).
 - **seasonality** — MSTL(7, 365): yearly pattern (amplitude + peak/trough month), from

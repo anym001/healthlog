@@ -878,6 +878,81 @@ def _is_redundant_activity_pair(a: str, b: str) -> bool:
     return _is_activity_volume(a) and _is_activity_volume(b)
 
 
+# --- Correlation prioritisation (layer 2) -----------------------------------
+# Suppression removes structural pairs; the survivors still span a quality
+# gradient. A lagged cross-subsystem link (training load -> next-day respiratory
+# rate) is a real insight, while same-day pairs inside one subsystem (total vs
+# deep sleep, average vs resting heart rate) are expected and only crowd the
+# report. Each metric maps to a coarse physiological domain; a pair gets a tier
+# from those domains. The tier is stored on the finding (``details.priority_tier``)
+# so both the narration and Grafana rank by the same rule without re-deriving it.
+_AUTONOMIC = frozenset({"respiratory_rate", "heart_rate_variability", "cardio_recovery"})
+_HR_RATE = frozenset({"heart_rate", "resting_heart_rate", "walking_heart_rate_average"})
+_VITAL = frozenset(
+    {
+        "vo2_max",
+        "apple_sleeping_wrist_temperature",
+        "weight_body_mass",
+        "blood_oxygen_saturation",
+        "body_temperature",
+        "breathing_disturbances",
+    }
+)
+_PHYSIO = frozenset({"sleep", "autonomic", "hr_rate", "vital", "activity"})
+
+
+def _metric_domain(name: str | None) -> str:
+    """Coarse physiological domain of a metric, for correlation prioritisation."""
+    if not name:
+        return "other"
+    if name.startswith("sleep_"):
+        return "sleep"
+    if name in _AUTONOMIC:
+        return "autonomic"
+    if name in _HR_RATE:
+        return "hr_rate"
+    if name in _VITAL:
+        return "vital"
+    if name == "physical_effort" or _is_activity_volume(name):
+        return "activity"
+    if name == "time_in_daylight":
+        return "env"
+    return "other"
+
+
+def _pair_tier(domain_a: str, domain_b: str) -> int:
+    """Priority tier for a correlation between two metric domains.
+
+    2 = informative cross-subsystem link, 1 = neutral, 0 = expected/structural
+    (a subsystem correlated with itself, or a trivially-coupled pair: exercise
+    raises average HR; sunny days mean more movement).
+    """
+    pair = frozenset({domain_a, domain_b})
+    if domain_a == domain_b and domain_a in {"sleep", "hr_rate", "activity"}:
+        return 0
+    if pair == {"hr_rate", "activity"}:
+        return 0
+    if pair == {"env", "activity"}:
+        return 0
+    if domain_a in _PHYSIO and domain_b in _PHYSIO:
+        return 2
+    return 1
+
+
+def report_priority(
+    metric_a: str | None, metric_b: str | None, coefficient: float | None, lag_days: int | None
+) -> float:
+    """Rank score for a correlation finding (higher = lead the report).
+
+    The domain-crossing tier dominates, then the effect size, then a small bonus
+    for lagged (directional, causally plausible) relationships.
+    """
+    tier = _pair_tier(_metric_domain(metric_a), _metric_domain(metric_b))
+    strength = abs(coefficient) if coefficient is not None else 0.0
+    lag_bonus = 0.05 * min(lag_days or 0, 3)
+    return tier * 10.0 + strength + lag_bonus
+
+
 def _correlation_findings(
     series: dict[str, pd.Series],
     computed_at: dt.datetime,
@@ -936,7 +1011,7 @@ def _correlation_findings(
                 window_start=c.start,
                 window_end=c.end,
                 severity=round(abs(c.coef), 4),
-                details={"n": c.n},
+                details={"n": c.n, "priority_tier": _pair_tier(_metric_domain(a), _metric_domain(b))},
             )
         )
     return findings
