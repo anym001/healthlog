@@ -1,238 +1,236 @@
-# HealthLog – Architektur & Design
+# HealthLog – Architecture & Design
 
-> Self-hosted Analyse von Apple-Health-Daten mit Fokus auf Korrelationen,
-> Anomalien und Trends — vollständig auf eigener Hardware, keine externen
-> Anbieter.
+> Self-hosted analysis of Apple Health data with a focus on correlations,
+> anomalies and trends — entirely on your own hardware, no external providers.
 >
-> Dieses Dokument hält die **Architektur und die Design-Entscheidungen** fest:
-> das *Warum* hinter dem Code (Datenmodell, Ingestion-Vertrag, Analyse-Methodik,
-> Privacy-Grenzen). Was implementiert ist und wie es genutzt wird, steht im
-> README und im Code; hier steht, warum es so gebaut ist.
+> This document records the **architecture and the design decisions**: the
+> *why* behind the code (data model, ingestion contract, analysis methodology,
+> privacy bounds). What is implemented and how to use it lives in the README and
+> the code; this is where the reasons live.
 
-## 1. Grundentscheidungen
+## 1. Core decisions
 
-- **Datenexport:** Health Auto Export (iPhone) → REST-Automation an eigenen Endpoint
-- **Topologie:** Always-On-Server trägt **alles Statistische** (Ingestion + DB + automatische Analyse + Grafana, optional interaktive Exploration) ⟷ Mac **nur** für die LLM-Narration; allein dort zahlt sich Apple Silicon (Unified Memory) aus
-- **Analyse-Kern:** klassische Statistik/ML (Korrelationen, Anomalien, Trends) — **kein** LLM im kritischen Pfad
-- **LLM:** Ollama auf dem Mac (32 GB Unified Memory) als **optionale Ausbaustufe** für Klartext-Reports; Zielklasse 8–14B (z. B. Qwen 2.5 14B)
-- **Datenfokus:** Aktivität & Training, Schlaf & Erholung, Vitalwerte
-- **Privacy:** 100 % eigene Hardware, keine externen Calls — auch das LLM bleibt lokal
-- **Deployment-Ziel:** Unraid; das App-Image soll **public-fähig** sein
-  (LinuxServer-Tugenden: PUID/PGID, `/config`, Env-Config) — siehe §6
+- **Data export:** Health Auto Export (iPhone) → REST automation to our own endpoint
+- **Topology:** the always-on server carries **everything statistical** (ingestion + DB + automatic analysis + Grafana, optionally interactive exploration) ⟷ the Mac is used **only** for the LLM narration; Apple Silicon (unified memory) only pays off there
+- **Analysis core:** classic statistics/ML (correlations, anomalies, trends) — **no** LLM in the critical path
+- **LLM:** Ollama on the Mac (32 GB unified memory) as an **optional add-on** for plain-text reports; target class 8–14B (e.g. Qwen 2.5 14B)
+- **Data focus:** activity & training, sleep & recovery, vitals
+- **Privacy:** 100% own hardware, no external calls — the LLM stays local too
+- **Deployment target:** Unraid; the app image should be **public-ready**
+  (LinuxServer virtues: PUID/PGID, `/config`, env config) — see §6
 
-## 2. Zielarchitektur
+## 2. Target architecture
 
 ```
 ┌─ iPhone ──────────────────────────────────────────────┐
 │  Health Auto Export  →  Automation "REST API"          │
-│  (nächtlich, JSON POST, mit Secret-Header über TLS)    │
+│  (nightly, JSON POST, with secret header over TLS)     │
 └───────────────────────────┬───────────────────────────┘
-                            │  HTTPS (Reverse Proxy)
-┌─ Always-On-Server (Docker / Unraid) ────────────────────┐
-│  healthlog  (EIN App-Container, PID 1 = s6-overlay)     │
-│    ├─ service: uvicorn   → FastAPI-Ingest, 24/7         │
-│    │     validiert, archiviert Roh-JSON, schreibt (Upsert)│
-│    └─ service: scheduler → APScheduler-Prozess          │
-│          nachts → startet Analyse als SUBPROZESS:       │
-│          · Lag-Korrelationen · STL-Trends · Anomalien   │
-│          → Befunde in Tabelle `findings`                │
-│  TimescaleDB  (Postgres + Hypertables)  ← Single Source │
-│  Grafana  → Dashboards / Trends                          │
+                            │  HTTPS (reverse proxy)
+┌─ Always-on server (Docker / Unraid) ────────────────────┐
+│  healthlog  (ONE app container, PID 1 = s6-overlay)     │
+│    ├─ service: uvicorn   → FastAPI ingest, 24/7         │
+│    │     validates, archives raw JSON, writes (upsert)  │
+│    └─ service: scheduler → APScheduler process          │
+│          at night → starts analysis as a SUBPROCESS:    │
+│          · lag correlations · STL trends · anomalies    │
+│          → findings into table `findings`               │
+│  TimescaleDB  (Postgres + hypertables)  ← single source │
+│  Grafana  → dashboards / trends                          │
 └───────────────────────────┬───────────────────────────┘
                             │  read-only (psql)
 ┌─ Mac (Apple Silicon, 32 GB) ───────────────────────────┐
-│  NUR LLM-Narration: Ollama → Report aus `findings`      │
-│  Apple Silicon / Unified Memory — der einzige Mac-Vorteil│
+│  LLM narration ONLY: Ollama → report from `findings`    │
+│  Apple Silicon / unified memory — the only Mac advantage│
 └────────────────────────────────────────────────────────┘
-(Interaktive Exploration läuft, falls gewünscht, ebenfalls am Server.)
+(Interactive exploration, if wanted, also runs on the server.)
 ```
 
-### Prozess- statt Container-Trennung (Begründung)
+### Process separation instead of container separation (rationale)
 
-Ingest und Analyse leben **in einem Container**, aber als **getrennte OS-Prozesse**
-unter `s6-overlay` (sauberes PID 1: Signal-Handling, Zombie-Reaping, Restart-Policy).
-Die rechenintensive Analyse (pandas/numpy/statsmodels) darf **nicht** im uvicorn-Prozess
-laufen — sie würde über GIL/CPU-Last den Event-Loop blockieren und HAE-POSTs verzögern.
-Getrennte Prozesse = OS-Level-Isolation. Die Analyse wird vom Scheduler zusätzlich als
-**kurzlebiger Subprozess** (`python -m app.analysis`) gestartet, sodass selbst ein
-harter Crash in einer C-Extension nur diesen Subprozess killt — Scheduler **und** uvicorn
-überleben, die Datenannahme ist strukturell abgeschirmt.
+Ingest and analysis live **in one container**, but as **separate OS processes**
+under `s6-overlay` (clean PID 1: signal handling, zombie reaping, restart policy).
+The compute-heavy analysis (pandas/numpy/statsmodels) must **not** run in the uvicorn
+process — through the GIL/CPU load it would block the event loop and delay HAE POSTs.
+Separate processes = OS-level isolation. The scheduler additionally launches the
+analysis as a **short-lived subprocess** (`python -m app.analysis`), so that even a
+hard crash in a C extension only kills that subprocess — the scheduler **and** uvicorn
+survive, and data intake is structurally shielded.
 
-| Komponente | Wo | Warum |
+| Component | Where | Why |
 |---|---|---|
-| Ingestion (uvicorn) | App-Container, Dauerprozess | 24/7 Annahme der HAE-POSTs |
-| Scheduler (APScheduler) | App-Container, eigener Prozess | triggert nachts, Logs→stdout, Env/TZ sauber |
-| Analyse | App-Container, Subprozess des Schedulers | fault-isoliert, gefährdet die Annahme nicht |
-| TimescaleDB | eigener Container | Postgres ohnehin separat |
-| Grafana | eigener Container | direkt auf Timescale |
-| Interaktive Exploration (optional, Jupyter) | Server | nur Ad-hoc-Analyse; Pipeline + Grafana decken den Normalfall, Daten bleiben am Server |
-| LLM-Reports | Mac | **einziger** Mac-Grund: Apple Silicon (Unified Memory) für lokale 8–14B-Modelle |
+| Ingestion (uvicorn) | app container, long-running process | 24/7 intake of HAE POSTs |
+| Scheduler (APScheduler) | app container, own process | triggers at night, logs→stdout, env/TZ clean |
+| Analysis | app container, subprocess of the scheduler | fault-isolated, never endangers intake |
+| TimescaleDB | own container | Postgres is separate anyway |
+| Grafana | own container | straight onto Timescale |
+| Interactive exploration (optional, Jupyter) | server | ad-hoc analysis only; pipeline + Grafana cover the normal case, data stays on the server |
+| LLM reports | Mac | the **only** reason for a Mac: Apple Silicon (unified memory) for local 8–14B models |
 
-## 3. Tech-Stack & Begründung
+## 3. Tech stack & rationale
 
-| Schicht | Wahl | Warum |
+| Layer | Choice | Why |
 |---|---|---|
-| Ingestion | Eigenes **FastAPI** (statt offiziellem HAE-Server) | HAE postet JSON an jeden Endpoint; konsistent mit SQL-Storage; bekannter Stack. Der offizielle Server setzt auf MongoDB — Bruch zum SQL-Analyseziel. |
-| Storage | **TimescaleDB** (Postgres-Extension) | Zeitreihen-Hypertables, Continuous Aggregates für Tageswerte, SQL für Korrelationen, native Grafana-Anbindung. |
-| Scheduler | **APScheduler** (eigener Prozess unter s6) | Zeitplan im Code (versioniert), Logs→stdout (Docker-nativ), Env/TZ sauber — vs. cron-im-Container-Reibung. |
-| Analyse | **Python: pandas + statsmodels + scipy + scikit-learn** | Reifer, reproduzierbarer Standard für Korrelation/Trend/Anomalie. |
-| Dashboards | **Grafana** | Minimaler Aufwand, direkt auf Timescale. |
-| Container-Basis | **`python:3.12-slim` + s6-overlay v3** | Schlankes Image (relevant für Public), volle Kontrolle, PUID/PGID + `/config`. |
-| LLM (optional) | **Ollama**, 8–14B (z. B. Qwen 2.5 14B) | Lokal auf dem 32-GB-Mac; erhält nur fertige Befunde, nicht die Rohdaten. |
+| Ingestion | Custom **FastAPI** (instead of the official HAE server) | HAE posts JSON to any endpoint; consistent with SQL storage; familiar stack. The official server relies on MongoDB — a break from the SQL analysis goal. |
+| Storage | **TimescaleDB** (Postgres extension) | time-series hypertables, continuous aggregates for daily values, SQL for correlations, native Grafana integration. |
+| Scheduler | **APScheduler** (own process under s6) | schedule in code (versioned), logs→stdout (Docker-native), env/TZ clean — vs. cron-in-container friction. |
+| Analysis | **Python: pandas + statsmodels + scipy + scikit-learn** | mature, reproducible standard for correlation/trend/anomaly. |
+| Dashboards | **Grafana** | minimal effort, straight onto Timescale. |
+| Container base | **`python:3.12-slim` + s6-overlay v3** | slim image (relevant for public use), full control, PUID/PGID + `/config`. |
+| LLM (optional) | **Ollama**, 8–14B (e.g. Qwen 2.5 14B) | local on the 32 GB Mac; receives only finished findings, not the raw data. |
 
-## 4. Datenmodell
+## 4. Data model
 
-> Das Schema folgt der realen HAE-Payload-Struktur (Aggregation, Felder,
-> Einheiten), an einem echten Export (v2, 7 Tage, 30 Metriken + 1 Workout)
-> verifiziert.
+> The schema follows the real HAE payload structure (aggregation, fields,
+> units), verified against a real export (v2, 7 days, 30 metrics + 1 workout).
 
-### 4.0 Leitprinzip: Metriken jederzeit erweiterbar
+### 4.0 Guiding principle: metrics extensible at any time
 
-Das Datenmodell ist bewusst **metrik-agnostisch** — eine neue Metrik (heute unbekannt,
-in einem künftigen iOS/HAE-Update oder bei geändertem Tracking) erfordert **keine
-Schema-Änderung und keine Migration**. Getragen wird das von fünf Bausteinen:
+The data model is deliberately **metric-agnostic** — a new metric (unknown today,
+in a future iOS/HAE update or when tracking changes) requires **no schema change and
+no migration**. Five building blocks carry this:
 
-1. **Generische Werte-Tabelle** (`metric_samples`, §4.2): `metric` ist eine Spalte,
-   **keine** Metrik bekommt eigene Tabellen-Spalten. `qty`/`vmin`/`vavg`/`vmax` decken
-   beide HAE-Shapes ab.
-2. **Roh-Archiv** (§4.1): nimmt jede Payload verbatim — auch Felder, die der Parser
-   (noch) nicht kennt, gehen nie verloren und sind später nachparsbar.
-3. **Toleranter Ingest** (§5): unbekannte Metriken werden **angenommen, nicht
-   abgelehnt** — sie landen in `metric_samples` und legen automatisch einen
-   **Registry-Stub** an (`tier='secondary'`, Einheit aus der Payload), der nur noch
-   menschlich klassifiziert werden muss. Kein POST scheitert an einer neuen Metrik.
-4. **Registry statt Code** (§4.5): Verhalten einer Metrik (kanonische Einheit,
-   Tagesaggregat, Tier, Kategorie) ist **Daten, kein Code** — „adoptieren" = eine Zeile.
-5. **Generische Tagesaggregate** (§4.7): die View aggregiert per `(day, metric)`, ganz ohne
-   Metrik-Namen im Code — neue Metriken erscheinen automatisch.
+1. **Generic values table** (`metric_samples`, §4.2): `metric` is a column,
+   **no** metric gets its own table columns. `qty`/`vmin`/`vavg`/`vmax` cover
+   both HAE shapes.
+2. **Raw archive** (§4.1): takes every payload verbatim — even fields the parser
+   doesn't (yet) know are never lost and can be re-parsed later.
+3. **Tolerant ingest** (§5): unknown metrics are **accepted, not rejected** — they
+   land in `metric_samples` and automatically create a **registry stub**
+   (`tier='secondary'`, unit from the payload) that only needs human classification.
+   No POST fails on a new metric.
+4. **Registry, not code** (§4.5): a metric's behaviour (canonical unit, daily
+   aggregate, tier, category) is **data, not code** — "adopting" = one row.
+5. **Generic daily aggregates** (§4.7): the view aggregates per `(day, metric)`,
+   entirely without metric names in code — new metrics appear automatically.
 
-Konsequenz: „eine weitere Metrik mitnehmen" heißt im Normalfall **nur** den HAE-Export
-erweitern + ggf. eine Registry-Zeile pflegen. Spezialfälle mit eigener Struktur
-(Schlaf §4.3, Workouts §4.4) bleiben die einzigen Tabellen mit dediziertem Schema.
+Consequence: "carry one more metric" normally means **only** extending the HAE
+export + possibly maintaining one registry row. Special cases with their own
+structure (sleep §4.3, workouts §4.4) remain the only tables with a dedicated schema.
 
-### 4.1 Roh-Archiv (Replay-fähig)
+### 4.1 Raw archive (replay-capable)
 
 ```sql
--- Jede eingehende HAE-Payload verbatim, vor dem Parsen.
+-- Every incoming HAE payload verbatim, before parsing.
 raw_ingest (id BIGSERIAL, received_at TIMESTAMPTZ DEFAULT now(),
             payload JSONB, source_ip INET, content_hash BYTEA)
-            -- content_hash UNIQUE → identische Re-Posts werden verworfen.
+            -- content_hash UNIQUE → identical re-posts are discarded.
 ```
-Volle Fidelity: Bei Parser-/Schema-Fehlern lässt sich die Historie **neu parsen**,
-ohne Datenverlust. Volumen lokal vernachlässigbar.
+Full fidelity: on parser/schema bugs the history can be **re-parsed** without data
+loss. Volume locally negligible.
 
-### 4.2 Geparste Messwerte (Hypertable)
+### 4.2 Parsed measurements (hypertable)
 
-HAE liefert pro Metrik ein `data`-Array von Buckets in genau **zwei Shapes**:
-- **`{Min, Avg, Max}`** — in der Praxis **nur `heart_rate`**.
-- **`{qty}`** — alle übrigen 29 Metriken (auch HRV, Ruhepuls, Atemfrequenz, SpO₂).
+HAE delivers, per metric, a `data` array of buckets in exactly **two shapes**:
+- **`{Min, Avg, Max}`** — in practice **only `heart_rate`**.
+- **`{qty}`** — all other 29 metrics (incl. HRV, resting HR, respiratory rate, SpO₂).
 
-Daher **eine Zeile pro Metrik-Bucket** mit nullbaren Aggregat-Spalten (füllen, was HAE
-liefert), **nicht** ein einzelnes `value`. Das Modell ist **generisch**: jede Metrik
-landet hier, ohne Schema-Änderung (siehe Inventar §4.6) — wir ingesten **alle**
-Metriken, die Registry klassifiziert sie:
+So **one row per metric bucket** with nullable aggregate columns (fill what HAE
+delivers), **not** a single `value`. The model is **generic**: every metric lands
+here without a schema change (see inventory §4.6) — we ingest **all** metrics, the
+registry classifies them:
 
 ```sql
 metric_samples (time TIMESTAMPTZ, metric TEXT, source TEXT, unit TEXT,
-                qty   DOUBLE PRECISION,   -- Punktwert/Summe (29 von 30 Metriken)
-                vmin  DOUBLE PRECISION,   -- HAE "Min" (real nur heart_rate)
+                qty   DOUBLE PRECISION,   -- point value/sum (29 of 30 metrics)
+                vmin  DOUBLE PRECISION,   -- HAE "Min" (really only heart_rate)
                 vavg  DOUBLE PRECISION,   -- HAE "Avg"
                 vmax  DOUBLE PRECISION,   -- HAE "Max"
-                n     INTEGER,            -- Sample-Count im Bucket, falls vorhanden
-                UNIQUE (metric, time, source))   -- Idempotenz, siehe §5
-                -- Hypertable auf time
+                n     INTEGER,            -- sample count in the bucket, if present
+                UNIQUE (metric, time, source))   -- idempotency, see §5
+                -- hypertable on time
 ```
-**Bestätigte Eigenheiten:** `date` = `'YYYY-MM-DD HH:MM:SS +0200'` (Leerzeichen,
-expliziter TZ-Offset pro Wert → sauber als `TIMESTAMPTZ`). `source` kann **leer
-(`''`)**, ein einzelnes Gerät oder **pipe-verkettet** sein
-(`'Apple Watch …|iPhone …'`) und enthält teils ein No-Break-Space — der
-Idempotenz-Schlüssel muss das vertragen (`source` nie NULL-only annehmen).
+**Confirmed quirks:** `date` = `'YYYY-MM-DD HH:MM:SS +0200'` (space, explicit TZ
+offset per value → clean as `TIMESTAMPTZ`). `source` can be **empty (`''`)**, a
+single device or **pipe-concatenated** (`'Apple Watch …|iPhone …'`) and sometimes
+contains a no-break space — the idempotency key must tolerate that (never assume
+`source` is NULL-only).
 
-### 4.3 Schlaf (eigene Tabelle, intervallbasiert)
+### 4.3 Sleep (own table, interval-based)
 
-Schlaf passt nicht in `metric_samples` — er ist ein Intervall mit Phasen:
+Sleep doesn't fit `metric_samples` — it is an interval with phases:
 
 ```sql
 sleep_sessions (sleep_start TIMESTAMPTZ, sleep_end TIMESTAMPTZ,        -- sleepStart/End
                 in_bed_start TIMESTAMPTZ, in_bed_end TIMESTAMPTZ,      -- inBedStart/End
                 source TEXT,
-                sleep_date DATE,         -- HAE-`date` = Mitternacht des Aufwach-Tags
-                total_sleep_h, deep_h, core_h, rem_h, awake_h,         -- Stunden, dezimal
+                sleep_date DATE,         -- HAE `date` = midnight of the wake-up day
+                total_sleep_h, deep_h, core_h, rem_h, awake_h,         -- hours, decimal
                 asleep_h, in_bed_h DOUBLE PRECISION,
                 UNIQUE NULLS NOT DISTINCT (sleep_end, source))
 ```
-**Natürlicher Schlüssel = `(sleep_end, source)` (Aufwach-Identität, Migration 0011).**
-Der HAE-REST-API-Push erfasst dieselbe Nacht mehrfach — jeweils mit späterem
-`sleepStart`, aber identischem `sleepEnd`. Auf `sleep_end` zu schlüsseln lässt diese
-Re-Captures beim Upsert kollabieren (die vollständigste Aufzeichnung mit dem größten
-`total_sleep_h` gewinnt), während echte getrennte Perioden (z. B. ein Nickerchen mit
-anderem Ende) erhalten bleiben. `NULLS NOT DISTINCT` hält den Replay auch bei seltenem
-NULL-`sleep_end` idempotent. Die View `sleep_nightly` (Migration 0010) reduziert
-zusätzlich auf eine Zeile je Kalendernacht (`sleep_date`) für Dashboards/Analyse.
+**Natural key = `(sleep_end, source)` (wake-up identity, migration 0011).**
+The HAE REST-API push captures the same night multiple times — each with a later
+`sleepStart` but identical `sleepEnd`. Keying on `sleep_end` collapses these
+re-captures on upsert (the most complete recording, with the largest `total_sleep_h`,
+wins), while genuinely separate periods (e.g. a nap with a different end) are kept.
+`NULLS NOT DISTINCT` keeps replay idempotent even on a rare NULL `sleep_end`. The view
+`sleep_nightly` (migration 0010) additionally reduces to one row per calendar night
+(`sleep_date`) for dashboards/analysis.
 
-**An echter Payload bestätigt:** HAE liefert pro Nacht ein Objekt mit `sleepStart`/
-`sleepEnd`/`inBedStart`/`inBedEnd`, den Phasen-**Stunden** (dezimal) `deep`/`core`/
-`rem`/`awake` und `totalSleep` (= `deep+core+rem`, verifiziert). `asleep`/`inBed` sind
-in dieser Payload `0` (Phasen separat aufgeschlüsselt) → nullable/0 tolerieren.
-**Tageszuordnung ist bereits HAEs Verhalten:** das Feld `date` steht auf
-**Mitternacht des Aufwach-Tags** (z. B. `date=06-09`, `sleepStart=06-08 20:56`,
-`sleepEnd=06-09 05:56`) → `sleep_date` 1:1 übernehmbar, deckt sich exakt mit unserer
-Korrelations-Konvention. Mitternachtsübergreifender Schlaf bleibt eine Zeile.
+**Confirmed against real payload:** HAE delivers, per night, an object with `sleepStart`/
+`sleepEnd`/`inBedStart`/`inBedEnd`, the phase **hours** (decimal) `deep`/`core`/
+`rem`/`awake` and `totalSleep` (= `deep+core+rem`, verified). `asleep`/`inBed` are
+`0` in this payload (phases broken out separately) → tolerate nullable/0.
+**Day assignment is already HAE's behaviour:** the `date` field is set to
+**midnight of the wake-up day** (e.g. `date=06-09`, `sleepStart=06-08 20:56`,
+`sleepEnd=06-09 05:56`) → `sleep_date` adoptable 1:1, exactly matching our
+correlation convention. Sleep crossing midnight stays one row.
 
 ### 4.4 Workouts
 
-HAE liefert pro Workout ein **stabiles `id` (UUID)** — der bessere Idempotenz-Schlüssel
-als `(start, type, source)`. Skalare kommen als `{qty, units}`-Objekte, dazu eine
-`heartRate`-Summary `{min, avg, max}` und Intra-Workout-Zeitreihen (`heartRateData`,
-`stepCount`, `heartRateRecovery`, …). Die HR-Zeitreihe wird in `workout_hr_samples`
-geparst (für zonenbasiertes Edwards-TRIMP, siehe [`workout-analysis.md`](workout-analysis.md));
-die übrigen Zeitreihen bleiben im Roh-Archiv.
+HAE delivers, per workout, a **stable `id` (UUID)** — a better idempotency key than
+`(start, type, source)`. Scalars come as `{qty, units}` objects, plus a `heartRate`
+summary `{min, avg, max}` and intra-workout time series (`heartRateData`,
+`stepCount`, `heartRateRecovery`, …). The HR time series is parsed into
+`workout_hr_samples` (for zone-based Edwards TRIMP, see
+[`workout-analysis.md`](workout-analysis.md)); the other time series stay in the raw
+archive.
 
 ```sql
-workouts (hae_id UUID PRIMARY KEY,        -- HAE `id`, stabil → Idempotenz
+workouts (hae_id UUID PRIMARY KEY,        -- HAE `id`, stable → idempotency
           start_time TIMESTAMPTZ, end_time TIMESTAMPTZ,
-          name TEXT,                       -- HAE `name` (LOKALISIERT, s.u.)
+          name TEXT,                       -- HAE `name` (LOCALISED, see below)
           location TEXT, is_indoor BOOL,
           duration_s, total_energy_kcal, active_energy_kcal,
-          distance_km, avg_hr, max_hr, hr_recovery,   -- Erholungsindikator
+          distance_km, avg_hr, max_hr, hr_recovery,   -- recovery indicator
           intensity, elevation_up_m,
-          temperature_c, humidity_pct DOUBLE PRECISION,  -- Umgebungskontext
+          temperature_c, humidity_pct DOUBLE PRECISION,  -- environment context
           source TEXT)
 ```
-**Achtung Lokalisierung:** `name` ist sprachabhängig (`'Outdoor Spaziergang'`) — wie bei
-Einheiten brauchen Workout-Typen eine Normalisierung (Mapping lokalisiert→kanonisch),
-sonst zerfasern Typen über Sprachwechsel. Das übernimmt `app/workout_types.py`
-(eingebaute DE+EN-Map → kanonischer Slug, erweiterbar via `workouts.type_map` in
-`config.yaml`). `duration` in Sekunden, Energie in `kJ` (→ kcal normalisieren, §4.5).
+**Watch out — localisation:** `name` is language-dependent (`'Outdoor Walk'`) — like
+units, workout types need normalisation (mapping localised→canonical), otherwise
+types fragment across language switches. `app/workout_types.py` handles this (built-in
+DE+EN map → canonical slug, extensible via `workouts.type_map` in `config.yaml`).
+`duration` in seconds, energy in `kJ` (→ normalise to kcal, §4.5).
 
-### 4.5 Metrik-Registry (Normalisierung)
+### 4.5 Metric registry (normalisation)
 
 ```sql
 metric_registry (metric TEXT PRIMARY KEY, display_name TEXT,
                  unit_canonical TEXT,
-                 agg_default TEXT,   -- 'avg'|'sum'|'min'|'max': welcher Tageswert zählt
+                 agg_default TEXT,   -- 'avg'|'sum'|'min'|'max': which daily value counts
                  category TEXT,      -- 'activity'|'sleep'|'vital'|'mobility'|'environment'
-                 tier TEXT)          -- 'core' (Korrelations-/Trend-Fokus) | 'secondary'
+                 tier TEXT)          -- 'core' (correlation/trend focus) | 'secondary'
 ```
-Verhindert, dass dieselbe physiologische Größe unter mehreren Namen/Einheiten
-zerfasert (kcal vs. kJ, `count/min`), und sagt der Analyse, **welcher** Tagesaggregat
-pro Metrik sinnvoll ist (Steps→Summe, RestingHR→Min, HRV→Avg). Das **`tier`** trennt
-Analyse-Fokus (`core`) von „mitgenommen, aber sekundär" (`secondary`): wir ingesten
-**alles**, die Korrelations-/Anomalie-Pipeline läuft per Default nur über `core`
-(begrenzt die Multiple-Testing-Last, §11), `secondary` bleibt jederzeit abfragbar.
+Prevents the same physiological quantity from fragmenting under multiple names/units
+(kcal vs. kJ, `count/min`), and tells the analysis **which** daily aggregate makes
+sense per metric (steps→sum, resting HR→min, HRV→avg). The **`tier`** separates
+analysis focus (`core`) from "carried along, but secondary" (`secondary`): we ingest
+**everything**, the correlation/anomaly pipeline runs by default over `core` only
+(bounding the multiple-testing load, §11), `secondary` stays queryable at any time.
 
-**Einheiten-Wächter:** HAE liefert die Einheit pro Wert mit und kann sie lokalisieren.
-**Real bestätigt:** Energie kommt als **`kJ`** (nicht kcal), dazu `kcal/hr·kg`,
-`km/hr`, `m/s`, `degC`, `ml/(kg·min)`. `metric_registry.unit_canonical` ist die
-Soll-Einheit; beim Ingest wird die eingehende `unit` dagegen geprüft → bei Abweichung
-**konvertieren** (bekannter Faktor, kJ→kcal ×0.239006) **oder flaggen**, nie still
-übernehmen. Genau dieser Fall trat im echten Export auf — der Wächter ist kein
-Theoriekonstrukt. Ein Test pinnt das.
+**Unit guard:** HAE ships the unit per value and can localise it. **Confirmed in
+reality:** energy arrives as **`kJ`** (not kcal), plus `kcal/hr·kg`, `km/hr`, `m/s`,
+`degC`, `ml/(kg·min)`. `metric_registry.unit_canonical` is the target unit; on ingest
+the incoming `unit` is checked against it → on mismatch **convert** (known factor,
+kJ→kcal ×0.239006) **or flag**, never silently accept. Exactly this case occurred in
+the real export — the guard is no theoretical construct. A test pins it.
 
-### 4.6 Metrik-Inventar (aus echter Payload)
+### 4.6 Metric inventory (from real payload)
 
-30 Metriken im Export, kuratiert (Tier/Einheit/`agg_default` pro Metrik, durch
-`test_registry.py` festgezurrt):
+30 metrics in the export, curated (tier/unit/`agg_default` per metric, pinned by
+`test_registry.py`):
 
 - **core – activity:** `step_count`, `active_energy` (kJ), `apple_exercise_time`,
   `walking_running_distance`, `flights_climbed`, `physical_effort`, `apple_stand_time`
@@ -247,203 +245,207 @@ Theoriekonstrukt. Ein Test pinnt das.
 - **secondary – activity/environment:** `basal_energy_burned`, `apple_stand_hour`,
   `environmental_audio_exposure`, `headphone_audio_exposure`
 
-**Aus dem ersten Voll-Backfill nachkuratiert** (neun zunächst auto-registrierte Metriken,
-Migration `0003_curate_metrics`): `cardio_recovery` als **core – vital**
-(1-Minuten-Herzfrequenz-Erholung, Cardio-Fitness-Marker → in der Pipeline); sekundär
-`waist_circumference`, `height`, `atrial_fibrillation_burden` (vital), `swimming_distance`,
-`swimming_stroke_count`, `handwashing` (activity), `mindful_minutes` (mindfulness),
-`dietary_water` (nutrition). Die Kategorien `mindfulness`/`nutrition` kamen damit neu hinzu.
+**Re-curated after the first full backfill** (nine initially auto-registered metrics,
+migration `0003_curate_metrics`): `cardio_recovery` as **core – vital**
+(one-minute heart-rate recovery, a cardio-fitness marker → into the pipeline);
+secondary `waist_circumference`, `height`, `atrial_fibrillation_burden` (vital),
+`swimming_distance`, `swimming_stroke_count`, `handwashing` (activity),
+`mindful_minutes` (mindfulness), `dietary_water` (nutrition). The categories
+`mindfulness`/`nutrition` were added with this.
 
-Da das Modell generisch ist, kostet das Mitnehmen aller 30 praktisch nichts — neue
-Metriken in künftigen Exports landen automatisch im Roh-Archiv und in `metric_samples`
-und werden nur per Registry-Zeile „adoptiert".
+Because the model is generic, carrying all 30 costs practically nothing — new metrics
+in future exports land automatically in the raw archive and in `metric_samples` and
+are only "adopted" via a registry row.
 
-### 4.7 Tagesaggregate (View)
+### 4.7 Daily aggregates (view)
 
-Aktuell eine **einfache SQL-View** (kein Timescale Continuous Aggregate — die Datenmenge
-erfordert es nicht; ein CA kann sie später ohne Schema-Bruch ersetzen). Sie berechnet
-**alle** Aggregate pro `(day, metric)`; die Analyse pickt je Metrik die laut
-`metric_registry.agg_default` passende Spalte:
+Currently a **plain SQL view** (no Timescale continuous aggregate — the data volume
+doesn't require it; a CA can replace it later without a schema break). It computes
+**all** aggregates per `(day, metric)`; the analysis picks, per metric, the column
+indicated by `metric_registry.agg_default`:
 
 ```sql
 daily_metrics (day, metric, avg, vmin, vmax, sum, n)
-  -- (time AT TIME ZONE 'Europe/Vienna')::date  ← lokaler Tag, NICHT UTC!
+  -- (time AT TIME ZONE 'Europe/Vienna')::date  ← local day, NOT UTC!
 ```
-Die View nutzt `COALESCE(vavg, qty)` / `COALESCE(vmin, qty)` / `COALESCE(vmax, qty)`
-(Migration `0005_daily_metrics_coalesce`), identisch zum Analyse-Loader
-`load_daily_series` — Grafana und Pipeline sehen damit dieselben Tageswerte. `avg`
-ist ein ungewichtetes Mittel der Bucket-Mittel — für Tagesgranularität ausreichend,
-exakt über das Roh-Archiv nachrechenbar.
+The view uses `COALESCE(vavg, qty)` / `COALESCE(vmin, qty)` / `COALESCE(vmax, qty)`
+(migration `0005_daily_metrics_coalesce`), identical to the analysis loader
+`load_daily_series` — so Grafana and the pipeline see the same daily values. `avg` is
+an unweighted mean of the bucket means — sufficient for daily granularity, exactly
+recomputable from the raw archive.
 
-### 4.8 Befunde der Pipeline (reine Statistik, kein LLM)
+### 4.8 Pipeline findings (pure statistics, no LLM)
 
 ```sql
 findings (id, computed_at, kind TEXT,            -- correlation|anomaly|trend|seasonality|recovery_alert|consistency|training_load
-          metric_a TEXT, metric_b TEXT,          -- metric_b nur bei correlation
+          metric_a TEXT, metric_b TEXT,          -- metric_b only for correlation
           lag_days INT, coefficient DOUBLE PRECISION,
           p_value DOUBLE PRECISION, p_value_adj DOUBLE PRECISION,  -- FDR
-          ref_date DATE,                          -- Bezugstag (Anomalie/Trendpunkt)
-          window_start DATE, window_end DATE,     -- Analysefenster
+          ref_date DATE,                          -- reference day (anomaly/trend point)
+          window_start DATE, window_end DATE,     -- analysis window
           severity DOUBLE PRECISION,
-          details JSONB,                          -- kind-spezifische Extras
+          details JSONB,                          -- kind-specific extras
           note TEXT)
 ```
-`ref_date`/`window_*` machen einen Befund in Grafana **markierbar** (Annotation auf
-dem Tag der Anomalie). Nicht zutreffende Felder bleiben NULL.
+`ref_date`/`window_*` make a finding **markable** in Grafana (annotation on the day of
+the anomaly). Non-applicable fields stay NULL.
 
-**Befund-Typen** (Snapshot pro Lauf, `app/analysis.py`):
-- **correlation** — Spearman auf **trendbereinigten** Reihen (Trendkomponente
-  subtrahiert, damit gegenläufige Langzeit-Trends keine Schein-Korrelation
-  erzeugen), Lags 0–3 Tage (beide Richtungen), FDR-`p_value_adj`; pro Metrik-Paar
-  nur der **stärkste** Lag/Richtung (Dedup).
-- **anomaly** — 28-Tage trailing Median + MAD (robuster z), nur letzte 14 Tage.
-- **trend** — STL-Trendkomponente (Slope + Trendstärke).
-- **seasonality** — MSTL(7, 365): Jahresmuster (Amplitude + Hoch-/Tief-Monat), ab ≥2 Jahren;
-  liegen Hoch/Tief <2 Monate auseinander, ist die Phase als unsicher geflaggt (`phase_confident`).
-- **recovery_alert** — kombiniert: HRV auffällig niedrig **und** Ruhepuls hoch (+ optional kurzer Schlaf).
-- **consistency** — rollende Streuung von Schlafdauer und Zubettgeh-Zeit (Mitternachts-Wrap behandelt).
-- **training_load** — ACWR (akut 7-Tage / chronisch 28-Tage) auf der Tages-Trainingslast
-  (`workout_trimp`, HR-basiert via Banister; sonst `workout_load` in kcal); nur geflaggt bei
-  Lastspitze (Überlastung) oder Detraining. Details siehe [`workout-analysis.md`](workout-analysis.md).
+**Finding types** (snapshot per run, `app/analysis.py`):
+- **correlation** — Spearman on **de-trended** series (trend component subtracted, so
+  opposing long-term trends can't produce a spurious correlation), lags 0–3 days (both
+  directions), FDR `p_value_adj`; per metric pair only the **strongest** lag/direction
+  (dedup).
+- **anomaly** — 28-day trailing median + MAD (robust z), last 14 days only.
+- **trend** — STL trend component (slope + trend strength).
+- **seasonality** — MSTL(7, 365): yearly pattern (amplitude + peak/trough month), from
+  ≥2 years; if peak and trough are <2 months apart, the phase is flagged as uncertain
+  (`phase_confident`).
+- **recovery_alert** — combined: HRV notably low **and** resting HR high (+ optionally
+  short sleep).
+- **consistency** — rolling spread of sleep duration and bedtime (midnight wrap handled).
+- **training_load** — ACWR (acute 7-day / chronic 28-day) on the daily training load
+  (`workout_trimp`, HR-based via Banister; otherwise `workout_load` in kcal); only
+  flagged on a load spike (overload) or detraining. Details see
+  [`workout-analysis.md`](workout-analysis.md).
 
-Die reine Analyse-Mathematik ist DB-frei und gegen synthetische Reihen (bekannter
-Lag/Anomalie/Trend/Jahres-Saison) mit festem Seed getestet (§7); dazu ein DB-End-to-End-Test.
+The pure analysis math is DB-free and tested against synthetic series (known
+lag/anomaly/trend/yearly-season) with a fixed seed (§7); plus a DB end-to-end test.
 
-## 5. Ingestion-Vertrag
+## 5. Ingestion contract
 
-- **Idempotenz/Upsert:** HAE sendet bei nächtlichen Exporten **überlappende Fenster**.
-  Ohne Dedup wachsen Dubletten und verfälschen Tagesaggregate. Daher
-  `INSERT … ON CONFLICT (UNIQUE-Key) DO UPDATE` auf alle Zieltabellen.
-  `raw_ingest.content_hash` verwirft identische Re-Posts früh.
-- **Backfill vs. Delta:** Beim ersten manuellen HAE-Export die **gesamte
-  Apple-Health-Historie** (Jahre) einmal als Bulk-Backfill einspielen → danach
-  **nächtliche Deltas**. Damit sind Korrelationen ab Tag 1 belastbar (≥6–8 Wochen).
-  Der Voll-Export sprengt das HTTP-Limit (`MAX_PAYLOAD_BYTES`) und den Proxy-Timeout;
-  deshalb läuft er **datei-basiert** über das CLI `healthlog backfill <pfad>`
-  (Datei oder Verzeichnis, `--dry-run` zum Prüfen) — dieselbe `archive_raw → parse →
-  store`-Pipeline wie der Endpoint, pro Datei committet, idempotent (Re-Run = No-Op
-  dank `content_hash`-Dedup + Upsert).
-- **Zeitzone:** Speicherung in `TIMESTAMPTZ`; alle Tages-Buckets in **lokaler TZ
-  (Europe/Vienna)**, da das Tagesraster die Basis aller Analysen ist.
-- **Robustheit & Erweiterbarkeit:** Payload-Größenlimit, Secret-Header in konstanter
-  Zeit prüfen. **Unbekannte Metriken werden angenommen, nie abgelehnt** (§4.0): sie
-  landen im Roh-Archiv **und** in `metric_samples` und legen automatisch einen
-  Registry-Stub an (`tier='secondary'`, Einheit aus der Payload, `agg_default` heuristisch
-  aus dem Shape: `qty`→`sum`, `Min/Avg/Max`→`avg`). Ein POST scheitert nie an einer
-  neuen Metrik; die Klassifizierung kann jederzeit nachgezogen werden.
-- **Einheiten stabil halten:** HAE-seitig *„Use Localized Units" = OFF* und feste
-  Unit Preferences pro Metrik (metrisch: kcal/km/kg/°C, HR `count/min`, HRV `ms`,
-  SpO₂ `%`). Serverseitig greift zusätzlich der Einheiten-Wächter der Registry
-  (§4.5) — die App-Einstellung ist Vorsorge, die Registry ist die Absicherung.
+- **Idempotency/upsert:** on nightly exports HAE sends **overlapping windows**.
+  Without dedup, duplicates grow and distort daily aggregates. Hence
+  `INSERT … ON CONFLICT (UNIQUE key) DO UPDATE` on all target tables.
+  `raw_ingest.content_hash` discards identical re-posts early.
+- **Backfill vs. delta:** on the first manual HAE export, load the **entire Apple
+  Health history** (years) once as a bulk backfill → then **nightly deltas**. That way
+  correlations are sound from day 1 (≥6–8 weeks). The full export blows past the HTTP
+  limit (`MAX_PAYLOAD_BYTES`) and the proxy timeout; so it runs **file-based** via the
+  CLI `healthlog backfill <path>` (file or directory, `--dry-run` to check) — the same
+  `archive_raw → parse → store` pipeline as the endpoint, committed per file,
+  idempotent (re-run = no-op thanks to `content_hash` dedup + upsert).
+- **Time zone:** stored in `TIMESTAMPTZ`; all daily buckets in **local TZ
+  (Europe/Vienna)**, since the daily grid is the basis of all analyses.
+- **Robustness & extensibility:** payload size limit, secret header checked in constant
+  time. **Unknown metrics are accepted, never rejected** (§4.0): they land in the raw
+  archive **and** in `metric_samples` and automatically create a registry stub
+  (`tier='secondary'`, unit from the payload, `agg_default` heuristic from the shape:
+  `qty`→`sum`, `Min/Avg/Max`→`avg`). A POST never fails on a new metric; classification
+  can be backfilled at any time.
+- **Keep units stable:** on the HAE side *"Use Localized Units" = OFF* and fixed unit
+  preferences per metric (metric system: kcal/km/kg/°C, HR `count/min`, HRV `ms`, SpO₂
+  `%`). Server-side the registry unit guard additionally applies (§4.5) — the app
+  setting is precaution, the registry is the safeguard.
 
-## 6. Container-Topologie & Deployment
+## 6. Container topology & deployment
 
-- **Ein App-Image** `healthlog` (`python:3.12-slim` + s6-overlay v3), zwei s6-Services
-  (uvicorn, APScheduler), Analyse als Subprozess (§2).
-- **PUID/PGID + `/config`:** Entrypoint chownt `/config`, dropt
-  Privilegien. `/config` hält Persistenz, die nicht in der DB liegt: Ingest-Secret,
-  `config.yaml`, Narration-Output, Logs, evtl. DB-Backups/Export.
-- **Env-getriebene Config:** `INGEST_SECRET`, `DATABASE_URL`, `TZ`,
-  `ANALYSIS_CRON` (5-Feld-Cron), `LOG_LEVEL`, `LOG_FORMAT` (text/json) — Secrets +
-  Infrastruktur über ENV, Verhalten + Profil über `config.yaml` (siehe
+- **One app image** `healthlog` (`python:3.12-slim` + s6-overlay v3), two s6 services
+  (uvicorn, APScheduler), analysis as a subprocess (§2).
+- **PUID/PGID + `/config`:** the entrypoint chowns `/config`, drops privileges.
+  `/config` holds persistence that isn't in the DB: ingest secret, `config.yaml`,
+  narration output, logs, possibly DB backups/export.
+- **Env-driven config:** `INGEST_SECRET`, `DATABASE_URL`, `TZ`, `ANALYSIS_CRON`
+  (5-field cron), `LOG_LEVEL`, `LOG_FORMAT` (text/json) — secrets + infrastructure via
+  ENV, behaviour + profile via `config.yaml` (see
   [`workout-analysis.md`](workout-analysis.md) §4).
-- **Compose:** `timescaledb` + `healthlog` + `grafana`; DB nicht öffentlich
-  exponiert, Grafana hinter Auth, Reverse-Proxy/TLS vor dem Ingest.
-- **Public-Tauglichkeit:** README mit eingebettetem Compose-Beispiel (keine
-  separate `docker-compose.yml`- oder `.env`-Datei im Repo), sinnvolle Defaults,
-  keine Telemetrie, Doku der HAE-Automation-Einrichtung.
+- **Compose:** `timescaledb` + `healthlog` + `grafana`; DB not publicly exposed,
+  Grafana behind auth, reverse proxy/TLS in front of ingest.
+- **Public readiness:** README with an embedded compose example (no separate
+  `docker-compose.yml` or `.env` file in the repo), sensible defaults, no telemetry,
+  documentation of the HAE automation setup.
 
-## 7. Tests & Qualität
+## 7. Tests & quality
 
-**Grüne Suite ist Pflicht-Gate vor jedem Image-Push** (§8). Das Kern-Risiko liegt
-nicht in CRUD, sondern in **Parser-Korrektheit** und **Analyse-Mathematik** — genau
-dort liegt der Testfokus.
+**A green suite is the mandatory gate before every image push** (§8). The core risk
+isn't in CRUD but in **parser correctness** and **analysis math** — that's exactly
+where the test focus sits.
 
-- **Backend-Lint:** `ruff check` + `ruff format --check`.
-- **Parser-/Ingest-Tests (pytest):** echte HAE-Payload als Fixture → erwartete Zeilen
-  in `metric_samples`/`sleep_sessions`/`workouts`. Pinnt die Übersetzung der
-  HAE-Eigenheiten (Min/Avg/Max-Buckets, Einheiten).
-- **Idempotenz:** zweimaliges Posten derselben Payload → keine Dubletten, Upsert
-  greift, `content_hash`-Dedup verwirft den Re-Post. (Das Kernrisiko aus §5.)
-- **TZ-Bucketing:** Sample um Mitternacht (Europe/Vienna) landet im korrekten
-  lokalen Tag; Schlafsession wird dem Aufwach-Tag zugeordnet (§4.3).
-- **Analyse-Mathematik:** synthetische Reihen mit **bekannter** Lag-Korrelation →
-  Pipeline findet sie beim richtigen Lag; injizierte Anomalie wird erkannt;
-  FDR-Korrektur senkt Zufallstreffer. Reproduzierbar mit festem Seed.
-- **Migrationen gegen echtes Postgres/TimescaleDB:** `service`-Container in CI,
-  `alembic upgrade head` von leerem Schema — die DDL läuft sonst nur beim Endnutzer
-  das erste Mal.
-- **Smoke:** Image bauen, mit `PUID/PGID` + `/config`-Mount + Timescale-Service
-  booten, `/api/health` abfragen, prüfen dass der Entrypoint chownt und beide
-  s6-Services hochkommen.
+- **Backend lint:** `ruff check` + `ruff format --check`.
+- **Parser/ingest tests (pytest):** real HAE payload as a fixture → expected rows in
+  `metric_samples`/`sleep_sessions`/`workouts`. Pins the translation of the HAE quirks
+  (Min/Avg/Max buckets, units).
+- **Idempotency:** posting the same payload twice → no duplicates, upsert applies,
+  `content_hash` dedup discards the re-post. (The core risk from §5.)
+- **TZ bucketing:** a sample around midnight (Europe/Vienna) lands in the correct local
+  day; a sleep session is assigned to the wake-up day (§4.3).
+- **Analysis math:** synthetic series with a **known** lag correlation → the pipeline
+  finds it at the right lag; an injected anomaly is detected; FDR correction lowers
+  chance hits. Reproducible with a fixed seed.
+- **Migrations against real Postgres/TimescaleDB:** a `service` container in CI,
+  `alembic upgrade head` from an empty schema — otherwise the DDL only ever runs at the
+  end user's the first time.
+- **Smoke:** build the image, boot it with `PUID/PGID` + `/config` mount + Timescale
+  service, query `/api/health`, check that the entrypoint chowns and both s6 services
+  come up.
 
-## 8. CI/CD – GitHub Workflows
+## 8. CI/CD – GitHub workflows
 
-Drei Workflows mit gepinnten Action-SHAs:
+Three workflows with pinned action SHAs:
 
-| Workflow | Trigger | Tut |
+| Workflow | Trigger | Does |
 |---|---|---|
-| `test.yml` | `pull_request` **+** `workflow_call` | Lint, pytest (inkl. Migrationen gegen Timescale-Service), Smoke. Reusable, damit Build-Workflows darauf gaten. |
-| `dev.yml` | Push auf `dev` | `uses: test.yml` → nur bei grün: Build + Push `:dev` und `:dev-<sha>` nach **GHCR**. |
-| `build.yml` | Push Tag `v*` (+ `workflow_dispatch`) | `uses: test.yml` → bei grün: Build + Push `:vX.Y.Z` und `:latest` nach **GHCR** + GitHub-Release (`generate_release_notes`). |
+| `test.yml` | `pull_request` **+** `workflow_call` | lint, pytest (incl. migrations against the Timescale service), smoke. Reusable so build workflows can gate on it. |
+| `dev.yml` | push to `dev` | `uses: test.yml` → only when green: build + push `:dev` and `:dev-<sha>` to **GHCR**. |
+| `build.yml` | push tag `v*` (+ `workflow_dispatch`) | `uses: test.yml` → when green: build + push `:vX.Y.Z` and `:latest` to **GHCR** + GitHub release (`generate_release_notes`). |
 
-- **Registry: GHCR** (`ghcr.io/<owner>/healthlog`). Docker-Hub-Mirror ist bewusst
-  out of scope (siehe §10).
-- Least-Privilege: `test.yml` hat `contents: read`; nur `dev.yml`/`build.yml` fordern
-  `packages: write` (bzw. `contents: write` für das Release) auf ihren eigenen Jobs an.
-- Plattform `linux/amd64` (Unraid-Ziel); arm64 bei Bedarf nachrüstbar (§10).
-- **Tests blocken den Push:** ein roter Lauf verhindert `:dev`/`:vX.Y.Z` — ein kaputter
-  Commit erreicht nie ein Image.
+- **Registry: GHCR** (`ghcr.io/<owner>/healthlog`). A Docker Hub mirror is deliberately
+  out of scope (see §10).
+- Least privilege: `test.yml` has `contents: read`; only `dev.yml`/`build.yml` request
+  `packages: write` (resp. `contents: write` for the release) on their own jobs.
+- Platform `linux/amd64` (Unraid target); arm64 can be added on demand (§10).
+- **Tests block the push:** a red run prevents `:dev`/`:vX.Y.Z` — a broken commit never
+  reaches an image.
 
-**Dependabot** (`.github/dependabot.yml`) hält Abhängigkeiten aktuell — drei Ökosysteme,
-**wöchentlich**, PRs gegen **`dev`** (nie `main`, §9), je gruppiert (ein PR statt vieler,
-vermeidet gegenseitige Merge-Konflikte an den gepinnten SHA-Zeilen):
-- `github-actions` (`/`) — hält die SHA-Pins der drei Workflows frisch.
+**Dependabot** (`.github/dependabot.yml`) keeps dependencies current — three
+ecosystems, **weekly**, PRs against **`dev`** (never `main`, §9), each grouped (one PR
+instead of many, avoiding mutual merge conflicts on the pinned SHA lines):
+- `github-actions` (`/`) — keeps the SHA pins of the three workflows fresh.
 - `pip` (`/backend`) — `requirements.txt` + `requirements-dev.txt`.
-- `docker` (`/backend`) — Base-Image-Bumps (`python:3.12-slim`, s6-overlay).
+- `docker` (`/backend`) — base-image bumps (`python:3.12-slim`, s6-overlay).
 
-Dependabot-PRs durchlaufen dasselbe `test.yml`-Gate wie jeder andere PR.
+Dependabot PRs pass the same `test.yml` gate as any other PR.
 
-## 9. Branching & Release
+## 9. Branching & release
 
-- Entwicklung auf kurzlebigen `feature/*`-Branches, abgezweigt von `dev`.
-- **PRs immer gegen `dev`**, nie direkt gegen `main`.
-- `main` wird ausschließlich per PR `dev → main` aktualisiert; **Release = Tag-Push**
-  `vX.Y.Z` auf `main` → triggert `build.yml` (versioniertes Image + Release).
-- `:dev` = Maintainer-Staging-Kanal, `:vX.Y.Z`/`:latest` = Produktion.
-- `main` und `dev` per Ruleset geschützt (PR nötig, grüne Checks, keine Force-Pushes).
-- Sprache durchgängig Englisch (Code, Kommentare, Commits, PRs).
-- Die verbindlichen Regeln stehen in `CONTRIBUTING.md`.
+- Development on short-lived `feature/*` branches, forked off `dev`.
+- **PRs always against `dev`**, never directly against `main`.
+- `main` is updated exclusively via a PR `dev → main`; **release = tag push**
+  `vX.Y.Z` on `main` → triggers `build.yml` (versioned image + release).
+- `:dev` = maintainer staging channel, `:vX.Y.Z`/`:latest` = production.
+- `main` and `dev` protected by ruleset (PR required, green checks, no force pushes).
+- English throughout (code, comments, commits, PRs).
+- The binding rules live in `CONTRIBUTING.md`.
 
-## 10. Scope & bewusste Grenzen
+## 10. Scope & deliberate boundaries
 
-- **Single-tenant** (keine `user_id`/`subject_id`). Die Analyse ist pro Person; ein
-  späterer Multi-User-/Subjekt-Ausbau ist eine saubere Migration (Spalte nullable +
-  Default 1 + Backfill), da die Idempotenz-Keys schon stabil sind.
-- **Roh-Payload verbatim** archiviert (`raw_ingest`, JSONB), Retention dauerhaft
-  (Volumen winzig); ein CA kann die Tagesaggregat-View später ohne Schema-Bruch ersetzen.
-- **ECG/GPX bleiben bewusst aus** (rohe Waveforms/Standortdaten, kein Analysenutzen,
-  Payload-/Privacy-Last). Das generische Modell (§4.0) verträgt weitere Health-Kategorien
-  (Medikamente, Symptome als Event-Marker) jederzeit ohne Schema-Änderung, falls relevant.
-- **Optional / am Server, nicht eingebaut:** interaktive Jupyter-Exploration deckt nur
-  den Ad-hoc-Fall ab, den Pipeline + Grafana schon abdecken.
-- **Out of scope (bei Bedarf nachrüstbar):** Docker-Hub-Mirror der Images (aktuell nur
-  GHCR), arm64-Image (aktuell nur `linux/amd64`), eine eigene Web-App.
+- **Single-tenant** (no `user_id`/`subject_id`). The analysis is per person; a later
+  multi-user/subject extension is a clean migration (column nullable + default 1 +
+  backfill), since the idempotency keys are already stable.
+- **Raw payload archived verbatim** (`raw_ingest`, JSONB), retention permanent (tiny
+  volume); a CA can replace the daily-aggregate view later without a schema break.
+- **ECG/GPX deliberately off** (raw waveforms/location data, no analytical value,
+  payload/privacy burden). The generic model (§4.0) tolerates further health categories
+  (medications, symptoms as event markers) at any time without a schema change, should
+  they become relevant.
+- **Optional / on the server, not built in:** interactive Jupyter exploration only
+  covers the ad-hoc case that pipeline + Grafana already cover.
+- **Out of scope (addable on demand):** a Docker Hub mirror of the images (currently
+  GHCR only), an arm64 image (currently `linux/amd64` only), a dedicated web app.
 
-## 11. Methodische Stolperfallen
+## 11. Methodological pitfalls
 
-- **Tagesraster:** Alles auf Kalendertage (lokale TZ) resamplen, sonst sind Metriken nicht vergleichbar.
-- **Zeitversatz:** Effekte wirken verzögert (Training heute → HRV morgen) — Lag-Korrelationen, nicht nur Lag 0.
-- **Spearman statt Pearson:** physiologische Daten sind oft nicht-linear/nicht-normalverteilt.
-- **Multiple Testing:** viele Metrik-Paare → Zufallstreffer. FDR-Korrektur (`p_value_adj`), Befunde als Hinweis behandeln. Korrelation ≠ Kausalität.
-- **Genug Historie:** vor ~6–8 Wochen sind Korrelationen wenig belastbar (→ Bulk-Backfill, §5).
-- **Saisonalität:** Wochentag-Effekte (Wochenende ≠ Werktag) bei Anomalien berücksichtigen.
-- **Aggregat-Semantik:** je Metrik den richtigen Tageswert nehmen (Registry) — Steps summieren, RestingHR minimieren, kein "avg über alles".
+- **Daily grid:** resample everything onto calendar days (local TZ), otherwise metrics aren't comparable.
+- **Time lag:** effects act with delay (training today → HRV tomorrow) — use lag correlations, not just lag 0.
+- **Spearman over Pearson:** physiological data is often non-linear/non-normal.
+- **Multiple testing:** many metric pairs → chance hits. FDR correction (`p_value_adj`), treat findings as hints. Correlation ≠ causation.
+- **Enough history:** before ~6–8 weeks correlations are not very sound (→ bulk backfill, §5).
+- **Seasonality:** account for weekday effects (weekend ≠ workday) in anomalies.
+- **Aggregate semantics:** take the right daily value per metric (registry) — sum steps, minimise resting HR, no "avg over everything".
 
-## 12. Privacy-Checkliste
+## 12. Privacy checklist
 
-- Ingest-Endpoint nur über TLS + Secret-Header/Token erreichbar (HAE unterstützt Custom Headers).
-- DB nicht öffentlich exponiert; Grafana hinter Auth.
-- LLM rein lokal (Ollama, kein API-Key, kein Netzwerk-Egress); die Narration erhält nur
-  statistische Befund-Größen, nie Rohwerte (`scrub_details()`).
-- Keine Telemetrie in den Komponenten aktivieren.
+- Ingest endpoint reachable only over TLS + secret header/token (HAE supports custom headers).
+- DB not publicly exposed; Grafana behind auth.
+- LLM purely local (Ollama, no API key, no network egress); the narration receives only
+  statistical finding quantities, never raw values (`scrub_details()`).
+- Don't enable telemetry in any component.
