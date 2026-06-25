@@ -190,6 +190,24 @@ def test_correlation_keeps_one_finding_per_pair():
     assert {findings[0].metric_a, findings[0].metric_b} == {"a", "b"}
 
 
+def test_correlation_finding_stamps_raw_coef():
+    # Each finding records the raw (non-de-trended) Spearman at the same lag, for
+    # transparency about how much the de-trending shaped it. With a trend-free
+    # common signal, raw and de-trended agree closely.
+    rng = np.random.default_rng(60)
+    n = 300
+    base = np.zeros(n)
+    for k in range(1, n):
+        base[k] = 0.8 * base[k - 1] + rng.normal()  # stationary AR(1): no trend
+    a = _daily(base + rng.normal(scale=0.3, size=n))
+    b = _daily(base + rng.normal(scale=0.3, size=n))
+    findings = analysis._correlation_findings({"a": a, "b": b}, dt.datetime.now(UTC))
+    assert len(findings) == 1
+    raw = findings[0].details["raw_coef"]
+    assert raw is not None and raw > 0.5
+    assert abs(raw - float(findings[0].coefficient)) < 0.2  # trend-free: raw ~ de-trended
+
+
 # --- Activity-volume suppression --------------------------------------------
 
 
@@ -287,45 +305,6 @@ def test_correlation_suppresses_activity_ring_vs_load():
     base = _daily(rng.normal(size=120))
     series = {"apple_exercise_time": base, "workout_duration": base * 1.1 + 0.01}
     assert analysis._correlation_findings(series, dt.datetime.now(UTC)) == []
-
-
-# --- Gappy-series guard (coverage) ------------------------------------------
-
-
-def test_calendar_coverage():
-    # A gap-free daily series covers its whole span; a once-per-5-days series ~0.2.
-    assert analysis._calendar_coverage(_daily(np.ones(100))) == 1.0
-    sparse = pd.Series(np.ones(20), index=pd.date_range("2026-01-01", periods=20, freq="5D"))
-    assert analysis._calendar_coverage(sparse) < 0.25
-    assert analysis._calendar_coverage(_daily([1.0])) == 0.0  # too few points
-
-
-def test_detrend_drops_gappy_series_below_coverage():
-    # A workout-only-style vital, measured ~every 4th day, is too gappy to detrend
-    # (its trend would be interpolated across the gaps) and is dropped; a dense
-    # series over the same span is kept.
-    rng = np.random.default_rng(50)
-    dense = _daily(rng.normal(size=200))
-    gappy = pd.Series(rng.normal(size=50), index=pd.date_range("2026-01-01", periods=50, freq="4D"))
-    out = analysis._detrend_for_correlation({"dense": dense, "gappy": gappy})
-    assert "dense" in out and "gappy" not in out
-
-
-def test_correlation_excludes_gappy_series():
-    # A series measured only on scattered days yields no finding even against a
-    # dense series it tracks perfectly: its interpolated trend cannot be trusted.
-    # Disabling the guard (corr_min_coverage=0) surfaces the same pair, proving
-    # the coverage gate is the cause.
-    rng = np.random.default_rng(51)
-    n = 200
-    base = rng.normal(size=n)
-    full_idx = pd.date_range("2026-01-01", periods=n, freq="D")
-    dense = pd.Series(base, index=full_idx)
-    gappy = pd.Series(base, index=full_idx).reindex(full_idx[::4])  # ~1/4 of days
-    assert analysis._correlation_findings({"dense": dense, "gappy": gappy}, dt.datetime.now(UTC)) == []
-    cfg = AnalysisConfig(corr_min_coverage=0.0)
-    found = analysis._correlation_findings({"dense": dense, "gappy": gappy}, dt.datetime.now(UTC), cfg=cfg)
-    assert any({f.metric_a, f.metric_b} == {"dense", "gappy"} for f in found)
 
 
 # --- Sparse-series guard (min_active) ---------------------------------------

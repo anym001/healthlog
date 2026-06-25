@@ -96,14 +96,6 @@ class AnalysisConfig(BaseModel):
     # not relevance); this effect-size floor keeps only relationships of at least
     # moderate strength. 0 disables it.
     corr_min_abs: float = Field(default=0.3, ge=0.0, le=1.0)
-    # De-trending needs a trustworthy long-run trend to subtract. A series whose
-    # real observations cover less than this fraction of its calendar span is too
-    # gappy: its STL trend is dominated by interpolation across the gaps, and
-    # subtracting that manufactured trend produces spurious (de-trending-only)
-    # correlations. Such series are dropped from correlation analysis. Near-daily
-    # and 0-filled series sit well above the floor and are never affected. 0
-    # disables the guard.
-    corr_min_coverage: float = Field(default=0.5, ge=0.0, le=1.0)
     # Anomaly
     anomaly_window: int = Field(default=28, ge=2)
     anomaly_threshold: float = Field(default=3.5, gt=0.0)

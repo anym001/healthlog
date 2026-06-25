@@ -53,11 +53,6 @@
 #                             # (guards 0-filled sparse per-sport workout load)
 #   corr_min_abs: 0.3         # effect-size floor: min |coefficient| to report
 #                             # (drops significant-but-negligible correlations)
-#   corr_min_coverage: 0.5    # min fraction of a series' calendar span with a real
-#                             # observation before it is de-trended & correlated;
-#                             # gappier series (e.g. workout-only vitals like
-#                             # cardio_recovery) have an interpolation-dominated
-#                             # trend and are dropped to avoid de-trending artefacts
 #   # Anomaly (robust rolling median + MAD)
 #   anomaly_window: 28        # trailing days for the baseline
 #   anomaly_threshold: 3.5    # robust z above which a day is flagged
