@@ -190,28 +190,36 @@ def test_correlation_keeps_one_finding_per_pair():
     assert {findings[0].metric_a, findings[0].metric_b} == {"a", "b"}
 
 
-# --- Redundant workout-measure suppression ----------------------------------
+# --- Workout load-family suppression ----------------------------------------
 
 
-def test_parse_workout_load_splits_measure_and_target():
-    assert analysis._parse_workout_load("workout_trimp") == ("trimp", "")
-    assert analysis._parse_workout_load("workout_load_stair_stepper") == ("load", "stair_stepper")
-    assert analysis._parse_workout_load("workout_edwards_yoga") == ("edwards", "yoga")
-    assert analysis._parse_workout_load("resting_heart_rate") is None
-    assert analysis._parse_workout_load("workout_duration") is None  # not a load measure
+def test_is_workout_load_family():
+    for name in (
+        "workout_trimp",
+        "workout_load",
+        "workout_edwards",
+        "workout_duration",
+        "workout_count",
+        "workout_load_stair_stepper",
+        "workout_edwards_yoga",
+    ):
+        assert analysis._is_workout_load_family(name), name
+    for name in ("workout_intensity", "resting_heart_rate", "step_count", "sleep_total_h"):
+        assert not analysis._is_workout_load_family(name), name
 
 
 def test_is_redundant_workout_pair():
-    # Same target, different load measure -> definitional (suppressed).
-    assert analysis._is_redundant_workout_pair("workout_trimp", "workout_load")
-    assert analysis._is_redundant_workout_pair("workout_trimp", "workout_edwards")
-    assert analysis._is_redundant_workout_pair("workout_trimp_stair_stepper", "workout_load_stair_stepper")
-    # Aggregate vs its own per-sport child (existing rule, still covered).
-    assert analysis._is_redundant_workout_pair("workout_trimp", "workout_trimp_running")
-    # Kept: different sports, sport-vs-aggregate, and non-workout pairs.
-    assert not analysis._is_redundant_workout_pair("workout_load_yoga", "workout_load_stair_stepper")
-    assert not analysis._is_redundant_workout_pair("workout_trimp", "workout_load_yoga")
-    assert not analysis._is_redundant_workout_pair("workout_trimp", "resting_heart_rate")
+    # Both load-family -> training composition, not a health insight (suppressed).
+    assert analysis._is_redundant_workout_pair("workout_trimp", "workout_load")  # cross-measure
+    assert analysis._is_redundant_workout_pair("workout_load", "workout_duration")  # load vs duration
+    assert analysis._is_redundant_workout_pair("workout_duration", "workout_count")  # duration vs count
+    assert analysis._is_redundant_workout_pair("workout_trimp", "workout_trimp_running")  # aggregate vs child
+    assert analysis._is_redundant_workout_pair("workout_load_yoga", "workout_load_stair_stepper")  # sport vs sport
+    assert analysis._is_redundant_workout_pair("workout_edwards_yoga", "workout_load_stair_stepper")  # cross both
+    # Kept: a load-family series vs any non-load-family metric (the useful pairs).
+    assert not analysis._is_redundant_workout_pair("workout_load_running", "resting_heart_rate")
+    assert not analysis._is_redundant_workout_pair("workout_trimp", "sleep_total_h")
+    assert not analysis._is_redundant_workout_pair("workout_load", "workout_intensity")
 
 
 def test_correlation_suppresses_same_target_cross_measure():
@@ -250,6 +258,26 @@ def test_spearman_lag_min_active_keeps_dense_series():
     b = _daily(base + 100 + rng.normal(scale=0.1, size=120))
     res = spearman_lag(a, b, 0, min_overlap=42, min_active=10)
     assert res is not None and res.coef > 0.8
+
+
+# --- Effect-size floor (corr_min_abs) ---------------------------------------
+
+
+def test_correlation_effect_size_floor_drops_weak_pairs():
+    # A weak but, over a long series, "significant" correlation: ~0.15. The
+    # default floor (0.3) must drop it; disabling the floor must keep it.
+    rng = np.random.default_rng(55)
+    n = 600
+    base = rng.normal(size=n)
+    a = _daily(base)
+    b = _daily(0.16 * base + rng.normal(size=n))  # weak shared component
+    raw = spearman_lag(a, b, 0)
+    assert raw is not None and 0.05 < abs(raw.coef) < 0.30  # weak-but-present
+
+    series = {"a": a, "b": b}
+    assert analysis._correlation_findings(series, dt.datetime.now(UTC)) == []  # default floor 0.3
+    kept = analysis._correlation_findings(series, dt.datetime.now(UTC), AnalysisConfig(corr_min_abs=0.0))
+    assert len(kept) == 1 and abs(float(kept[0].coefficient)) < 0.30
 
 
 # --- Bedtime offset (circular) ---------------------------------------------
@@ -666,15 +694,6 @@ def test_canonical_workout_type_config_overrides_builtin():
 
 def test_canonical_workout_type_slugs_spaces():
     assert canonical_workout_type("X", {"X": "Trail Running"}) == "trail_running"
-
-
-def test_is_workout_aggregate_child():
-    assert analysis._is_workout_aggregate_child("workout_trimp", "workout_trimp_running")
-    assert analysis._is_workout_aggregate_child("workout_load_cycling", "workout_load")
-    # Different families / two aggregates / two sports are NOT mechanical pairs.
-    assert not analysis._is_workout_aggregate_child("workout_trimp", "workout_load")
-    assert not analysis._is_workout_aggregate_child("workout_trimp_running", "workout_trimp_cycling")
-    assert not analysis._is_workout_aggregate_child("workout_trimp", "resting_heart_rate")
 
 
 # --- Workout series: DB end-to-end -----------------------------------------

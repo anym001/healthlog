@@ -51,6 +51,8 @@
 #   fdr_alpha: 0.05
 #   corr_min_active: 10       # min non-zero days per series in a pair's overlap
 #                             # (guards 0-filled sparse per-sport workout load)
+#   corr_min_abs: 0.3         # effect-size floor: min |coefficient| to report
+#                             # (drops significant-but-negligible correlations)
 #   # Anomaly (robust rolling median + MAD)
 #   anomaly_window: 28        # trailing days for the baseline
 #   anomaly_threshold: 3.5    # robust z above which a day is flagged

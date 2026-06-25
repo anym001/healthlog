@@ -68,6 +68,7 @@ MIN_OVERLAP = _DEFAULTS.min_overlap  # >= ~6 weeks of paired days before trusted
 CORR_KEEP_ALPHA = _DEFAULTS.corr_keep_alpha  # keep when FDR-adjusted p <= this
 FDR_ALPHA = _DEFAULTS.fdr_alpha
 CORR_MIN_ACTIVE = _DEFAULTS.corr_min_active  # min non-zero days per series in a pair's overlap
+CORR_MIN_ABS = _DEFAULTS.corr_min_abs  # effect-size floor: min |coefficient| to report
 
 ANOMALY_WINDOW = _DEFAULTS.anomaly_window  # trailing days for median + MAD baseline
 ANOMALY_THRESHOLD = _DEFAULTS.anomaly_threshold  # robust z (|0.6745*(x-med)/MAD|)
@@ -826,53 +827,28 @@ def _detrend_for_correlation(
     return out
 
 
-_WORKOUT_AGGREGATES = ("workout_trimp", "workout_load", "workout_edwards")
-# The three load *measures* of one and the same workout (Banister TRIMP,
-# active-energy load, zone-based Edwards). Correlating two of them for the same
-# target (aggregate or one sport) is definitional, not an insight — they are the
-# same training session expressed three ways (observed r ~ 1.0).
-_WORKOUT_MEASURES = ("trimp", "load", "edwards")
+# A workout "load family" series measures training *volume/load* of a target
+# (the type-agnostic aggregate or one sport): Banister TRIMP, active-energy load,
+# zone-based Edwards, plus session duration and count. Correlating two of them
+# with each other is structural, not a health insight — it describes training
+# composition (the same session as TRIMP/load/Edwards at r ~ 1.0; an aggregate vs
+# its own per-sport child; duration vs load; one sport's load vs another's). What
+# *is* informative — a sport's load vs recovery/sleep/vitals — pairs a load-family
+# series with a non-load-family one, and is kept.
+_WORKOUT_LOAD_FAMILY = ("trimp", "load", "edwards", "duration", "count")
 
 
-def _is_workout_aggregate_child(a: str, b: str) -> bool:
-    """True when one name is a workout load aggregate and the other its own
-    per-sport series (e.g. ``workout_trimp`` vs ``workout_trimp_running``); their
-    correlation is mechanical, not informative. Sport-vs-sport and sport-vs-other
-    pairs are kept."""
-    lo, hi = sorted((a, b), key=len)
-    return lo in _WORKOUT_AGGREGATES and hi.startswith(lo + "_")
-
-
-def _parse_workout_load(name: str) -> tuple[str, str] | None:
-    """Split a workout load-series name into ``(measure, target)``.
-
-    ``workout_trimp`` -> ``("trimp", "")`` (the type-agnostic aggregate);
-    ``workout_load_stair_stepper`` -> ``("load", "stair_stepper")``. Returns
-    None for anything that is not a workout load series.
-    """
-    for measure in _WORKOUT_MEASURES:
-        prefix = f"workout_{measure}"
-        if name == prefix:
-            return (measure, "")
-        if name.startswith(prefix + "_"):
-            return (measure, name[len(prefix) + 1 :])
-    return None
+def _is_workout_load_family(name: str) -> bool:
+    """True for ``workout_{trimp,load,edwards,duration,count}[_sport]``."""
+    return any(name == f"workout_{m}" or name.startswith(f"workout_{m}_") for m in _WORKOUT_LOAD_FAMILY)
 
 
 def _is_redundant_workout_pair(a: str, b: str) -> bool:
-    """True for workout pairs whose correlation is structural, not informative.
-
-    Two cases are suppressed: an aggregate vs its own per-sport child of the same
-    measure (``_is_workout_aggregate_child``), and two *different load measures*
-    of the same target (same sport, or both aggregates) — e.g.
-    ``workout_trimp_stair_stepper`` vs ``workout_load_stair_stepper``, or
-    ``workout_trimp`` vs ``workout_edwards``. Cross-target pairs (different
-    sports, or sport-vs-aggregate) are kept: their lagged relationship can be
-    real (one sport's load affecting another's recovery)."""
-    if _is_workout_aggregate_child(a, b):
-        return True
-    pa, pb = _parse_workout_load(a), _parse_workout_load(b)
-    return pa is not None and pb is not None and pa[1] == pb[1] and pa[0] != pb[0]
+    """True when *both* names are workout load-family series: their correlation
+    is training composition, not a health relationship, so it is suppressed. A
+    load-family series against any other metric (recovery, sleep, vital) is
+    kept — that is where the value is."""
+    return _is_workout_load_family(a) and _is_workout_load_family(b)
 
 
 def _correlation_findings(
@@ -911,8 +887,8 @@ def _correlation_findings(
     # metric pair, so a slow pair isn't listed 5x across lags and directions.
     best: dict[frozenset[str], tuple[str, str, int, Corr, float]] = {}
     for (a, b, lag, c), p_adj in zip(candidates, adj, strict=True):
-        if p_adj > cfg.corr_keep_alpha:
-            continue
+        if p_adj > cfg.corr_keep_alpha or abs(c.coef) < cfg.corr_min_abs:
+            continue  # not significant, or too weak to be worth reporting
         key = frozenset((a, b))
         prev = best.get(key)
         if prev is None or abs(c.coef) > abs(prev[3].coef):
