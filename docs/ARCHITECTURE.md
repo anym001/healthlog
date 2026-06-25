@@ -293,9 +293,9 @@ the anomaly). Non-applicable fields stay NULL.
   (dedup). Two relevance filters cut structural noise: an **effect-size floor**
   (`analysis.corr_min_abs`, default 0.3) drops significant-but-negligible pairs, and
   **activity-volume suppression** drops a pair when *both* series measure how much you
-  moved/trained (workout load-family or Apple activity-ring metrics — see
-  `_is_activity_volume` in `app/analysis.py`); an activity series vs a body-state metric
-  (recovery/sleep/vital) is kept.
+  moved/trained (workout-derived metrics — load/duration/count/intensity — or Apple
+  activity-ring metrics — see `_is_activity_volume` in `app/analysis.py`); an activity
+  series vs a body-state metric (recovery/sleep/vital) is kept.
 - **anomaly** — 28-day trailing median + MAD (robust z), last 14 days only.
 - **trend** — STL trend component (slope + trend strength).
 - **seasonality** — MSTL(7, 365): yearly pattern (amplitude + peak/trough month), from
