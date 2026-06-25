@@ -190,7 +190,7 @@ def test_correlation_keeps_one_finding_per_pair():
     assert {findings[0].metric_a, findings[0].metric_b} == {"a", "b"}
 
 
-# --- Workout load-family suppression ----------------------------------------
+# --- Activity-volume suppression --------------------------------------------
 
 
 def test_is_workout_load_family():
@@ -208,18 +208,39 @@ def test_is_workout_load_family():
         assert not analysis._is_workout_load_family(name), name
 
 
-def test_is_redundant_workout_pair():
-    # Both load-family -> training composition, not a health insight (suppressed).
-    assert analysis._is_redundant_workout_pair("workout_trimp", "workout_load")  # cross-measure
-    assert analysis._is_redundant_workout_pair("workout_load", "workout_duration")  # load vs duration
-    assert analysis._is_redundant_workout_pair("workout_duration", "workout_count")  # duration vs count
-    assert analysis._is_redundant_workout_pair("workout_trimp", "workout_trimp_running")  # aggregate vs child
-    assert analysis._is_redundant_workout_pair("workout_load_yoga", "workout_load_stair_stepper")  # sport vs sport
-    assert analysis._is_redundant_workout_pair("workout_edwards_yoga", "workout_load_stair_stepper")  # cross both
-    # Kept: a load-family series vs any non-load-family metric (the useful pairs).
-    assert not analysis._is_redundant_workout_pair("workout_load_running", "resting_heart_rate")
-    assert not analysis._is_redundant_workout_pair("workout_trimp", "sleep_total_h")
-    assert not analysis._is_redundant_workout_pair("workout_load", "workout_intensity")
+def test_is_activity_volume():
+    # Workout load-family and Apple activity-ring metrics are both activity volume.
+    for name in (
+        "workout_trimp",
+        "workout_load_yoga",
+        "apple_exercise_time",
+        "apple_stand_time",
+        "active_energy",
+        "step_count",
+        "walking_running_distance",
+        "flights_climbed",
+    ):
+        assert analysis._is_activity_volume(name), name
+    # Body-state metrics are not activity volume.
+    for name in ("resting_heart_rate", "sleep_total_h", "respiratory_rate", "workout_intensity"):
+        assert not analysis._is_activity_volume(name), name
+
+
+def test_is_redundant_activity_pair():
+    # Both activity-volume -> movement/training composition, not a health insight.
+    assert analysis._is_redundant_activity_pair("workout_trimp", "workout_load")  # load cross-measure
+    assert analysis._is_redundant_activity_pair("workout_load", "workout_duration")  # load vs duration
+    assert analysis._is_redundant_activity_pair("workout_trimp", "workout_trimp_running")  # aggregate vs child
+    assert analysis._is_redundant_activity_pair("workout_load_yoga", "workout_load_stair_stepper")  # sport vs sport
+    assert analysis._is_redundant_activity_pair("step_count", "walking_running_distance")  # ring vs ring
+    assert analysis._is_redundant_activity_pair("active_energy", "apple_stand_time")  # ring vs ring
+    assert analysis._is_redundant_activity_pair("apple_exercise_time", "workout_duration")  # ring vs load
+    assert analysis._is_redundant_activity_pair("active_energy", "workout_load")  # ring vs load
+    # Kept: an activity-volume series vs any body-state metric (the useful pairs).
+    assert not analysis._is_redundant_activity_pair("workout_load_running", "resting_heart_rate")
+    assert not analysis._is_redundant_activity_pair("step_count", "resting_heart_rate")
+    assert not analysis._is_redundant_activity_pair("active_energy", "sleep_total_h")
+    assert not analysis._is_redundant_activity_pair("workout_load", "workout_intensity")
 
 
 def test_correlation_suppresses_same_target_cross_measure():
@@ -228,6 +249,15 @@ def test_correlation_suppresses_same_target_cross_measure():
     rng = np.random.default_rng(33)
     base = _daily(rng.normal(size=120))
     series = {"workout_trimp_yoga": base, "workout_edwards_yoga": base * 1.4 + 0.01}
+    assert analysis._correlation_findings(series, dt.datetime.now(UTC)) == []
+
+
+def test_correlation_suppresses_activity_ring_vs_load():
+    # Apple's exercise minutes track workout duration almost perfectly; that is
+    # the same activity logged two ways, so no finding must be emitted.
+    rng = np.random.default_rng(34)
+    base = _daily(rng.normal(size=120))
+    series = {"apple_exercise_time": base, "workout_duration": base * 1.1 + 0.01}
     assert analysis._correlation_findings(series, dt.datetime.now(UTC)) == []
 
 

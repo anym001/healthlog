@@ -200,8 +200,9 @@ Once the series are in the dict, among others these fall out:
   underestimate. For **relative** comparisons (trends/anomalies/ACWR) uncritical, for
   absolute numbers less sound → `profile.birth_year` resp. `hr_max` improve it.
 - **Overlap with `active_energy`**: its daily sum already contains the workout energy →
-  a strong `workout_load`↔`active_energy` correlation is expected/trivial and should be
-  read as such (or the pair excluded).
+  a strong `workout_load`↔`active_energy` correlation is expected/trivial. Both count as
+  *activity volume*, so the correlation finder suppresses the pair (ARCHITECTURE §4.8,
+  `_is_activity_volume`); only activity-vs-body-state pairs are reported.
 - **Null inflation** for infrequent trainers → weaker statistics; the `min_overlap`
   guard applies sensibly.
 - **Correlation ≠ causation** (ARCHITECTURE §11) — the lag direction "training →
