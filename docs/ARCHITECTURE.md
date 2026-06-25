@@ -290,7 +290,12 @@ the anomaly). Non-applicable fields stay NULL.
 - **correlation** — Spearman on **de-trended** series (trend component subtracted, so
   opposing long-term trends can't produce a spurious correlation), lags 0–3 days (both
   directions), FDR `p_value_adj`; per metric pair only the **strongest** lag/direction
-  (dedup).
+  (dedup). Two relevance filters cut structural noise: an **effect-size floor**
+  (`analysis.corr_min_abs`, default 0.3) drops significant-but-negligible pairs, and
+  **activity-volume suppression** drops a pair when *both* series measure how much you
+  moved/trained (workout load-family or Apple activity-ring metrics — see
+  `_is_activity_volume` in `app/analysis.py`); an activity series vs a body-state metric
+  (recovery/sleep/vital) is kept.
 - **anomaly** — 28-day trailing median + MAD (robust z), last 14 days only.
 - **trend** — STL trend component (slope + trend strength).
 - **seasonality** — MSTL(7, 365): yearly pattern (amplitude + peak/trough month), from

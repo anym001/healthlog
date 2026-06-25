@@ -827,15 +827,32 @@ def _detrend_for_correlation(
     return out
 
 
-# A workout "load family" series measures training *volume/load* of a target
-# (the type-agnostic aggregate or one sport): Banister TRIMP, active-energy load,
-# zone-based Edwards, plus session duration and count. Correlating two of them
-# with each other is structural, not a health insight — it describes training
-# composition (the same session as TRIMP/load/Edwards at r ~ 1.0; an aggregate vs
-# its own per-sport child; duration vs load; one sport's load vs another's). What
-# *is* informative — a sport's load vs recovery/sleep/vitals — pairs a load-family
-# series with a non-load-family one, and is kept.
+# An "activity-volume" series measures *how much you moved or trained*, not a
+# body state. Two of them correlating is structural, not a health insight — it
+# just says the same activity was logged two ways. The family has two sub-groups:
+#
+#   * Workout load-family: per-target training load — Banister TRIMP, active-
+#     energy load, zone-based Edwards, plus session duration and count (the
+#     type-agnostic aggregate, its per-sport children, one sport vs another).
+#   * Apple activity metrics: the move/exercise/stand ring and its raw drivers —
+#     exercise minutes, stand time, active energy, steps, distance, flights.
+#
+# Correlating *within* this family is tautological, whether load-vs-load, ring-
+# vs-ring (step_count vs walking_running_distance), or load-vs-ring
+# (apple_exercise_time vs workout_duration ~ 0.9). What *is* informative pairs an
+# activity-volume series with a body-state metric (recovery, sleep, vital) — e.g.
+# workout_load_running vs resting_heart_rate — and is kept.
 _WORKOUT_LOAD_FAMILY = ("trimp", "load", "edwards", "duration", "count")
+_APPLE_ACTIVITY_METRICS = frozenset(
+    {
+        "apple_exercise_time",
+        "apple_stand_time",
+        "active_energy",
+        "step_count",
+        "walking_running_distance",
+        "flights_climbed",
+    }
+)
 
 
 def _is_workout_load_family(name: str) -> bool:
@@ -843,12 +860,19 @@ def _is_workout_load_family(name: str) -> bool:
     return any(name == f"workout_{m}" or name.startswith(f"workout_{m}_") for m in _WORKOUT_LOAD_FAMILY)
 
 
-def _is_redundant_workout_pair(a: str, b: str) -> bool:
-    """True when *both* names are workout load-family series: their correlation
-    is training composition, not a health relationship, so it is suppressed. A
-    load-family series against any other metric (recovery, sleep, vital) is
-    kept — that is where the value is."""
-    return _is_workout_load_family(a) and _is_workout_load_family(b)
+def _is_activity_volume(name: str) -> bool:
+    """True for any activity-volume series: a workout load-family metric or an
+    Apple activity-ring metric (exercise/stand time, active energy, steps,
+    distance, flights)."""
+    return _is_workout_load_family(name) or name in _APPLE_ACTIVITY_METRICS
+
+
+def _is_redundant_activity_pair(a: str, b: str) -> bool:
+    """True when *both* names are activity-volume series: their correlation is
+    training/movement composition, not a health relationship, so it is
+    suppressed. An activity-volume series against any body-state metric
+    (recovery, sleep, vital) is kept — that is where the value is."""
+    return _is_activity_volume(a) and _is_activity_volume(b)
 
 
 def _correlation_findings(
@@ -864,8 +888,8 @@ def _correlation_findings(
     for i in range(len(names)):
         for j in range(i + 1, len(names)):
             a, b = names[i], names[j]
-            if _is_redundant_workout_pair(a, b):
-                continue  # same workout measured two ways, or aggregate vs its own child
+            if _is_redundant_activity_pair(a, b):
+                continue  # both measure activity volume (load or Apple ring) — structural, not health
             ma = cfg.corr_min_active
             c0 = spearman_lag(detrended[a], detrended[b], 0, min_overlap=cfg.min_overlap, min_active=ma)
             if c0:
