@@ -15,10 +15,9 @@ A nightly job computes statistical findings and stores them back in the database
 ready to chart with whatever dashboard you prefer. An optional local LLM (Ollama)
 can narrate the findings later.
 
-> **Status:** ingestion + storage (Phase 1), the nightly analysis pipeline
-> (Phase 3), the Grafana dashboards and the optional local-LLM narration
-> (Phase 4) are all in place.
-> The full design and roadmap live in [`docs/PLAN.md`](docs/PLAN.md).
+> **Status:** ingestion + storage, the nightly analysis pipeline, the Grafana
+> dashboards and the optional local-LLM narration are all in place.
+> The full design and rationale live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Contents
 
@@ -87,7 +86,7 @@ in any dashboard tool:
   sharpen with an optional `profile` (see below).
 
 All statistics run on the server; only the optional LLM narration is intended
-for a Mac. The full method list and tuning live in [`docs/PLAN.md`](docs/PLAN.md).
+for a Mac. The full method list and tuning live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Requirements
 

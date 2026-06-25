@@ -8,7 +8,7 @@ The pure-math helpers (top of the file) take pandas objects and no DB/IO, so
 they are unit-tested against synthetic series with a fixed seed. The DB
 orchestration (loaders + ``run``) is kept separate.
 
-Findings (PLAN.md §4.7), all derived, never medical advice:
+Findings (ARCHITECTURE.md §4.8), all derived, never medical advice:
 - correlation    Spearman on de-trended series, lags 0..3 days (both
                  directions), FDR-corrected, best lag/direction per pair.
 - anomaly        28-day trailing median + MAD robust z; only recent days.

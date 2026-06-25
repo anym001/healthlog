@@ -1,11 +1,14 @@
 # Workout-Analyse & strukturierte Konfiguration
 
-> **Status:** **Iteration 1 + 2 + Edwards implementiert** — typ-agnostische
-> Tageslast (`workout_trimp` + `workout_load`, ACWR, Profil via `config.yaml`),
-> typ-getrennte Last pro Sportart über `workouts.type_map`
-> (`workout_trimp_running` …) **und** zonenbasiertes Edwards-TRIMP
+> Design und Methodik der Trainingslast-Analyse — ergänzt
+> [`ARCHITECTURE.md`](ARCHITECTURE.md) um den Workout-Teil der Pipeline.
+> Workouts werden zu **Tagesserien** verdichtet und laufen durch dieselbe
+> Maschinerie (Lag-Korrelationen, Anomalien, Trends). Kernbausteine:
+> typ-agnostische Tageslast (`workout_trimp` + `workout_load`, ACWR, Profil via
+> `config.yaml`), typ-getrennte Last pro Sportart über `workouts.type_map`
+> (`workout_trimp_running` …) und zonenbasiertes Edwards-TRIMP
 > (`workout_edwards`, parallel zu Banister) aus der Intra-Workout-HR-Zeitreihe
-> (siehe §9). Ergänzt `PLAN.md` (Phase 3) um Trainingsdaten.
+> (siehe §9).
 
 ## 1. Motivation
 
@@ -84,7 +87,7 @@ HR_max korrekt mitdriftet (~0,7/Jahr). Die Pipeline läuft **auch ganz ohne
 Profil** (datengetriebenes HR_max, ♂-Gewicht als dokumentierter Default) — die
 Profilwerte sind **optionale Präzisierung**, keine Voraussetzung.
 
-## 4. Konfiguration: `config.yaml` (gewählt)
+## 4. Konfiguration: `config.yaml`
 
 Bisher ist alle Konfiguration ENV-basiert (`app/config.py:Settings`). Für
 strukturierte Werte (Profil, Typ-Mapping, Tunables) führen wir — wie im
@@ -147,17 +150,17 @@ notify:                   # Token bleibt ENV (NOTIFY_TOKEN)
 - `config.example.yaml` mitliefern; echte `config.yaml` ist gemountet und
   gitignored (wie beim Importer).
 
-### 4.3 Migrationsschritte (für die spätere Umsetzung)
+### 4.3 Aufteilung im Code
 
-1. `AppConfig` + `load_config`/`validate_config` in `app/config.py` (oder
-   `app/appconfig.py`), `config.example.yaml` unter `config/`.
-2. Tunables aus `analysis.py` nach `analysis:`-Block verschieben (Konstanten als
-   Defaults behalten).
-3. `profile`/`workouts` ergänzen; TRIMP-/HR_max-Logik als pure Helfer
-   (unit-testbar, `data-in`).
-4. Notify-Felder (außer Token) optional nach YAML überführen — die Notify-Logik
-   selbst bleibt unverändert.
-5. README: `config.yaml`-Abschnitt + ENV/YAML-Split dokumentieren.
+- `AppConfig` + `load_config`/`validate_config` in `app/appconfig.py`,
+  `config.example.yaml` mitgeliefert; die echte `config.yaml` ist gemountet und
+  gitignored.
+- Analyse-Tunables liegen im `analysis:`-Block (Modul-Konstanten als Defaults,
+  wenn die Datei fehlt).
+- `profile`/`workouts` treiben TRIMP-/HR_max-Logik als pure Helfer
+  (unit-testbar, `data-in`).
+- Notify-Felder (außer dem Token, das ENV bleibt) liegen im `notify:`-Block; die
+  Notify-Logik selbst ist davon unberührt.
 
 ## 5. Neue Befunde aus Trainingslast
 
@@ -216,27 +219,27 @@ Sobald die Serien im Dict liegen, fallen u. a. heraus:
   Paar ausgeschlossen) werden.
 - **Null-Inflation** bei selten Trainierenden → schwächere Statistik; der
   `min_overlap`-Schutz greift sinnvoll.
-- **Korrelation ≠ Kausalität** (PLAN §6) — die Lag-Richtung „Training →
+- **Korrelation ≠ Kausalität** (ARCHITECTURE §11) — die Lag-Richtung „Training →
   Erholung" ist physiologisch plausibel, der Test misst aber nur Ko-Bewegung.
 
-## 9. Phasenplan
+## 9. Last-Metriken im Detail
 
-- **Iteration 1 (typ-agnostisch, erledigt):** alle Workouts in eine Tageslast
+- **Typ-agnostisch:** alle Workouts in eine Tageslast
   (`workout_trimp` + `workout_load`), ACWR, Profil via `config.yaml`. Umgeht das
   `name`-Typ-Mapping komplett.
-- **Iteration 2 (typ-getrennt, erledigt):** `workouts.type_map` (lokalisierter
+- **Typ-getrennt:** `workouts.type_map` (lokalisierter
   `name` → kanonischer Typ, case-insensitiv) erzeugt **zusätzlich** je Sportart
   eine Lastserie (`workout_trimp_<typ>` / `workout_load_<typ>`, gated über
   `load_metric`). Nicht gemappte Workouts speisen weiterhin nur das Aggregat.
   Korrelationen zwischen einem Aggregat und seiner eigenen Sport-Komponente sind
   mechanisch und werden ausgeschlossen (`_is_workout_aggregate_child`);
   Sport↔Sport und Sport↔andere Metrik bleiben.
-- **ACWR pro Sportart (erledigt):** ACWR läuft auf dem Aggregat **und** je
+- **ACWR pro Sportart:** ACWR läuft auf dem Aggregat **und** je
   Sportart (`_training_load_targets`, TRIMP bevorzugt). Schutz gegen Fehlalarme
   bei selten betriebenen Sportarten: eine Serie mit weniger als
   `analysis.acwr_min_active_days` (Default 8) Trainingstagen in den 28 Chronic-
   Tagen wird übersprungen.
-- **Zonenbasiertes Edwards-TRIMP (erledigt):** aus der Intra-Workout-HR-Serie
+- **Zonenbasiertes Edwards-TRIMP:** aus der Intra-Workout-HR-Serie
   (`heartRateData`, HAE liefert ~Minuten-Buckets `{Min, Avg, Max}` mit Zeitstempel)
   entsteht **zusätzlich** zu Banister eine parallele Tageslast `workout_edwards`
   (+ je Sportart `workout_edwards_<typ>`), gated über `workouts.edwards`

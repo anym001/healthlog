@@ -1,23 +1,20 @@
-# HealthLog – Plan: Privacy-First Apple-Health-Analyse
+# HealthLog – Architektur & Design
 
 > Self-hosted Analyse von Apple-Health-Daten mit Fokus auf Korrelationen,
 > Anomalien und Trends — vollständig auf eigener Hardware, keine externen
 > Anbieter.
 >
-> **Projektname:** HealthLog (Repo-Slug `healthlog`)
-> **Status:** Phasen 0, 1, 3 und 4 umgesetzt — Ingestion + Storage + nächtliche
-> Analyse-Pipeline laufen (live auf Unraid, erster Voll-Backfill eingespielt),
-> Grafana-Dashboards stehen und die optionale lokale LLM-Narration
-> (`healthlog narrate` → Ollama am Mac) ist gebaut. Verbleibend: nur die bewusst
-> aufgeschobenen Infra-TODOs (§13) und das optionale Phase 5. Fortschritt je
-> Phase in §10.
+> Dieses Dokument hält die **Architektur und die Design-Entscheidungen** fest:
+> das *Warum* hinter dem Code (Datenmodell, Ingestion-Vertrag, Analyse-Methodik,
+> Privacy-Grenzen). Was implementiert ist und wie es genutzt wird, steht im
+> README und im Code; hier steht, warum es so gebaut ist.
 
 ## 1. Grundentscheidungen
 
 - **Datenexport:** Health Auto Export (iPhone) → REST-Automation an eigenen Endpoint
-- **Topologie:** Always-On-Server trägt **alles Statistische** (Ingestion + DB + automatische Analyse + Grafana, optional interaktive Exploration) ⟷ Mac **nur** für die LLM-Narration (Phase 4); allein dort zahlt sich Apple Silicon (Unified Memory) aus
+- **Topologie:** Always-On-Server trägt **alles Statistische** (Ingestion + DB + automatische Analyse + Grafana, optional interaktive Exploration) ⟷ Mac **nur** für die LLM-Narration; allein dort zahlt sich Apple Silicon (Unified Memory) aus
 - **Analyse-Kern:** klassische Statistik/ML (Korrelationen, Anomalien, Trends) — **kein** LLM im kritischen Pfad
-- **LLM:** Ollama auf dem Mac (32 GB Unified Memory) als **Ausbaustufe (Phase 4)** für Klartext-Reports; Zielklasse 8–14B (z. B. Qwen 2.5 14B)
+- **LLM:** Ollama auf dem Mac (32 GB Unified Memory) als **optionale Ausbaustufe** für Klartext-Reports; Zielklasse 8–14B (z. B. Qwen 2.5 14B)
 - **Datenfokus:** Aktivität & Training, Schlaf & Erholung, Vitalwerte
 - **Privacy:** 100 % eigene Hardware, keine externen Calls — auch das LLM bleibt lokal
 - **Deployment-Ziel:** Unraid; das App-Image soll **public-fähig** sein
@@ -44,7 +41,7 @@
 └───────────────────────────┬───────────────────────────┘
                             │  read-only (psql)
 ┌─ Mac (Apple Silicon, 32 GB) ───────────────────────────┐
-│  NUR LLM (Phase 4): Ollama → Wochen-Report aus `findings`│
+│  NUR LLM-Narration: Ollama → Report aus `findings`      │
 │  Apple Silicon / Unified Memory — der einzige Mac-Vorteil│
 └────────────────────────────────────────────────────────┘
 (Interaktive Exploration läuft, falls gewünscht, ebenfalls am Server.)
@@ -57,7 +54,7 @@ unter `s6-overlay` (sauberes PID 1: Signal-Handling, Zombie-Reaping, Restart-Pol
 Die rechenintensive Analyse (pandas/numpy/statsmodels) darf **nicht** im uvicorn-Prozess
 laufen — sie würde über GIL/CPU-Last den Event-Loop blockieren und HAE-POSTs verzögern.
 Getrennte Prozesse = OS-Level-Isolation. Die Analyse wird vom Scheduler zusätzlich als
-**kurzlebiger Subprozess** (`python -m healthlog.analysis`) gestartet, sodass selbst ein
+**kurzlebiger Subprozess** (`python -m app.analysis`) gestartet, sodass selbst ein
 harter Crash in einer C-Extension nur diesen Subprozess killt — Scheduler **und** uvicorn
 überleben, die Datenannahme ist strukturell abgeschirmt.
 
@@ -67,9 +64,9 @@ harter Crash in einer C-Extension nur diesen Subprozess killt — Scheduler **un
 | Scheduler (APScheduler) | App-Container, eigener Prozess | triggert nachts, Logs→stdout, Env/TZ sauber |
 | Analyse | App-Container, Subprozess des Schedulers | fault-isoliert, gefährdet die Annahme nicht |
 | TimescaleDB | eigener Container | Postgres ohnehin separat |
-| Grafana | eigener Container | fertig, direkt auf Timescale |
+| Grafana | eigener Container | direkt auf Timescale |
 | Interaktive Exploration (optional, Jupyter) | Server | nur Ad-hoc-Analyse; Pipeline + Grafana decken den Normalfall, Daten bleiben am Server |
-| LLM-Reports (Phase 4) | Mac | **einziger** Mac-Grund: Apple Silicon (Unified Memory) für lokale 8–14B-Modelle |
+| LLM-Reports | Mac | **einziger** Mac-Grund: Apple Silicon (Unified Memory) für lokale 8–14B-Modelle |
 
 ## 3. Tech-Stack & Begründung
 
@@ -79,15 +76,15 @@ harter Crash in einer C-Extension nur diesen Subprozess killt — Scheduler **un
 | Storage | **TimescaleDB** (Postgres-Extension) | Zeitreihen-Hypertables, Continuous Aggregates für Tageswerte, SQL für Korrelationen, native Grafana-Anbindung. |
 | Scheduler | **APScheduler** (eigener Prozess unter s6) | Zeitplan im Code (versioniert), Logs→stdout (Docker-nativ), Env/TZ sauber — vs. cron-im-Container-Reibung. |
 | Analyse | **Python: pandas + statsmodels + scipy + scikit-learn** | Reifer, reproduzierbarer Standard für Korrelation/Trend/Anomalie. |
-| Dashboards | **Grafana** | Fertig, minimaler Aufwand, direkt auf Timescale. |
-| Container-Basis | **`python:3.12-slim` + s6-overlay v3** | Schlankes Image (relevant für Public), volle Kontrolle, PUID/PGID + `/config` wie bei PocketLog. |
-| LLM (Phase 4) | **Ollama**, 8–14B (z. B. Qwen 2.5 14B) | Lokal auf dem 32-GB-Mac; erhält nur fertige Befunde, nicht die Rohdaten. |
+| Dashboards | **Grafana** | Minimaler Aufwand, direkt auf Timescale. |
+| Container-Basis | **`python:3.12-slim` + s6-overlay v3** | Schlankes Image (relevant für Public), volle Kontrolle, PUID/PGID + `/config`. |
+| LLM (optional) | **Ollama**, 8–14B (z. B. Qwen 2.5 14B) | Lokal auf dem 32-GB-Mac; erhält nur fertige Befunde, nicht die Rohdaten. |
 
-## 4. Datenmodell (Skizze)
+## 4. Datenmodell
 
-> **Wichtig:** Das endgültige Schema wird erst **nach Phase 0** fixiert — die
-> reale HAE-Payload-Struktur (Aggregation, Felder, Einheiten) entscheidet
-> die Details. Die folgende Skizze nimmt die bekannten HAE-Eigenheiten vorweg.
+> Das Schema folgt der realen HAE-Payload-Struktur (Aggregation, Felder,
+> Einheiten), an einem echten Export (v2, 7 Tage, 30 Metriken + 1 Workout)
+> verifiziert.
 
 ### 4.0 Leitprinzip: Metriken jederzeit erweiterbar
 
@@ -126,8 +123,7 @@ ohne Datenverlust. Volumen lokal vernachlässigbar.
 
 ### 4.2 Geparste Messwerte (Hypertable)
 
-**An echter Payload (v2, 7 Tage, 30 Metriken) verifiziert.** HAE liefert pro Metrik
-ein `data`-Array von Buckets in genau **zwei Shapes**:
+HAE liefert pro Metrik ein `data`-Array von Buckets in genau **zwei Shapes**:
 - **`{Min, Avg, Max}`** — in der Praxis **nur `heart_rate`**.
 - **`{qty}`** — alle übrigen 29 Metriken (auch HRV, Ruhepuls, Atemfrequenz, SpO₂).
 
@@ -188,7 +184,9 @@ Korrelations-Konvention. Mitternachtsübergreifender Schlaf bleibt eine Zeile.
 HAE liefert pro Workout ein **stabiles `id` (UUID)** — der bessere Idempotenz-Schlüssel
 als `(start, type, source)`. Skalare kommen als `{qty, units}`-Objekte, dazu eine
 `heartRate`-Summary `{min, avg, max}` und Intra-Workout-Zeitreihen (`heartRateData`,
-`stepCount`, `heartRateRecovery`, …), die nur ins Roh-Archiv gehen.
+`stepCount`, `heartRateRecovery`, …). Die HR-Zeitreihe wird in `workout_hr_samples`
+geparst (für zonenbasiertes Edwards-TRIMP, siehe [`workout-analysis.md`](workout-analysis.md));
+die übrigen Zeitreihen bleiben im Roh-Archiv.
 
 ```sql
 workouts (hae_id UUID PRIMARY KEY,        -- HAE `id`, stabil → Idempotenz
@@ -203,8 +201,9 @@ workouts (hae_id UUID PRIMARY KEY,        -- HAE `id`, stabil → Idempotenz
 ```
 **Achtung Lokalisierung:** `name` ist sprachabhängig (`'Outdoor Spaziergang'`) — wie bei
 Einheiten brauchen Workout-Typen eine Normalisierung (Mapping lokalisiert→kanonisch),
-sonst zerfasern Typen über Sprachwechsel. `duration` in Sekunden, Energie in `kJ`
-(→ kcal normalisieren, §4.5).
+sonst zerfasern Typen über Sprachwechsel. Das übernimmt `app/workout_types.py`
+(eingebaute DE+EN-Map → kanonischer Slug, erweiterbar via `workouts.type_map` in
+`config.yaml`). `duration` in Sekunden, Energie in `kJ` (→ kcal normalisieren, §4.5).
 
 ### 4.5 Metrik-Registry (Normalisierung)
 
@@ -230,9 +229,10 @@ Soll-Einheit; beim Ingest wird die eingehende `unit` dagegen geprüft → bei Ab
 übernehmen. Genau dieser Fall trat im echten Export auf — der Wächter ist kein
 Theoriekonstrukt. Ein Test pinnt das.
 
-### 4.6 Metrik-Inventar (aus echter Payload, Phase 0)
+### 4.6 Metrik-Inventar (aus echter Payload)
 
-30 Metriken im Export. Vorläufige Tier-Einteilung (Registry-Seed, in Phase 0 finalisiert):
+30 Metriken im Export, kuratiert (Tier/Einheit/`agg_default` pro Metrik, durch
+`test_registry.py` festgezurrt):
 
 - **core – activity:** `step_count`, `active_energy` (kJ), `apple_exercise_time`,
   `walking_running_distance`, `flights_climbed`, `physical_effort`, `apple_stand_time`
@@ -269,11 +269,11 @@ erfordert es nicht; ein CA kann sie später ohne Schema-Bruch ersetzen). Sie ber
 daily_metrics (day, metric, avg, vmin, vmax, sum, n)
   -- (time AT TIME ZONE 'Europe/Vienna')::date  ← lokaler Tag, NICHT UTC!
 ```
-**Caveat:** Die View liest aktuell `avg(vavg)`/`min(vmin)`/`max(vmax)` — **nicht**
-`COALESCE(…, qty)` wie die Analyse (`load_daily_series`); für Metriken ohne Min/Avg/Max
-liefert sie daher NULL, wo die Analyse `qty` nutzt. Angleich offen (§13). Zudem ist `avg`
-ein ungewichtetes Mittel der Bucket-Mittel — für Tagesgranularität ausreichend, exakt
-über das Roh-Archiv nachrechenbar.
+Die View nutzt `COALESCE(vavg, qty)` / `COALESCE(vmin, qty)` / `COALESCE(vmax, qty)`
+(Migration `0005_daily_metrics_coalesce`), identisch zum Analyse-Loader
+`load_daily_series` — Grafana und Pipeline sehen damit dieselben Tageswerte. `avg`
+ist ein ungewichtetes Mittel der Bucket-Mittel — für Tagesgranularität ausreichend,
+exakt über das Roh-Archiv nachrechenbar.
 
 ### 4.8 Befunde der Pipeline (reine Statistik, kein LLM)
 
@@ -290,6 +290,24 @@ findings (id, computed_at, kind TEXT,            -- correlation|anomaly|trend|se
 ```
 `ref_date`/`window_*` machen einen Befund in Grafana **markierbar** (Annotation auf
 dem Tag der Anomalie). Nicht zutreffende Felder bleiben NULL.
+
+**Befund-Typen** (Snapshot pro Lauf, `app/analysis.py`):
+- **correlation** — Spearman auf **trendbereinigten** Reihen (Trendkomponente
+  subtrahiert, damit gegenläufige Langzeit-Trends keine Schein-Korrelation
+  erzeugen), Lags 0–3 Tage (beide Richtungen), FDR-`p_value_adj`; pro Metrik-Paar
+  nur der **stärkste** Lag/Richtung (Dedup).
+- **anomaly** — 28-Tage trailing Median + MAD (robuster z), nur letzte 14 Tage.
+- **trend** — STL-Trendkomponente (Slope + Trendstärke).
+- **seasonality** — MSTL(7, 365): Jahresmuster (Amplitude + Hoch-/Tief-Monat), ab ≥2 Jahren;
+  liegen Hoch/Tief <2 Monate auseinander, ist die Phase als unsicher geflaggt (`phase_confident`).
+- **recovery_alert** — kombiniert: HRV auffällig niedrig **und** Ruhepuls hoch (+ optional kurzer Schlaf).
+- **consistency** — rollende Streuung von Schlafdauer und Zubettgeh-Zeit (Mitternachts-Wrap behandelt).
+- **training_load** — ACWR (akut 7-Tage / chronisch 28-Tage) auf der Tages-Trainingslast
+  (`workout_trimp`, HR-basiert via Banister; sonst `workout_load` in kcal); nur geflaggt bei
+  Lastspitze (Überlastung) oder Detraining. Details siehe [`workout-analysis.md`](workout-analysis.md).
+
+Die reine Analyse-Mathematik ist DB-frei und gegen synthetische Reihen (bekannter
+Lag/Anomalie/Trend/Jahres-Saison) mit festem Seed getestet (§7); dazu ein DB-End-to-End-Test.
 
 ## 5. Ingestion-Vertrag
 
@@ -322,27 +340,29 @@ dem Tag der Anomalie). Nicht zutreffende Felder bleiben NULL.
 
 - **Ein App-Image** `healthlog` (`python:3.12-slim` + s6-overlay v3), zwei s6-Services
   (uvicorn, APScheduler), Analyse als Subprozess (§2).
-- **PUID/PGID + `/config`** wie PocketLog: Entrypoint chownt `/config`, dropt
+- **PUID/PGID + `/config`:** Entrypoint chownt `/config`, dropt
   Privilegien. `/config` hält Persistenz, die nicht in der DB liegt: Ingest-Secret,
-  Logs, evtl. DB-Backups/Export.
+  `config.yaml`, Narration-Output, Logs, evtl. DB-Backups/Export.
 - **Env-getriebene Config:** `INGEST_SECRET`, `DATABASE_URL`, `TZ`,
-  `ANALYSIS_CRON` (5-Feld-Cron), `LOG_LEVEL`, `LOG_FORMAT` (text/json) — analog PocketLog.
+  `ANALYSIS_CRON` (5-Feld-Cron), `LOG_LEVEL`, `LOG_FORMAT` (text/json) — Secrets +
+  Infrastruktur über ENV, Verhalten + Profil über `config.yaml` (siehe
+  [`workout-analysis.md`](workout-analysis.md) §4).
 - **Compose:** `timescaledb` + `healthlog` + `grafana`; DB nicht öffentlich
   exponiert, Grafana hinter Auth, Reverse-Proxy/TLS vor dem Ingest.
 - **Public-Tauglichkeit:** README mit eingebettetem Compose-Beispiel (keine
-  separate `docker-compose.yml`- oder `.env`-Datei im Repo — analog PocketLog),
-  sinnvolle Defaults, keine Telemetrie, Doku der HAE-Automation-Einrichtung.
+  separate `docker-compose.yml`- oder `.env`-Datei im Repo), sinnvolle Defaults,
+  keine Telemetrie, Doku der HAE-Automation-Einrichtung.
 
 ## 7. Tests & Qualität
 
-Übernimmt PocketLogs Philosophie: **grüne Suite ist Pflicht-Gate vor jedem Image-Push**
-(§8). HealthLogs Kern-Risiko liegt nicht in CRUD, sondern in **Parser-Korrektheit**
-und **Analyse-Mathematik** — genau dort liegt der Testfokus.
+**Grüne Suite ist Pflicht-Gate vor jedem Image-Push** (§8). Das Kern-Risiko liegt
+nicht in CRUD, sondern in **Parser-Korrektheit** und **Analyse-Mathematik** — genau
+dort liegt der Testfokus.
 
-- **Backend-Lint:** `ruff check` + `ruff format --check` (wie PocketLog).
-- **Parser-/Ingest-Tests (pytest):** echte HAE-Payload als Fixture (aus Phase 0) →
-  erwartete Zeilen in `metric_samples`/`sleep_sessions`/`workouts`. Pinnt die
-  Übersetzung der HAE-Eigenheiten (Min/Avg/Max-Buckets, Einheiten).
+- **Backend-Lint:** `ruff check` + `ruff format --check`.
+- **Parser-/Ingest-Tests (pytest):** echte HAE-Payload als Fixture → erwartete Zeilen
+  in `metric_samples`/`sleep_sessions`/`workouts`. Pinnt die Übersetzung der
+  HAE-Eigenheiten (Min/Avg/Max-Buckets, Einheiten).
 - **Idempotenz:** zweimaliges Posten derselben Payload → keine Dubletten, Upsert
   greift, `content_hash`-Dedup verwirft den Re-Post. (Das Kernrisiko aus §5.)
 - **TZ-Bucketing:** Sample um Mitternacht (Europe/Vienna) landet im korrekten
@@ -351,16 +371,15 @@ und **Analyse-Mathematik** — genau dort liegt der Testfokus.
   Pipeline findet sie beim richtigen Lag; injizierte Anomalie wird erkannt;
   FDR-Korrektur senkt Zufallstreffer. Reproduzierbar mit festem Seed.
 - **Migrationen gegen echtes Postgres/TimescaleDB:** `service`-Container in CI,
-  `alembic upgrade head` von leerem Schema (analog PocketLogs MariaDB-Job — die DDL
-  läuft sonst nur beim Endnutzer das erste Mal).
+  `alembic upgrade head` von leerem Schema — die DDL läuft sonst nur beim Endnutzer
+  das erste Mal.
 - **Smoke:** Image bauen, mit `PUID/PGID` + `/config`-Mount + Timescale-Service
   booten, `/api/health` abfragen, prüfen dass der Entrypoint chownt und beide
   s6-Services hochkommen.
-- Frontend-Tests (Vitest/Playwright) erst relevant, falls Phase 5 (eigene Web-App) kommt.
 
 ## 8. CI/CD – GitHub Workflows
 
-Drei Workflows, gespiegelt von PocketLog, mit gepinnten Action-SHAs:
+Drei Workflows mit gepinnten Action-SHAs:
 
 | Workflow | Trigger | Tut |
 |---|---|---|
@@ -368,110 +387,48 @@ Drei Workflows, gespiegelt von PocketLog, mit gepinnten Action-SHAs:
 | `dev.yml` | Push auf `dev` | `uses: test.yml` → nur bei grün: Build + Push `:dev` und `:dev-<sha>` nach **GHCR**. |
 | `build.yml` | Push Tag `v*` (+ `workflow_dispatch`) | `uses: test.yml` → bei grün: Build + Push `:vX.Y.Z` und `:latest` nach **GHCR** + GitHub-Release (`generate_release_notes`). |
 
-- **Registry: zunächst nur GHCR** (`ghcr.io/<owner>/healthlog`). Die Docker-Hub-
-  `login-action`- und Mirror-`tags`-Zeilen werden **bewusst später ergänzt** — im Plan
-  als TODO markiert, damit der Build sofort ohne `DOCKERHUB_*`-Secrets läuft.
+- **Registry: GHCR** (`ghcr.io/<owner>/healthlog`). Docker-Hub-Mirror ist bewusst
+  out of scope (siehe §10).
 - Least-Privilege: `test.yml` hat `contents: read`; nur `dev.yml`/`build.yml` fordern
   `packages: write` (bzw. `contents: write` für das Release) auf ihren eigenen Jobs an.
-- Plattform vorerst `linux/amd64` (Unraid-Ziel); arm64 bei Bedarf nachrüstbar.
+- Plattform `linux/amd64` (Unraid-Ziel); arm64 bei Bedarf nachrüstbar (§10).
 - **Tests blocken den Push:** ein roter Lauf verhindert `:dev`/`:vX.Y.Z` — ein kaputter
   Commit erreicht nie ein Image.
 
 **Dependabot** (`.github/dependabot.yml`) hält Abhängigkeiten aktuell — drei Ökosysteme,
 **wöchentlich**, PRs gegen **`dev`** (nie `main`, §9), je gruppiert (ein PR statt vieler,
 vermeidet gegenseitige Merge-Konflikte an den gepinnten SHA-Zeilen):
-- `github-actions` (`/`) — wie PocketLog; hält die SHA-Pins der drei Workflows frisch.
-- `pip` (`/backend`) — `requirements.txt` + `requirements-dev.txt` (FastAPI, SQLAlchemy,
-  Alembic, pandas/statsmodels/scipy …).
+- `github-actions` (`/`) — hält die SHA-Pins der drei Workflows frisch.
+- `pip` (`/backend`) — `requirements.txt` + `requirements-dev.txt`.
 - `docker` (`/backend`) — Base-Image-Bumps (`python:3.12-slim`, s6-overlay).
 
-Dependabot-PRs durchlaufen dasselbe `test.yml`-Gate wie jeder andere PR — ein
-Dependency-Bump, der die Suite rot macht, wird nicht gemergt.
+Dependabot-PRs durchlaufen dasselbe `test.yml`-Gate wie jeder andere PR.
 
-## 9. Branching & Release (CONTRIBUTING)
+## 9. Branching & Release
 
-**Identisch zu PocketLog:**
 - Entwicklung auf kurzlebigen `feature/*`-Branches, abgezweigt von `dev`.
 - **PRs immer gegen `dev`**, nie direkt gegen `main`.
 - `main` wird ausschließlich per PR `dev → main` aktualisiert; **Release = Tag-Push**
   `vX.Y.Z` auf `main` → triggert `build.yml` (versioniertes Image + Release).
 - `:dev` = Maintainer-Staging-Kanal, `:vX.Y.Z`/`:latest` = Produktion.
 - `main` und `dev` per Ruleset geschützt (PR nötig, grüne Checks, keine Force-Pushes).
-- Sprache durchgängig Englisch (Code, Kommentare, Docs, Commits, PRs) — wie PocketLog.
-- Ein `CONTRIBUTING.md` hält diese Regeln fest (in Phase 1 anzulegen).
+- Sprache durchgängig Englisch (Code, Kommentare, Commits, PRs).
+- Die verbindlichen Regeln stehen in `CONTRIBUTING.md`.
 
-## 10. Phasen-Fahrplan
+## 10. Scope & bewusste Grenzen
 
-### Phase 0 – Daten-Audit ✅ (abgeschlossen)
-Reale HAE-Payload (v2, 7 Tage, 30 Metriken + 1 Workout) liegt vor und ist analysiert:
-zwei Bucket-Shapes, Datums-/TZ-Format, Schlafstruktur (Aufwach-Tag-Zuordnung),
-Workout-`id`, Einheiten-Realität (Energie in kJ) — alles in §4 eingearbeitet, Inventar
-in §4.6. **Abschluss erledigt:** die `metric_registry` ist kuratiert (Tier/Einheit/
-`agg_default` pro Metrik, durch `test_registry.py` festgezurrt) und nach dem ersten
-Voll-Backfill um neun auto-registrierte Metriken erweitert (Migration `0003`,
-`cardio_recovery` → core; §4.6), und der **Bulk-Backfill** existiert als datei-basiertes
-CLI (`python -m app.backfill`, §5) — selbe Pipeline wie der Endpoint, idempotent,
-mit `--dry-run`.
-
-### Phase 1 – Ingestion + Storage
-Docker-Compose mit TimescaleDB + dem `healthlog`-Image (uvicorn + Scheduler-Skelett),
-Roh-Archiv + Parser + Upsert, HAE-Automation (nächtlich, Secret-Header),
-Reverse-Proxy-Route. Ziel: Daten landen zuverlässig und idempotent.
-**Parallel:** Repo-Grundgerüst — `CONTRIBUTING.md`, die drei Workflows (§8, GHCR-only)
-und die ersten Parser-/Idempotenz-/TZ-Tests (§7), damit das Gate von Anfang an grün ist.
-
-### Phase 2 – Exploration (optional, am Server)
-Ad-hoc-Graben in den Rohdaten: Tagesaggregate (lokale TZ) prüfen, Einheiten/Lücken
-plausibilisieren, neue Analyse-Ideen prototypen, bevor sie in die Pipeline wandern.
-Läuft **am Server** (Jupyter mit DB-Lesezugriff), nicht am Mac — nichts verlässt die
-Box. **Kein Blocker:** die automatische Pipeline (Phase 3) + Grafana (Phase 4) decken
-den Normalfall bereits ab; Jupyter ist nur bei Bedarf.
-
-### Phase 3 – Automatische Pipeline (im App-Container) ✅ (umgesetzt)
-APScheduler triggert nachts den Analyse-Subprozess (`python -m app.analysis`,
-fault-isoliert). Zeitplan über `ANALYSIS_CRON` (5-Feld-Cron, Default `30 3 * * *`);
-manueller Lauf per `healthlog analyze`. Serien sind die Core-Metriken (Tageswert
-nach `agg_default`) plus
-abgeleitete Schlaf-Serien (`sleep_total_h`/`deep_h`/`rem_h`/`sleep_efficiency`).
-Befund-Typen (`findings`, Snapshot pro Lauf):
-- **correlation** — Spearman auf **trendbereinigten** Reihen (Trendkomponente
-  subtrahiert, damit gegenläufige Langzeit-Trends keine Schein-Korrelation
-  erzeugen), Lags 0–3 Tage (beide Richtungen), FDR-`p_value_adj`; pro Metrik-Paar
-  nur der **stärkste** Lag/Richtung (Dedup).
-- **anomaly** — 28-Tage trailing Median + MAD (robuster z), nur letzte 14 Tage.
-- **trend** — STL-Trendkomponente (Slope + Trendstärke).
-- **seasonality** — MSTL(7, 365): Jahresmuster (Amplitude + Hoch-/Tief-Monat), ab ≥2 Jahren;
-  liegen Hoch/Tief <2 Monate auseinander, ist die Phase als unsicher geflaggt (`phase_confident`).
-- **recovery_alert** — kombiniert: HRV auffällig niedrig **und** Ruhepuls hoch (+ optional kurzer Schlaf).
-- **consistency** — rollende Streuung von Schlafdauer und Zubettgeh-Zeit (Mitternachts-Wrap behandelt).
-- **training_load** — ACWR (akut 7-Tage / chronisch 28-Tage) auf der Tages-Trainingslast
-  (`workout_trimp`, HR-basiert via Banister; sonst `workout_load` in kcal); nur geflaggt bei
-  Lastspitze (Überlastung) oder Detraining. Workouts werden dafür als Tagesserien eingespeist
-  und durchlaufen so auch Korrelation/Anomalie/Trend (siehe [`workout-analysis.md`](workout-analysis.md)).
-
-Die reine Analyse-Mathematik ist DB-frei und gegen synthetische Reihen (bekannter
-Lag/Anomalie/Trend/Jahres-Saison) mit festem Seed getestet (§7); dazu ein DB-End-to-End-Test.
-
-### Phase 4 – Visualisierung + optionales LLM ✅ (umgesetzt)
-Grafana-Dashboards (Trainingslast vs. HRV/Ruhepuls, Schlaf-Trends, `findings` als
-Annotationen) stehen — vier Dashboards (Overview, Training, Sleep, Metrics Explorer).
-Die Ollama-Narration ist als manuelles CLI `healthlog narrate` umgesetzt
-(`app/narrate.py`): Server → Ollama am Mac (outbound HTTP an `/api/chat`,
-`stream=false`), liest die aktuelle `findings`-Snapshot, baut einen
-**privacy-sicheren** Kontext (nur statistische Größen: z-Scores, Slopes, ACWR-Ratios,
-Koeffizienten — **kein** Rohwert; `scrub_details()` entfernt `anomaly.value`) und
-schreibt den Report nach `/config/narration/YYYY-MM-DD.md` + stdout. Konfiguration
-unter `narrate:` in `config.yaml` (`ollama_url`, `model`, `language` en/de Default
-**en**, `lookback_days`, `timeout_s`); System-Prompts sind Code-Konstanten (de+en,
-enkodieren Privacy-/Diagnose-Grenzen). Optionaler `--note`-Freitext lenkt den Fokus,
-ohne den System-Prompt zu überschreiben. Zeit-unabhängige Befundtypen (correlation/
-trend/seasonality/consistency) immer einbezogen, ereignisbasierte (anomaly/
-recovery_alert/training_load) auf `lookback_days` gefiltert. 32 reine Tests
-(httpx MockTransport, kein DB) pinnen Scrubbing, Kontext und Wire-Format, dazu
-4 `NarrateConfig`-Tests in `test_appconfig.py`.
-
-### Phase 5 (optional, später)
-Eigene Web-App im PocketLog-Stil.
+- **Single-tenant** (keine `user_id`/`subject_id`). Die Analyse ist pro Person; ein
+  späterer Multi-User-/Subjekt-Ausbau ist eine saubere Migration (Spalte nullable +
+  Default 1 + Backfill), da die Idempotenz-Keys schon stabil sind.
+- **Roh-Payload verbatim** archiviert (`raw_ingest`, JSONB), Retention dauerhaft
+  (Volumen winzig); ein CA kann die Tagesaggregat-View später ohne Schema-Bruch ersetzen.
+- **ECG/GPX bleiben bewusst aus** (rohe Waveforms/Standortdaten, kein Analysenutzen,
+  Payload-/Privacy-Last). Das generische Modell (§4.0) verträgt weitere Health-Kategorien
+  (Medikamente, Symptome als Event-Marker) jederzeit ohne Schema-Änderung, falls relevant.
+- **Optional / am Server, nicht eingebaut:** interaktive Jupyter-Exploration deckt nur
+  den Ad-hoc-Fall ab, den Pipeline + Grafana schon abdecken.
+- **Out of scope (bei Bedarf nachrüstbar):** Docker-Hub-Mirror der Images (aktuell nur
+  GHCR), arm64-Image (aktuell nur `linux/amd64`), eine eigene Web-App.
 
 ## 11. Methodische Stolperfallen
 
@@ -487,87 +444,6 @@ Eigene Web-App im PocketLog-Stil.
 
 - Ingest-Endpoint nur über TLS + Secret-Header/Token erreichbar (HAE unterstützt Custom Headers).
 - DB nicht öffentlich exponiert; Grafana hinter Auth.
-- LLM rein lokal (Ollama, kein API-Key, kein Netzwerk-Egress).
+- LLM rein lokal (Ollama, kein API-Key, kein Netzwerk-Egress); die Narration erhält nur
+  statistische Befund-Größen, nie Rohwerte (`scrub_details()`).
 - Keine Telemetrie in den Komponenten aktivieren.
-
-## 13. Offene Punkte
-
-### Entschieden (diese Session)
-- Roh-Payload wird **verbatim archiviert** (`raw_ingest`, JSONB) — Replay-fähig.
-- Retention: **Rohdaten dauerhaft behalten** (Volumen winzig), CA zusätzlich; Policy später revisiten.
-- Scheduler: **ein Container**, s6-overlay, uvicorn + APScheduler-Prozess, Analyse als Subprozess.
-- Container-Basis: **`python:3.12-slim` + s6-overlay v3**, PUID/PGID + `/config`.
-- LLM-Korridor: **8–14B** (32-GB-Mac), konkrete Wahl in Phase 4.
-- CI: drei Workflows nach PocketLog-Muster; Release per Tag, Gate auf grüne Tests.
-- CONTRIBUTING: `dev`-Entwicklung, PR gegen `dev`, Release per Tag auf `main`.
-- **Single-tenant** (keine `user_id`/`subject_id`). Analyse ist pro Person; ein
-  späterer Multi-User-/Subjekt-Ausbau ist eine saubere Migration (Spalte nullable +
-  Default 1 + Backfill), da die Idempotenz-Keys schon stabil sind.
-
-### Phase 1 — Umsetzungsstand ✅
-Steht und ist grün: FastAPI-Ingest (`POST /api/ingest`, Secret-Header), Roh-Archiv +
-Parser + idempotenter Upsert (chunked, dedupt), Auto-Registry-Stub für unbekannte
-Metriken, Alembic-Migration (Timescale-Hypertable extension-bedingt + lokaler Tages-View),
-s6-overlay-Image (PUID/PGID, uvicorn + scheduler), die drei Workflows (GHCR-only) +
-Dependabot + CONTRIBUTING. Bulk-Backfill und Registry-Kuratierung sind erledigt
-(Phase-0-Abschluss); Phase 2 (Jupyter) bleibt optional/aufgeschoben.
-
-### TODO (bewusst aufgeschoben)
-- **Docker Hub:** Workflows pushen vorerst nur nach GHCR; Docker-Hub-Login + Mirror-Tags
-  (+ `DOCKERHUB_*`-Secrets) später in `dev.yml`/`build.yml` ergänzen.
-- **arm64-Image** bei Bedarf (aktuell nur `linux/amd64`).
-
-### Phase 0 – durch Sample geklärt ✅
-- Bucket-Shapes, Spaltenbelegung `metric_samples`, Datums-/TZ-Format → §4.2.
-- Schlaf- und Workout-Struktur (inkl. Workout-`id`, Aufwach-Tag-Zuordnung) → §4.3/§4.4.
-- Metrik-Inventar + vorläufige Tier-Einteilung → §4.6.
-
-### Phase 0 — Abschluss erledigt ✅
-- **Finale `metric_registry`-Befüllung:** Tier/Einheit/`agg_default` pro der 30 Metriken
-  festgezurrt; Konsistenz + Seed-Migration durch `test_registry.py` gepinnt.
-- **Bulk-Backfill:** datei-basiertes CLI `healthlog backfill` (Konsolen-Skript via
-  `[project.scripts]`; auch `python -m app backfill`), idempotent über dieselbe Pipeline
-  wie der Endpoint, mit `--dry-run`; `test_backfill.py`.
-
-### Phase 3 — umgesetzt ✅
-Analyse-Pipeline (`app/analysis.py`) mit allen sechs Befund-Typen (correlation,
-anomaly, trend, seasonality via MSTL 7+365, recovery_alert, consistency),
-`findings`-Tabelle (Migration `0002_findings`), Scheduler verdrahtet
-(`python -m app.analysis`), Deps numpy/pandas/scipy/statsmodels gepinnt;
-reine Mathematik gegen synthetische Reihen + DB-End-to-End getestet.
-**Verfeinert nach dem ersten echten Lauf:** Korrelationen trendbereinigt (kein
-Schein-Zusammenhang aus gegenläufigen Langzeit-Trends) + Dedup auf den stärksten
-Lag/Richtung je Paar; Saisonalität mit `phase_confident`-Flag bei zu nahem Hoch/Tief.
-
-### Noch offen (in einer späteren Phase)
-
-*(Beide ursprünglichen Punkte umgesetzt — siehe unten.)*
-
-### Technische Schulden — umgesetzt ✅
-- **Workout-Typ-Normalisierung:** `app/workout_types.py` — eingebaute Map der gängigen
-  Apple-Workout-Namen (DE + EN) → kanonischer Slug, erweiterbar/überschreibbar via
-  `workouts.type_map` (config.yaml). Per-Sport-Serien in der Analyse erscheinen damit
-  out-of-the-box ohne Konfigurationsaufwand, und Sprach­wechsel am iPhone fragmentiert
-  keine Serien mehr. (§4.4)
-- **`daily_metrics`-View auf `COALESCE(vavg, qty)` angeglichen:** Migration
-  `0005_daily_metrics_coalesce` — `avg`/`vmin`/`vmax` nutzen nun
-  `COALESCE(vavg, qty)` / `COALESCE(vmin, qty)` / `COALESCE(vmax, qty)`, identisch
-  zum Analyse-Loader `load_daily_series`. Grafana-Dashboards und die Pipeline sehen
-  jetzt dieselben Tageswerte. (§4.7)
-
-### Optional „think bigger" — nicht aktivierte Health-Kategorien
-Im Sample bewusst aus (ECG/GPX) bzw. ungenutzt. Das Modell verträgt sie jederzeit ohne
-Änderung (§4.0), falls künftig relevant:
-- **Medikamente, Symptome:** als Event-Marker für Anomalie-Kontext denkbar.
-- **Gemütszustand / State of Mind:** entfällt — wird nicht getrackt.
-- **ECG/GPX bleiben bewusst aus** (rohe Waveforms/Standortdaten, kein Analysenutzen,
-  Payload-/Privacy-Last).
-
-### Phase 4 — entschieden & umgesetzt ✅
-- **Ollama-Modell:** Default `qwen2.5:14b` (Config-überschreibbar via `narrate.model`;
-  `qwen2.5:7b` als leichtere Alternative für 16-GB-Macs dokumentiert).
-- **Prompt-/Grounding-Design:** System-Prompts als Code-Konstanten (de+en), die das
-  Modell auf die übergebenen Befunde grounden („keine erfundenen Zahlen", keine
-  Diagnosen). Kontext führt nur statistische Größen mit, keine Rohwerte (§4.8-Felder
-  via `scrub_details()` gefiltert). Trigger: manuell (`healthlog narrate`), nicht
-  automatisch. Output: `/config/narration/YYYY-MM-DD.md` + stdout.

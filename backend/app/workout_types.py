@@ -3,7 +3,7 @@
 HAE ships a workout ``name`` that is **localised** (``'Outdoor Run'`` in English,
 ``'Outdoor-Lauf'`` in German). Left raw, the same sport fragments across a phone
 language switch and a per-sport analysis can no longer tell ``running`` apart
-from ``Laufen`` (PLAN.md §4.4). This module is the workout-side counterpart to
+from ``Laufen`` (ARCHITECTURE.md §4.4). This module is the workout-side counterpart to
 ``units.py``: a built-in map handles the common Apple workout types out of the
 box, and the operator's ``workouts.type_map`` (config.yaml) layers on top for
 custom names — config wins, the built-in is the fallback.
@@ -93,7 +93,7 @@ BUILTIN_WORKOUT_TYPES: dict[str, str] = {
 def _normalize_key(name: str) -> str:
     """Lowercase and collapse whitespace (incl. NBSP) for robust matching.
 
-    HAE ``source`` strings carry no-break spaces (PLAN.md §4.2); workout names
+    HAE ``source`` strings carry no-break spaces (ARCHITECTURE.md §4.2); workout names
     can too, so the lookup must not depend on the exact whitespace byte."""
     # NFKC folds the no-break space (U+00A0) onto a regular space.
     folded = unicodedata.normalize("NFKC", name)
