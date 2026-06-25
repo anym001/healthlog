@@ -91,6 +91,11 @@ class AnalysisConfig(BaseModel):
     # handful of coincidental active days. Continuous series (HR, sleep) are
     # never zero, so the guard never bites them. 0 disables it.
     corr_min_active: int = Field(default=10, ge=0)
+    # Minimum absolute Spearman coefficient to report a correlation. With years
+    # of daily data even a negligible effect clears the FDR gate (significance is
+    # not relevance); this effect-size floor keeps only relationships of at least
+    # moderate strength. 0 disables it.
+    corr_min_abs: float = Field(default=0.3, ge=0.0, le=1.0)
     # Anomaly
     anomaly_window: int = Field(default=28, ge=2)
     anomaly_threshold: float = Field(default=3.5, gt=0.0)
