@@ -86,6 +86,8 @@
 #   language: en              # en | de
 #   lookback_days: 7          # ref_date window for anomalies / recovery / load
 #   timeout_s: 300            # generous — 14B models take time
+#   max_correlations: 15      # cap the correlations narrated, highest-priority
+#                             # first (cross-domain + effect size + lag); 0 = all
 
 # --- Notifications ---------------------------------------------------------
 # Push run outcomes / health alerts to a push-notification service. The

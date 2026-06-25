@@ -15,8 +15,11 @@ import pytest
 
 from app.narrate import (
     OllamaClient,
+    _metric_domain,
+    _pair_tier,
     _system_prompt,
     build_context,
+    report_priority,
     scrub_details,
     write_report,
 )
@@ -173,6 +176,91 @@ def test_build_context_correlation_shows_lag_and_coef():
     assert "0.0030" in ctx
     assert "N=84" in ctx
     assert "Lag 1" in ctx or "lag 1" in ctx
+
+
+def test_metric_domain_classification():
+    assert _metric_domain("sleep_total_h") == "sleep"
+    assert _metric_domain("respiratory_rate") == "autonomic"
+    assert _metric_domain("heart_rate_variability") == "autonomic"
+    assert _metric_domain("resting_heart_rate") == "hr_rate"
+    assert _metric_domain("vo2_max") == "vital"
+    assert _metric_domain("workout_load_yoga") == "activity"
+    assert _metric_domain("physical_effort") == "activity"
+    assert _metric_domain("step_count") == "activity"
+    assert _metric_domain("time_in_daylight") == "env"
+    assert _metric_domain(None) == "other"
+
+
+def test_pair_tier_demotes_expected_and_promotes_cross_domain():
+    # Expected / structural -> tier 0.
+    assert _pair_tier("sleep", "sleep") == 0  # sleep architecture self-corr
+    assert _pair_tier("hr_rate", "hr_rate") == 0  # average vs resting HR
+    assert _pair_tier("hr_rate", "activity") == 0  # exercise raises average HR
+    assert _pair_tier("env", "activity") == 0  # sunny days = more movement
+    # Informative cross-subsystem -> tier 2.
+    assert _pair_tier("sleep", "autonomic") == 2
+    assert _pair_tier("activity", "sleep") == 2
+    assert _pair_tier("autonomic", "hr_rate") == 2  # HRV vs RHR is a real signal
+    assert _pair_tier("autonomic", "autonomic") == 2  # respiratory rate vs HRV
+    # Neutral -> tier 1.
+    assert _pair_tier("env", "sleep") == 1  # daylight vs sleep (seasonally confounded)
+
+
+def test_report_priority_orders_cross_domain_over_structural():
+    # A lagged cross-domain link must outrank a stronger same-subsystem pair.
+    cross = report_priority("sleep_total_h", "respiratory_rate", -0.78, 2)
+    arch = report_priority("sleep_total_h", "sleep_rem_h", 0.74, 0)
+    trivial = report_priority("heart_rate", "workout_load", 0.41, 0)
+    assert cross > arch > trivial
+    # Within the same tier, the lag bonus breaks ties toward the directional one.
+    assert report_priority("sleep_total_h", "vo2_max", 0.40, 3) > report_priority("sleep_total_h", "vo2_max", 0.40, 0)
+
+
+def test_build_context_prioritises_and_caps_correlations():
+    structural = [
+        _finding(
+            "correlation",
+            metric_a="sleep_total_h",
+            metric_a_label="Schlafdauer",
+            metric_b="sleep_rem_h",
+            metric_b_label="REM-Schlaf",
+            lag_days=0,
+            coefficient=0.74,
+            p_value_adj=0.0,
+            details={"n": 80},
+            ref_date=None,
+        ),
+        _finding(
+            "correlation",
+            metric_a="heart_rate",
+            metric_a_label="Herzfrequenz",
+            metric_b="workout_load",
+            metric_b_label="Trainingslast",
+            lag_days=0,
+            coefficient=0.41,
+            p_value_adj=0.0,
+            details={"n": 80},
+            ref_date=None,
+        ),
+    ]
+    gem = _finding(
+        "correlation",
+        metric_a="sleep_total_h",
+        metric_a_label="Schlafdauer",
+        metric_b="respiratory_rate",
+        metric_b_label="Atemfrequenz",
+        lag_days=2,
+        coefficient=-0.78,
+        p_value_adj=0.0,
+        details={"n": 80},
+        ref_date=None,
+    )
+    ctx = build_context([*structural, gem], 7, _TODAY, max_correlations=1)
+    # The single kept correlation is the cross-domain gem, not a stronger structural pair.
+    assert "Atemfrequenz" in ctx
+    assert "REM-Schlaf" not in ctx
+    # The dropped pairs are summarised as a count.
+    assert "+2" in ctx
 
 
 def test_build_context_note_appended():

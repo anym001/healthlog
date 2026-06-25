@@ -175,6 +175,11 @@ class NarrateConfig(BaseModel):
     lookback_days: int = Field(default=7, ge=1, le=90)
     # HTTP timeout in seconds for the Ollama call — generation can be slow.
     timeout_s: int = Field(default=300, ge=10, le=3600)
+    # Layer-2 curation: cap the correlations passed to the LLM at this many,
+    # highest report_priority first (cross-domain + effect size + lag); the rest
+    # are summarised as a count so the report leads with the informative links
+    # rather than expected/structural ones. 0 = no cap (pass them all).
+    max_correlations: int = Field(default=15, ge=0, le=200)
 
 
 class AppConfig(BaseModel):
