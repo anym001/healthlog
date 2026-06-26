@@ -297,9 +297,21 @@ the anomaly). Non-applicable fields stay NULL.
   comparison Spearmans at the same lag: the **raw** coefficient (nothing removed,
   `details.raw_coef`) and the **de-trended** coefficient (trend only, the old basis,
   `details.detr_coef`); a strong `detr_coef` next to a ~0 reported coefficient marks a
-  number that lived in shared seasonality. Two relevance filters cut structural noise: an
-  **effect-size floor** (`analysis.corr_min_abs`, default 0.25 — residual coefficients
-  run smaller than de-trended ones) drops significant-but-negligible pairs, and
+  number that lived in shared seasonality. The `raw_coef` is also a **guard**, not just a
+  label: a correlation is reported only if the raw series *corroborate* the residual one —
+  same sign and `|raw_coef| ≥ analysis.corr_raw_min_abs` (default 0.15). This is the
+  symmetric counterpart to the residual switch. Each single basis admits one artefact
+  class: the de-trended basis manufactures correlations from shared seasonality (strong
+  de-trended, ~0 residual), and the residual basis manufactures them from decomposition or
+  estimation noise in sparse/derived metrics (strong residual, ~0 or opposite-sign raw). A
+  *genuine* day-to-day link is visible in both representations, so requiring agreement
+  across raw and residual rejects both classes with one rule — and does so
+  **metric-agnostically**: no per-metric coverage threshold or exclusion list separates
+  the artefacts (e.g. `cardio_recovery`, coverage 0.52, is better-covered than legitimate
+  vitals), because the discriminator is a property of the *pair*, not the metric. Two
+  further relevance filters cut structural noise: an **effect-size floor**
+  (`analysis.corr_min_abs`, default 0.25 — residual coefficients run smaller than
+  de-trended ones) drops significant-but-negligible pairs, and
   **activity-volume suppression** drops a pair when *both* series measure how much you
   moved/trained (workout-derived metrics — load/duration/count/intensity — or Apple
   activity-ring metrics — see `_is_activity_volume` in `app/analysis.py`); an activity

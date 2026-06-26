@@ -69,6 +69,7 @@ CORR_KEEP_ALPHA = _DEFAULTS.corr_keep_alpha  # keep when FDR-adjusted p <= this
 FDR_ALPHA = _DEFAULTS.fdr_alpha
 CORR_MIN_ACTIVE = _DEFAULTS.corr_min_active  # min non-zero days per series in a pair's overlap
 CORR_MIN_ABS = _DEFAULTS.corr_min_abs  # effect-size floor: min |coefficient| to report
+CORR_RAW_MIN_ABS = _DEFAULTS.corr_raw_min_abs  # raw-corroboration floor: min |raw Spearman|, matching sign
 
 ANOMALY_WINDOW = _DEFAULTS.anomaly_window  # trailing days for median + MAD baseline
 ANOMALY_THRESHOLD = _DEFAULTS.anomaly_threshold  # robust z (|0.6745*(x-med)/MAD|)
@@ -1026,6 +1027,14 @@ def _correlation_findings(
         # When detr_coef is strong but the stored residual coefficient is ~0, the
         # old number lived in shared seasonality, not a real day-to-day link.
         raw = spearman_lag(series[a], series[b], lag, min_overlap=2, min_active=0)
+        # Raw-corroboration guard: trust the residual correlation only if the raw
+        # series show the same-signed relationship with at least a weak magnitude.
+        # A strong residual with raw ~ 0 or opposite sign is an artefact of the
+        # de-seasonalising (typically a sparse or derived metric whose residual is
+        # decomposition noise), the mirror image of a shared-seasonality artefact
+        # (caught above by the residual being ~ 0). A genuine link shows in both.
+        if cfg.corr_raw_min_abs > 0 and (raw is None or raw.coef * c.coef <= 0 or abs(raw.coef) < cfg.corr_raw_min_abs):
+            continue
         dec_a = decomps.get(a) if decomps is not None else decompose(series[a])
         dec_b = decomps.get(b) if decomps is not None else decompose(series[b])
         detr = None
