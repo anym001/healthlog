@@ -311,11 +311,19 @@ docker exec healthlog healthlog narrate
 docker exec healthlog healthlog narrate --note "Focus on the HRV/training link."
 # German report, last 14 days:
 docker exec healthlog healthlog narrate --language de --lookback-days 14
+# Inspect what the model would receive — no Ollama call, no report written:
+docker exec healthlog healthlog narrate --dry-run
 ```
 
 The report is printed to stdout and written to `/config/narration/YYYY-MM-DD.md`
 (the directory is created on first use). It is **off until you set
 `narrate.ollama_url`** in `config.yaml`.
+
+Use `--dry-run` to print the exact findings context that *would* be sent to the
+model — the curated, privacy-scrubbed prompt — and then exit without contacting
+Ollama or writing a report. It works even when `narrate.ollama_url` is unset, so
+you can verify the "data → report" input deterministically (correlation
+curation, scrubbed values, lookback window) before trusting the narrative.
 
 To keep the report focused, only the highest-priority correlations are narrated
 (cross-domain links — e.g. training load vs next-day respiratory rate — rank
