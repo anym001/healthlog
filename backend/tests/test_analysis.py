@@ -104,6 +104,45 @@ def test_rolling_mad_anomalies_clean_series_is_empty():
     assert rolling_mad_anomalies(s).empty
 
 
+def test_global_robust_z_scales_to_full_history():
+    s = _daily(np.arange(101, dtype=float))  # 0..100: median 50, MAD 25
+    assert abs(analysis._global_robust_z(s, 100.0) - 0.6745 * 50 / 25) < 1e-9
+    assert analysis._global_robust_z(_daily(np.full(40, 7.0)), 7.0) is None  # no scale
+
+
+def test_anomaly_global_guard_drops_window_only_spike():
+    # Wide global spread (alternating 0/30) makes 30 a normal recurring high; a
+    # calm recent window makes its trailing z explode. The window flags the last
+    # day, but it is unremarkable vs the full history -> the guard drops it.
+    vals = np.concatenate([np.tile([0.0, 30.0], 60), np.tile([15.0, 15.2], 14), [30.0]])
+    s = _daily(vals)
+    assert abs(analysis.robust_z(s).iloc[-1]) > analysis.ANOMALY_THRESHOLD  # window flags it
+    assert abs(analysis._global_robust_z(s, 30.0)) < 2.5  # but normal vs history
+    assert analysis._anomaly_findings({"hr": s}, dt.datetime.now(UTC)) == []
+    off = analysis._anomaly_findings({"hr": s}, dt.datetime.now(UTC), AnalysisConfig(anomaly_min_global_z=0.0))
+    assert len(off) == 1  # guard off lets the window-only spike through
+
+
+def test_anomaly_keeps_genuine_extreme():
+    # A stable series with an unprecedented final value: extreme in both views.
+    s = _daily(np.concatenate([np.tile([10.0, 10.5], 70), [40.0]]))
+    out = analysis._anomaly_findings({"hr": s}, dt.datetime.now(UTC))
+    assert len(out) == 1 and out[0].metric_a == "hr"
+    assert "global_z" in out[0].details
+
+
+def test_anomaly_dedupes_workout_family_same_day():
+    # One hard session surfaces in several co-derived workout-load series; they
+    # collapse to a single anomaly for that day. A non-workout anomaly on the
+    # same day is independent and kept.
+    def spike(peak):
+        return _daily(np.concatenate([np.tile([10.0, 10.5], 70), [peak]]))
+
+    series = {"workout_trimp": spike(40.0), "workout_edwards": spike(45.0), "hr": spike(40.0)}
+    out = analysis._anomaly_findings(series, dt.datetime.now(UTC))
+    assert sorted(f.metric_a for f in out) == ["hr", "workout_edwards"]  # family -> strongest only
+
+
 # --- Trend / seasonality ----------------------------------------------------
 
 
@@ -122,6 +161,37 @@ def test_decompose_flat_series_has_weak_trend():
     decomp = decompose(_daily(100 + rng.normal(scale=1.0, size=150)))
     assert decomp is not None
     assert abs(trend_slope(decomp.trend)) < 0.05
+
+
+def _trend_decomp(trend: pd.Series) -> analysis.Decomp:
+    """A Decomp carrying only a (zero-residual) trend, so strength is 1.0."""
+    zeros = pd.Series(np.zeros(len(trend)), index=trend.index)
+    return analysis.Decomp(trend=trend, resid=zeros, seasonal={}, has_annual=False)
+
+
+def test_trend_monotonicity_high_for_ramp_low_for_meander():
+    n = 200
+    assert analysis.trend_monotonicity(_daily(np.linspace(0.0, 10.0, n))) > 0.99
+    assert analysis.trend_monotonicity(_daily(5 * np.cos(np.linspace(0, 2 * np.pi, n)))) < 0.3
+    assert analysis.trend_monotonicity(_daily(np.full(n, 3.0))) is None  # constant: no direction
+
+
+def test_trend_drops_smooth_meander():
+    # Both have a strong (smooth, zero-residual) trend, but only the ramp goes
+    # somewhere; the meander wanders up then back -> not a trend.
+    n = 200
+    ramp = _daily(np.linspace(0.0, 10.0, n))
+    meander = _daily(5 * np.cos(np.linspace(0, 2 * np.pi, n)))
+    series = {"ramp": ramp, "meander": meander}
+    decomps = {"ramp": _trend_decomp(ramp), "meander": _trend_decomp(meander)}
+
+    trends, _ = analysis._trend_and_seasonality_findings(series, dt.datetime.now(UTC), decomps=decomps)
+    assert {f.metric_a for f in trends} == {"ramp"}  # meander dropped
+
+    # Disabling the guard lets both through -> proof the guard is the discriminator.
+    cfg = AnalysisConfig(trend_min_monotonicity=0.0)
+    both, _ = analysis._trend_and_seasonality_findings(series, dt.datetime.now(UTC), cfg, decomps=decomps)
+    assert {f.metric_a for f in both} == {"ramp", "meander"}
 
 
 def test_annual_seasonality_detected_over_two_years():
@@ -157,6 +227,56 @@ def test_seasonality_phase_confident_when_peak_trough_far_apart():
     assert annual["phase_confident"] is True
 
 
+def _multiyear_seasonal(fn) -> pd.Series:
+    """A three-year daily seasonal component, value per day from ``fn(timestamp)``."""
+    idx = pd.date_range("2022-01-01", periods=365 * 3, freq="D")
+    return pd.Series([fn(ts) for ts in idx], index=idx, dtype="float64")
+
+
+def _seasonal_decomp(season: pd.Series) -> analysis.Decomp:
+    """A Decomp carrying only an annual component (zero trend/resid => strength 1)."""
+    zeros = pd.Series(np.zeros(len(season)), index=season.index)
+    return analysis.Decomp(trend=zeros, resid=zeros, seasonal={analysis.SEASONAL_PERIOD: season}, has_annual=True)
+
+
+def test_seasonal_reproducibility_high_for_recurring_cycle():
+    # The same month-by-month shape every year -> the annual cycle recurs.
+    season = _multiyear_seasonal(lambda ts: np.sin(2 * np.pi * ts.dayofyear / 365))
+    assert analysis._seasonal_reproducibility(season) > 0.8
+
+
+def test_seasonal_reproducibility_low_for_wandering_shape():
+    # A cycle whose phase shifts every year: MSTL fits "seasonal" strength, but
+    # the shape does not recur -> low/negative reproducibility (the artefact).
+    shift = {2022: 0, 2023: 120, 2024: 240}
+    season = _multiyear_seasonal(lambda ts: np.sin(2 * np.pi * (ts.dayofyear + shift[ts.year]) / 365))
+    assert analysis._seasonal_reproducibility(season) < 0.3
+
+
+def test_seasonal_reproducibility_none_with_single_year():
+    season = _multiyear_seasonal(lambda ts: np.sin(2 * np.pi * ts.dayofyear / 365)).iloc[:300]
+    assert analysis._seasonal_reproducibility(season) is None
+
+
+def test_seasonality_drops_non_reproducible_artefact():
+    # Two series with equally strong annual components: one recurs year over year,
+    # the other wanders. Both clear the strength floor; only the reproducible one
+    # is a trustworthy seasonality finding.
+    shift = {2022: 0, 2023: 120, 2024: 240}
+    recurs = _multiyear_seasonal(lambda ts: np.sin(2 * np.pi * ts.dayofyear / 365))
+    wanders = _multiyear_seasonal(lambda ts: np.sin(2 * np.pi * (ts.dayofyear + shift[ts.year]) / 365))
+    series = {"recurs": recurs, "wanders": wanders}  # values unused; decomps drive seasonality
+    decomps = {"recurs": _seasonal_decomp(recurs), "wanders": _seasonal_decomp(wanders)}
+
+    _, seasons = analysis._trend_and_seasonality_findings(series, dt.datetime.now(UTC), decomps=decomps)
+    assert {f.metric_a for f in seasons} == {"recurs"}  # wandering shape dropped
+
+    # Disabling the guard lets both through -> proof the guard is the discriminator.
+    cfg = AnalysisConfig(seasonality_reproducibility_min=0.0)
+    _, both = analysis._trend_and_seasonality_findings(series, dt.datetime.now(UTC), cfg, decomps=decomps)
+    assert {f.metric_a for f in both} == {"recurs", "wanders"}
+
+
 # --- Correlation de-trending + de-duplication -------------------------------
 
 
@@ -175,6 +295,57 @@ def test_correlation_collapses_spurious_trend_only_pairs():
     assert all(abs(float(f.coefficient)) < 0.3 for f in findings)  # collapsed
 
 
+def test_correlation_drops_shared_seasonality_pairs():
+    # Two metrics that share a strong weekly rhythm but have independent
+    # day-to-day residuals correlate strongly when only the trend is removed
+    # (seasonality leaks through) — the old basis. That link is an artefact: on
+    # the residual basis (trend AND seasonal removed) it collapses, so the engine
+    # must report nothing.
+    rng = np.random.default_rng(77)
+    n = 400
+    t = np.arange(n)
+    weekly = 5.0 * np.sin(2 * np.pi * t / 7)  # shared weekly pattern, no trend
+    a = _daily(weekly + rng.normal(scale=1.0, size=n))
+    b = _daily(weekly + rng.normal(scale=1.0, size=n))
+
+    # De-trended (seasonality retained) the two co-move strongly...
+    da = a - analysis.decompose(a).trend.reindex(a.index)
+    db = b - analysis.decompose(b).trend.reindex(b.index)
+    assert abs(spearman_lag(da, db, 0).coef) > 0.5  # spurious shared-seasonality link
+
+    # ...but on the residual basis the shared rhythm is gone and nothing survives.
+    findings = analysis._correlation_findings({"a": a, "b": b}, dt.datetime.now(UTC))
+    assert findings == []
+
+
+def test_correlation_raw_corroboration_drops_residual_only_artefacts():
+    # The mirror artefact: a weak shared day-to-day base is swamped at the raw
+    # level by large, *orthogonal* weekly seasonals, so the raw series barely
+    # correlate — but de-seasonalising recovers the base and the residual looks
+    # strong. That is a residual-only artefact (what a sparse/derived metric's
+    # decomposition noise produces); the raw-corroboration guard must drop it.
+    rng = np.random.default_rng(101)
+    n = 400
+    t = np.arange(n)
+    base = np.zeros(n)
+    for k in range(1, n):
+        base[k] = 0.8 * base[k - 1] + rng.normal()  # shared AR(1) day-to-day signal
+    a = _daily(base + 8 * np.sin(2 * np.pi * t / 7) + rng.normal(scale=0.3, size=n))
+    b = _daily(base + 8 * np.cos(2 * np.pi * t / 7) + rng.normal(scale=0.3, size=n))
+
+    # The residual correlation is strong, but the raw one is ~0 (uncorroborated).
+    assert spearman_lag(a, b, 0).coef < 0.2  # raw: not visible
+    ra = analysis._residual_series(a, analysis.decompose(a))
+    rb = analysis._residual_series(b, analysis.decompose(b))
+    assert spearman_lag(ra, rb, 0).coef > 0.5  # residual: looks strong
+
+    # With the guard (default) the pair is rejected; disabling it lets the
+    # residual-only artefact through — proof that the guard is what dropped it.
+    assert analysis._correlation_findings({"a": a, "b": b}, dt.datetime.now(UTC)) == []
+    kept = analysis._correlation_findings({"a": a, "b": b}, dt.datetime.now(UTC), AnalysisConfig(corr_raw_min_abs=0.0))
+    assert len(kept) == 1 and abs(float(kept[0].coefficient)) > 0.5
+
+
 def test_correlation_keeps_one_finding_per_pair():
     # An autocorrelated common signal makes several lags significant, but the
     # output must collapse to a single best row for the {a, b} pair.
@@ -188,6 +359,29 @@ def test_correlation_keeps_one_finding_per_pair():
     findings = analysis._correlation_findings({"a": a, "b": b}, dt.datetime.now(UTC))
     assert len(findings) == 1
     assert {findings[0].metric_a, findings[0].metric_b} == {"a", "b"}
+
+
+def test_correlation_finding_stamps_comparison_coefs():
+    # The reported coefficient is the residual (trend + seasonal removed) Spearman.
+    # Each finding also records two comparison coefficients at the same lag for
+    # transparency: raw_coef (nothing removed) and detr_coef (only trend removed).
+    # With a trend- and seasonality-free common signal all three agree closely.
+    rng = np.random.default_rng(60)
+    n = 300
+    base = np.zeros(n)
+    for k in range(1, n):
+        base[k] = 0.8 * base[k - 1] + rng.normal()  # stationary AR(1): no trend
+    a = _daily(base + rng.normal(scale=0.3, size=n))
+    b = _daily(base + rng.normal(scale=0.3, size=n))
+    findings = analysis._correlation_findings({"a": a, "b": b}, dt.datetime.now(UTC))
+    assert len(findings) == 1
+    coef = float(findings[0].coefficient)  # residual basis
+    assert coef > 0.4
+    raw = findings[0].details["raw_coef"]
+    assert raw is not None and raw > 0.5
+    assert abs(raw - coef) < 0.2  # trend/seasonality-free: raw ~ residual
+    detr = findings[0].details["detr_coef"]
+    assert detr is not None and abs(detr - coef) < 0.2  # likewise detr ~ residual
 
 
 # --- Activity-volume suppression --------------------------------------------
@@ -323,7 +517,7 @@ def test_spearman_lag_min_active_keeps_dense_series():
 
 def test_correlation_effect_size_floor_drops_weak_pairs():
     # A weak but, over a long series, "significant" correlation: ~0.15. The
-    # default floor (0.3) must drop it; disabling the floor must keep it.
+    # default floor (0.25) must drop it; disabling the floor must keep it.
     rng = np.random.default_rng(55)
     n = 600
     base = rng.normal(size=n)
@@ -333,7 +527,7 @@ def test_correlation_effect_size_floor_drops_weak_pairs():
     assert raw is not None and 0.05 < abs(raw.coef) < 0.30  # weak-but-present
 
     series = {"a": a, "b": b}
-    assert analysis._correlation_findings(series, dt.datetime.now(UTC)) == []  # default floor 0.3
+    assert analysis._correlation_findings(series, dt.datetime.now(UTC)) == []  # default floor 0.25
     kept = analysis._correlation_findings(series, dt.datetime.now(UTC), AnalysisConfig(corr_min_abs=0.0))
     assert len(kept) == 1 and abs(float(kept[0].coefficient)) < 0.30
 

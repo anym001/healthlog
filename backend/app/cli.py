@@ -9,6 +9,7 @@ instead of a module path::
     healthlog audit                         # read-only data-quality audit
     healthlog narrate                       # generate a weekly health report via Ollama
     healthlog narrate --note "…"            # with an optional focus note
+    healthlog narrate --dry-run             # print the model context only (no Ollama call)
     healthlog check-workout-hr              # is intra-workout HR in the archive?
     healthlog rederive-workout-hr           # backfill HR samples from the archive
 

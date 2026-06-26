@@ -94,15 +94,52 @@ class AnalysisConfig(BaseModel):
     # Minimum absolute Spearman coefficient to report a correlation. With years
     # of daily data even a negligible effect clears the FDR gate (significance is
     # not relevance); this effect-size floor keeps only relationships of at least
-    # moderate strength. 0 disables it.
-    corr_min_abs: float = Field(default=0.3, ge=0.0, le=1.0)
+    # moderate strength. Calibrated for the residual (de-seasonalised) basis,
+    # whose coefficients run smaller than the old de-trended ones. 0 disables it.
+    corr_min_abs: float = Field(default=0.25, ge=0.0, le=1.0)
+    # Raw-corroboration floor. A correlation is reported on the residual basis,
+    # but is trusted only if the *raw* series corroborate it: same sign and at
+    # least this |Spearman|. This rejects, symmetrically, both artefact classes a
+    # single basis lets through — shared seasonality (strong de-trended, ~0
+    # residual) and decomposition/estimation noise in sparse or derived metrics
+    # (strong residual, ~0 or opposite-sign raw). A genuine day-to-day link is
+    # visible in both representations. 0 disables the guard.
+    corr_raw_min_abs: float = Field(default=0.15, ge=0.0, le=1.0)
     # Anomaly
     anomaly_window: int = Field(default=28, ge=2)
     anomaly_threshold: float = Field(default=3.5, gt=0.0)
     anomaly_recent_days: int = Field(default=14, ge=1)
+    # Global-corroboration floor for anomalies. The rolling z flags a day against
+    # the *recent* window; that inflates when the window is unusually calm (a hard
+    # workout after a taper scores z>20 yet is a normal day vs the athlete's whole
+    # history — and is already covered by training_load/ACWR). Report a day only
+    # if it is also unusual against the series' full history: |robust z vs the
+    # global median+MAD| >= this. Mirrors the correlation raw-corroboration and
+    # seasonality reproducibility guards (a signal visible in one view only is not
+    # trustworthy). 0 disables the guard.
+    anomaly_min_global_z: float = Field(default=2.5, ge=0.0)
     # Trend / seasonality
     trend_strength_min: float = Field(default=0.30, ge=0.0, le=1.0)
+    # Directional-consistency floor for trends. trend_strength_min only certifies
+    # that the trend component is smooth relative to the residual; it cannot tell
+    # a genuine drift from a smooth meander that wanders up then back (high-
+    # strength sleep metrics scored 0.9 here yet had no net direction). Require
+    # the trend to also move consistently one way: |Spearman(trend, time)| >= this
+    # (~1 for a steady climb/decline, ~0 for a meander). Mirrors the other kinds'
+    # second-view guards. 0 disables the guard.
+    trend_min_monotonicity: float = Field(default=0.70, ge=0.0, le=1.0)
     seasonality_strength_min: float = Field(default=0.20, ge=0.0, le=1.0)
+    # Reproducibility floor for annual seasonality. STL/MSTL fits *some* annual
+    # component for every series, so a high in-sample strength is necessary but
+    # not sufficient (it fires on basically every metric). A genuine annual cycle
+    # also repeats its month-by-month shape from year to year; this is the mean
+    # Spearman between calendar years' monthly seasonal profiles. It rejects the
+    # same artefact class a single STL run lets through — a strong seasonal MSTL
+    # overfit to a one-off cluster (typical of sparse or derived metrics) — while
+    # keeping reproducible cycles regardless of metric type (e.g. a seasonally
+    # practised sport is kept, a one-off cluster of the same kind is not).
+    # 0 disables the guard.
+    seasonality_reproducibility_min: float = Field(default=0.30, ge=0.0, le=1.0)
     # Recovery early-warning
     recovery_recent_days: int = Field(default=14, ge=1)
     recovery_z: float = Field(default=1.5, gt=0.0)

@@ -7,6 +7,7 @@ synthetic findings dicts.
 
 from __future__ import annotations
 
+import argparse
 import datetime as dt
 import json
 
@@ -18,6 +19,7 @@ from app.narrate import (
     _metric_domain,
     _pair_tier,
     _system_prompt,
+    add_arguments,
     build_context,
     report_priority,
     scrub_details,
@@ -279,6 +281,58 @@ def test_build_context_english_language():
 def test_build_context_english_note_label():
     ctx = build_context([], 7, _TODAY, note="Check training load.", language="en")
     assert "USER NOTE" in ctx
+
+
+# ---------------------------------------------------------------------------
+# --dry-run — render the context without calling Ollama
+# ---------------------------------------------------------------------------
+
+
+def test_dry_run_flag_parsing():
+    parser = argparse.ArgumentParser()
+    add_arguments(parser)
+    assert parser.parse_args([]).dry_run is False
+    assert parser.parse_args(["--dry-run"]).dry_run is True
+
+
+def test_run_dry_run_renders_context_without_ollama(tmp_path, monkeypatch, capsys):
+    """A dry run prints the findings context, needs no ollama_url, and never
+    constructs the client — the deterministic 'data -> report' bridge."""
+    import app.database as database_mod
+    import app.narrate as narrate_mod
+    from app.appconfig import AppConfig
+
+    class _Settings:
+        log_level = "INFO"
+        log_format = "text"
+        config_file = str(tmp_path / "config.yaml")
+
+    class _DB:
+        def close(self):
+            pass
+
+    def _no_client(*_a, **_k):
+        raise AssertionError("OllamaClient must not be constructed in a dry run")
+
+    # Default AppConfig has narrate.ollama_url = None — the dry run must still work.
+    monkeypatch.setattr(narrate_mod, "get_settings", lambda: _Settings())
+    monkeypatch.setattr(narrate_mod, "load_config", lambda _path: AppConfig())
+    monkeypatch.setattr(database_mod, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(
+        narrate_mod,
+        "load_findings",
+        lambda _db, _lookback: [_finding("anomaly", details={"z": 3.9, "value": 72.5}, severity=3.9)],
+    )
+    monkeypatch.setattr(narrate_mod, "OllamaClient", _no_client)
+
+    args = argparse.Namespace(lookback_days=None, output_dir=None, note=None, dry_run=True)
+    rc = narrate_mod.run(args)
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "ANOMALIES" in out or "ANOMALIEN" in out  # context was rendered
+    assert "3.90" in out  # z-score present
+    assert "72.5" not in out  # raw sensor value still scrubbed
 
 
 # ---------------------------------------------------------------------------

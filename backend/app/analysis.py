@@ -69,19 +69,25 @@ CORR_KEEP_ALPHA = _DEFAULTS.corr_keep_alpha  # keep when FDR-adjusted p <= this
 FDR_ALPHA = _DEFAULTS.fdr_alpha
 CORR_MIN_ACTIVE = _DEFAULTS.corr_min_active  # min non-zero days per series in a pair's overlap
 CORR_MIN_ABS = _DEFAULTS.corr_min_abs  # effect-size floor: min |coefficient| to report
+CORR_RAW_MIN_ABS = _DEFAULTS.corr_raw_min_abs  # raw-corroboration floor: min |raw Spearman|, matching sign
 
 ANOMALY_WINDOW = _DEFAULTS.anomaly_window  # trailing days for median + MAD baseline
 ANOMALY_THRESHOLD = _DEFAULTS.anomaly_threshold  # robust z (|0.6745*(x-med)/MAD|)
 ANOMALY_RECENT_DAYS = _DEFAULTS.anomaly_recent_days  # only report recent anomalies
+ANOMALY_MIN_GLOBAL_Z = _DEFAULTS.anomaly_min_global_z  # global-corroboration floor: min |robust z vs full history|
 
 # Structural periods are domain constants, not operator tunables.
 WEEK_PERIOD = 7
 SEASONAL_PERIOD = 365
 SEASONAL_MIN_PEAK_TROUGH_GAP = 2  # months; a near-adjacent peak/trough means the
 #                                   annual phase estimate is unreliable (flagged)
+SEASONAL_MIN_SHARED_MONTHS = 6  # >= half a year of overlapping calendar months
+#                                 before two years' seasonal shapes are compared
 
 TREND_STRENGTH_MIN = _DEFAULTS.trend_strength_min  # report a trend above this
+TREND_MIN_MONOTONICITY = _DEFAULTS.trend_min_monotonicity  # directional consistency floor
 SEASONALITY_STRENGTH_MIN = _DEFAULTS.seasonality_strength_min  # annual seasonality
+SEASONALITY_REPRODUCIBILITY_MIN = _DEFAULTS.seasonality_reproducibility_min  # year-over-year shape recurrence
 
 RECOVERY_RECENT_DAYS = _DEFAULTS.recovery_recent_days
 RECOVERY_Z = _DEFAULTS.recovery_z  # both HRV (low) and resting HR (high) exceed this
@@ -192,6 +198,23 @@ def rolling_mad_anomalies(s: pd.Series, window: int = ANOMALY_WINDOW, threshold:
     )
 
 
+def _global_robust_z(s: pd.Series, value: float) -> float | None:
+    """Robust z of ``value`` against the series' *entire* history (median + MAD).
+
+    The trailing-window z (``robust_z``) asks "is today unusual versus the last
+    few weeks"; this asks "is it unusual versus everything we've seen". It is the
+    corroboration view for anomalies: a day inflated only because the recent
+    window was unusually calm (e.g. a normal hard workout after a taper) is
+    modest here, while a genuine extreme is large in both. ``None`` when the
+    global MAD is zero (a constant series offers no scale to judge against).
+    """
+    arr = s.to_numpy()
+    scale = _mad(arr)
+    if scale == 0:
+        return None
+    return 0.6745 * (value - float(np.median(arr))) / scale
+
+
 @dataclass
 class Decomp:
     trend: pd.Series
@@ -251,8 +274,56 @@ def trend_slope(trend: pd.Series) -> float:
     return float(slope)
 
 
+def trend_monotonicity(trend: pd.Series) -> float | None:
+    """How consistently the (smooth) trend component moves in one direction.
+
+    ``_component_strength`` only measures that the trend is smooth relative to
+    the residual; it cannot tell a genuine directional drift from a smooth
+    meander that wanders up then back. This is ``|Spearman(trend, time)|``: ~1 for
+    a steady climb/decline, ~0 for a meander. It is the directional corroboration
+    view for trends, mirroring the other kinds' second-view guards. ``None`` when
+    the trend is constant (no direction to judge).
+    """
+    y = trend.dropna().to_numpy()
+    if len(y) < 2 or np.std(y) == 0:
+        return None
+    rho = stats.spearmanr(y, np.arange(len(y))).statistic
+    return None if np.isnan(rho) else abs(float(rho))
+
+
+def _seasonal_reproducibility(season: pd.Series) -> float | None:
+    """Year-over-year stability of the annual seasonal *shape*.
+
+    A genuine annual cycle repeats its month-by-month profile from one calendar
+    year to the next; an annual component MSTL has overfit to a one-off cluster
+    (typical of sparse or derived metrics) does not. Returns the mean Spearman
+    correlation between every pair of years' monthly seasonal profiles, or
+    ``None`` if fewer than two years share enough months to compare.
+
+    This is the corroboration guard for seasonality, mirroring the raw-
+    corroboration guard for correlations (ARCHITECTURE.md §4.8): a single STL run
+    always fits *some* seasonal, so a high in-sample strength is not enough — the
+    pattern must recur across years to be trusted.
+    """
+    by_year_month = season.groupby([season.index.year, season.index.month]).mean()
+    table = by_year_month.unstack(0)  # rows = month (1..12), columns = calendar year
+    years = list(table.columns)
+    if len(years) < 2:
+        return None
+    cors: list[float] = []
+    for i in range(len(years)):
+        for j in range(i + 1, len(years)):
+            pair = pd.concat([table[years[i]], table[years[j]]], axis=1).dropna()
+            if len(pair) >= SEASONAL_MIN_SHARED_MONTHS:
+                cors.append(float(pair.iloc[:, 0].corr(pair.iloc[:, 1], method="spearman")))
+    if not cors:
+        return None
+    return float(np.mean(cors))
+
+
 def annual_seasonality(decomp: Decomp) -> dict | None:
-    """Amplitude, peak/trough month and strength of the annual component."""
+    """Amplitude, peak/trough month, strength and reproducibility of the annual
+    component."""
     if not decomp.has_annual or SEASONAL_PERIOD not in decomp.seasonal:
         return None
     season = decomp.seasonal[SEASONAL_PERIOD]
@@ -267,6 +338,7 @@ def annual_seasonality(decomp: Decomp) -> dict | None:
     gap = min(gap, 12 - gap)
     return {
         "strength": strength,
+        "reproducibility": _seasonal_reproducibility(season),
         "amplitude": float(season.max() - season.min()),
         "peak_month": peak_month,
         "trough_month": trough_month,
@@ -801,17 +873,37 @@ def _decompose_all(series: dict[str, pd.Series]) -> dict[str, Decomp | None]:
     return {name: decompose(s) for name, s in series.items()}
 
 
-def _detrend_for_correlation(
+def _detrended_series(s: pd.Series, decomp: Decomp) -> pd.Series:
+    """``s`` with only its long-run trend removed (seasonality retained).
+
+    This is the *previous* correlation basis, kept to stamp ``details.detr_coef``
+    so a report can show how much of an old number lived in shared seasonality."""
+    return s - decomp.trend.reindex(s.index)
+
+
+def _residual_series(s: pd.Series, decomp: Decomp) -> pd.Series:
+    """``s`` with both trend AND seasonal components removed (the STL residual),
+    keeping real observations only. This is the correlation basis."""
+    out = _detrended_series(s, decomp)
+    for seasonal in decomp.seasonal.values():
+        out = out - seasonal.reindex(s.index)
+    return out
+
+
+def _residual_for_correlation(
     series: dict[str, pd.Series], decomps: dict[str, Decomp | None] | None = None
 ) -> dict[str, pd.Series]:
-    """Subtract each metric's long-run trend so correlations measure day-to-day
-    co-movement, not shared drift.
+    """Strip each metric's trend AND seasonal component, leaving the STL residual,
+    so correlations measure pure day-to-day co-movement.
 
-    Two metrics that merely trend in opposite directions over the years
-    otherwise correlate spuriously (e.g. weight up vs. VO2 max down). Real
-    observations only: the series keeps its complete daily index (NaN at
-    gaps/edges) so lag shifts stay calendar-correct, but no interpolated point
-    enters a correlation. A series too short to decompose is dropped.
+    Removing only the trend (the old basis) leaves seasonality in, so two metrics
+    that merely share a weekly/annual rhythm — or that just trend together over
+    the years — correlate spuriously. Validated on live data, ~two thirds of the
+    de-trended findings collapsed to a ~0 residual once seasonality was also
+    removed (see docs/ARCHITECTURE.md §4.8). Real observations only: the series
+    keeps its complete daily index (NaN at gaps/edges) so lag shifts stay
+    calendar-correct, but no interpolated point enters a correlation. A series too
+    short to decompose is dropped.
 
     ``decomps`` reuses a precomputed decomposition cache when provided; absent
     one (e.g. a direct test call) each series is decomposed on the fly.
@@ -821,9 +913,9 @@ def _detrend_for_correlation(
         decomp = decomps.get(name) if decomps is not None else decompose(s)
         if decomp is None:
             continue
-        detrended = s - decomp.trend.reindex(s.index)
-        if not detrended.dropna().empty:
-            out[name] = detrended
+        residual = _residual_series(s, decomp)
+        if not residual.dropna().empty:
+            out[name] = residual
     return out
 
 
@@ -960,8 +1052,8 @@ def _correlation_findings(
     decomps: dict[str, Decomp | None] | None = None,
 ) -> list[Finding]:
     cfg = cfg or _DEFAULTS
-    detrended = _detrend_for_correlation(series, decomps)
-    names = list(detrended)
+    residual = _residual_for_correlation(series, decomps)
+    names = list(residual)
     candidates: list[tuple[str, str, int, Corr]] = []
     for i in range(len(names)):
         for j in range(i + 1, len(names)):
@@ -969,14 +1061,14 @@ def _correlation_findings(
             if _is_redundant_activity_pair(a, b):
                 continue  # both measure activity volume (load or Apple ring) — structural, not health
             ma = cfg.corr_min_active
-            c0 = spearman_lag(detrended[a], detrended[b], 0, min_overlap=cfg.min_overlap, min_active=ma)
+            c0 = spearman_lag(residual[a], residual[b], 0, min_overlap=cfg.min_overlap, min_active=ma)
             if c0:
                 candidates.append((a, b, 0, c0))
             for lag in range(1, cfg.max_lag + 1):
-                cab = spearman_lag(detrended[a], detrended[b], lag, min_overlap=cfg.min_overlap, min_active=ma)
+                cab = spearman_lag(residual[a], residual[b], lag, min_overlap=cfg.min_overlap, min_active=ma)
                 if cab:
                     candidates.append((a, b, lag, cab))  # a leads b
-                cba = spearman_lag(detrended[b], detrended[a], lag, min_overlap=cfg.min_overlap, min_active=ma)
+                cba = spearman_lag(residual[b], residual[a], lag, min_overlap=cfg.min_overlap, min_active=ma)
                 if cba:
                     candidates.append((b, a, lag, cba))  # b leads a
 
@@ -998,6 +1090,41 @@ def _correlation_findings(
 
     findings = []
     for a, b, lag, c, p_adj in best.values():
+        # The reported ``coefficient`` is the residual (trend + seasonal removed)
+        # Spearman. Stamp two comparison coefficients at the same lag/direction for
+        # transparency about what the de-seasonalising removed:
+        #   * raw_coef  — nothing removed (shared trend + seasonal + day-to-day)
+        #   * detr_coef — only the trend removed (the previous reporting basis)
+        # When detr_coef is strong but the stored residual coefficient is ~0, the
+        # old number lived in shared seasonality, not a real day-to-day link.
+        raw = spearman_lag(series[a], series[b], lag, min_overlap=2, min_active=0)
+        # Raw-corroboration guard: trust the residual correlation only if the raw
+        # series show the same-signed relationship with at least a weak magnitude.
+        # A strong residual with raw ~ 0 or opposite sign is an artefact of the
+        # de-seasonalising (typically a sparse or derived metric whose residual is
+        # decomposition noise), the mirror image of a shared-seasonality artefact
+        # (caught above by the residual being ~ 0). A genuine link shows in both.
+        if cfg.corr_raw_min_abs > 0 and (raw is None or raw.coef * c.coef <= 0 or abs(raw.coef) < cfg.corr_raw_min_abs):
+            continue
+        dec_a = decomps.get(a) if decomps is not None else decompose(series[a])
+        dec_b = decomps.get(b) if decomps is not None else decompose(series[b])
+        detr = None
+        if dec_a is not None and dec_b is not None:
+            detr = spearman_lag(
+                _detrended_series(series[a], dec_a),
+                _detrended_series(series[b], dec_b),
+                lag,
+                min_overlap=2,
+                min_active=0,
+            )
+        details: dict[str, object] = {
+            "n": c.n,
+            "priority_tier": _pair_tier(_metric_domain(a), _metric_domain(b)),
+        }
+        if raw is not None:
+            details["raw_coef"] = round(raw.coef, 4)
+        if detr is not None:
+            details["detr_coef"] = round(detr.coef, 4)
         findings.append(
             Finding(
                 computed_at=computed_at,
@@ -1011,16 +1138,37 @@ def _correlation_findings(
                 window_start=c.start,
                 window_end=c.end,
                 severity=round(abs(c.coef), 4),
-                details={"n": c.n, "priority_tier": _pair_tier(_metric_domain(a), _metric_domain(b))},
+                details=details,
             )
         )
     return findings
+
+
+def _dedupe_workout_anomalies(findings: list[Finding]) -> list[Finding]:
+    """Collapse co-derived workout-load anomalies that share a day to the single
+    strongest. ``workout_{trimp,load,edwards,duration,...}`` (and per-sport
+    variants) are alternative measures of the *same* session, so one hard day
+    otherwise fires several near-identical anomalies. Non-workout metrics are
+    independent and never merged.
+    """
+    best_by_day: dict[dt.date, Finding] = {}
+    kept: list[Finding] = []
+    for f in findings:
+        if not _is_workout_load_family(f.metric_a):
+            kept.append(f)
+            continue
+        cur = best_by_day.get(f.ref_date)
+        if cur is None or f.severity > cur.severity:
+            best_by_day[f.ref_date] = f
+    kept.extend(best_by_day.values())
+    return kept
 
 
 def _anomaly_findings(
     series: dict[str, pd.Series], computed_at: dt.datetime, cfg: AnalysisConfig | None = None
 ) -> list[Finding]:
     cfg = cfg or _DEFAULTS
+    guard = cfg.anomaly_min_global_z > 0
     findings = []
     for name, s in series.items():
         s = s.dropna()
@@ -1031,6 +1179,16 @@ def _anomaly_findings(
         for ts, row in anomalies.iterrows():
             if ts < cutoff:
                 continue
+            # Global corroboration: a day flagged against a calm recent window is
+            # only an anomaly if it is also unusual against the series' own full
+            # history. Drops window-only spikes (a hard workout after a taper,
+            # already covered by training_load) while keeping genuine extremes.
+            global_z = _global_robust_z(s, float(row["value"]))
+            if guard and (global_z is None or abs(global_z) < cfg.anomaly_min_global_z):
+                continue
+            details = {"value": round(float(row["value"]), 4), "z": round(float(row["z"]), 4)}
+            if global_z is not None:
+                details["global_z"] = round(global_z, 4)
             findings.append(
                 Finding(
                     computed_at=computed_at,
@@ -1038,10 +1196,10 @@ def _anomaly_findings(
                     metric_a=name,
                     ref_date=ts.date(),
                     severity=round(abs(float(row["z"])), 4),
-                    details={"value": round(float(row["value"]), 4), "z": round(float(row["z"]), 4)},
+                    details=details,
                 )
             )
-    return findings
+    return _dedupe_workout_anomalies(findings)
 
 
 def _trend_and_seasonality_findings(
@@ -1059,8 +1217,20 @@ def _trend_and_seasonality_findings(
         start, end = decomp.trend.index.min().date(), decomp.trend.index.max().date()
 
         strength = _component_strength(decomp.trend, decomp.resid)
-        if strength >= cfg.trend_strength_min:
+        # Strength only certifies the trend is smooth vs the residual, not that it
+        # goes anywhere: a smooth meander (up then back) scores high yet has no
+        # direction. Require the trend to also move consistently one way
+        # (monotonicity, mirrors the other kinds' corroboration guards). A floor
+        # of 0 disables the guard.
+        monotonicity = trend_monotonicity(decomp.trend)
+        trend_guard = cfg.trend_min_monotonicity > 0
+        if strength >= cfg.trend_strength_min and (
+            not trend_guard or (monotonicity is not None and monotonicity >= cfg.trend_min_monotonicity)
+        ):
             slope = trend_slope(decomp.trend)
+            details = {"slope_per_day": round(slope, 6), "strength": round(strength, 4)}
+            if monotonicity is not None:
+                details["monotonicity"] = round(monotonicity, 4)
             trends.append(
                 Finding(
                     computed_at=computed_at,
@@ -1069,12 +1239,26 @@ def _trend_and_seasonality_findings(
                     window_start=start,
                     window_end=end,
                     severity=round(strength, 4),
-                    details={"slope_per_day": round(slope, 6), "strength": round(strength, 4)},
+                    details=details,
                 )
             )
 
         annual = annual_seasonality(decomp)
-        if annual and annual["strength"] >= cfg.seasonality_strength_min:
+        # Strength alone over-fires: MSTL fits *some* annual component for every
+        # series, so a high in-sample strength is necessary but not sufficient. A
+        # genuine annual cycle also recurs year over year; require the seasonal
+        # shape to be reproducible (mirrors the correlation raw-corroboration
+        # guard, ARCHITECTURE.md §4.8). reproducibility is None when there are
+        # fewer than two comparable years -> not trustworthy, dropped.
+        reproducibility = annual["reproducibility"] if annual else None
+        # A floor of 0 disables the guard (mirrors corr_raw_min_abs); otherwise the
+        # shape must recur: reproducibility is not None and clears the floor.
+        guard = cfg.seasonality_reproducibility_min > 0
+        if (
+            annual
+            and annual["strength"] >= cfg.seasonality_strength_min
+            and (not guard or (reproducibility is not None and reproducibility >= cfg.seasonality_reproducibility_min))
+        ):
             seasons.append(
                 Finding(
                     computed_at=computed_at,
@@ -1086,6 +1270,7 @@ def _trend_and_seasonality_findings(
                     note=None if annual["phase_confident"] else "annual phase uncertain (peak and trough too close)",
                     details={
                         "strength": round(annual["strength"], 4),
+                        "reproducibility": round(reproducibility, 4) if reproducibility is not None else None,
                         "amplitude": round(annual["amplitude"], 4),
                         "peak_month": annual["peak_month"],
                         "trough_month": annual["trough_month"],

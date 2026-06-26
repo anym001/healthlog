@@ -51,15 +51,26 @@
 #   fdr_alpha: 0.05
 #   corr_min_active: 10       # min non-zero days per series in a pair's overlap
 #                             # (guards 0-filled sparse per-sport workout load)
-#   corr_min_abs: 0.3         # effect-size floor: min |coefficient| to report
-#                             # (drops significant-but-negligible correlations)
+#   corr_min_abs: 0.25        # effect-size floor: min |coefficient| to report
+#                             # (drops significant-but-negligible correlations;
+#                             #  calibrated for the residual / de-seasonalised basis)
+#   corr_raw_min_abs: 0.15    # raw-corroboration floor: report a residual
+#                             # correlation only if the raw series agree in sign
+#                             # and reach this |Spearman| (drops residual-only
+#                             # artefacts from sparse/derived metrics)
 #   # Anomaly (robust rolling median + MAD)
 #   anomaly_window: 28        # trailing days for the baseline
 #   anomaly_threshold: 3.5    # robust z above which a day is flagged
 #   anomaly_recent_days: 14   # only report anomalies this recent
+#   anomaly_min_global_z: 2.5 # also require |robust z vs full history| >= this
+#                             # (drops window-only spikes, e.g. a hard day after a taper)
 #   # Trend / seasonality (STL/MSTL strength)
 #   trend_strength_min: 0.30
+#   trend_min_monotonicity: 0.70  # also require |Spearman(trend, time)| >= this
+#                                 # (drops smooth meanders that have no net direction)
 #   seasonality_strength_min: 0.20
+#   seasonality_reproducibility_min: 0.30  # year-over-year shape recurrence; rejects
+#                                          # one-off clusters MSTL over-fits as "seasonal"
 #   # Recovery early-warning (HRV low AND resting HR high)
 #   recovery_recent_days: 14
 #   recovery_z: 1.5

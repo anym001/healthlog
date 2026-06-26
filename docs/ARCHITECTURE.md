@@ -287,11 +287,31 @@ findings (id, computed_at, kind TEXT,            -- correlation|anomaly|trend|se
 the anomaly). Non-applicable fields stay NULL.
 
 **Finding types** (snapshot per run, `app/analysis.py`):
-- **correlation** — Spearman on **de-trended** series (trend component subtracted, so
-  opposing long-term trends can't produce a spurious correlation), lags 0–3 days (both
-  directions), FDR `p_value_adj`; per metric pair only the **strongest** lag/direction
-  (dedup). Two relevance filters cut structural noise: an **effect-size floor**
-  (`analysis.corr_min_abs`, default 0.3) drops significant-but-negligible pairs, and
+- **correlation** — Spearman on the **residual** series (STL trend *and* seasonal
+  components subtracted), so the coefficient measures pure day-to-day co-movement, lags
+  0–3 days (both directions), FDR `p_value_adj`; per metric pair only the **strongest**
+  lag/direction (dedup). Removing only the trend (the previous basis) left seasonality
+  in, so two metrics that merely share a weekly/annual rhythm correlated spuriously —
+  validated on live data, ~two thirds of those de-trended findings collapsed to a ~0
+  residual once seasonality was also removed. For transparency each finding stamps two
+  comparison Spearmans at the same lag: the **raw** coefficient (nothing removed,
+  `details.raw_coef`) and the **de-trended** coefficient (trend only, the old basis,
+  `details.detr_coef`); a strong `detr_coef` next to a ~0 reported coefficient marks a
+  number that lived in shared seasonality. The `raw_coef` is also a **guard**, not just a
+  label: a correlation is reported only if the raw series *corroborate* the residual one —
+  same sign and `|raw_coef| ≥ analysis.corr_raw_min_abs` (default 0.15). This is the
+  symmetric counterpart to the residual switch. Each single basis admits one artefact
+  class: the de-trended basis manufactures correlations from shared seasonality (strong
+  de-trended, ~0 residual), and the residual basis manufactures them from decomposition or
+  estimation noise in sparse/derived metrics (strong residual, ~0 or opposite-sign raw). A
+  *genuine* day-to-day link is visible in both representations, so requiring agreement
+  across raw and residual rejects both classes with one rule — and does so
+  **metric-agnostically**: no per-metric coverage threshold or exclusion list separates
+  the artefacts (e.g. `cardio_recovery`, coverage 0.52, is better-covered than legitimate
+  vitals), because the discriminator is a property of the *pair*, not the metric. Two
+  further relevance filters cut structural noise: an **effect-size floor**
+  (`analysis.corr_min_abs`, default 0.25 — residual coefficients run smaller than
+  de-trended ones) drops significant-but-negligible pairs, and
   **activity-volume suppression** drops a pair when *both* series measure how much you
   moved/trained (workout-derived metrics — load/duration/count/intensity — or Apple
   activity-ring metrics — see `_is_activity_volume` in `app/analysis.py`); an activity
@@ -300,11 +320,33 @@ the anomaly). Non-applicable fields stay NULL.
   `_pair_tier`): cross-subsystem links rank above expected within-subsystem pairs, so
   the narration (`narrate.report_priority`) and the Grafana "Top Correlations" panel
   lead with the informative ones without re-deriving the rule.
-- **anomaly** — 28-day trailing median + MAD (robust z), last 14 days only.
-- **trend** — STL trend component (slope + trend strength).
+- **anomaly** — 28-day trailing median + MAD (robust z), last 14 days only. The
+  trailing z inflates when the recent window is unusually calm (a hard workout after
+  a taper scores z>20 yet is a normal day vs the athlete's whole history), so a flag
+  is **corroborated against the full history**: keep it only if `|robust z vs the
+  global median+MAD|` clears `anomaly_min_global_z` (stamped as `details.global_z`).
+  This is the same single-view trap the correlation and seasonality guards address.
+  Co-derived workout-load metrics (`workout_{trimp,load,edwards,duration,…}`) that
+  flag the **same day** are alternative measures of one session, so they collapse to
+  the single strongest anomaly instead of reporting the session several times.
+- **trend** — STL trend component (slope + trend strength). Strength (Wang/Hyndman)
+  only certifies the trend is smooth relative to the residual, not that it goes
+  anywhere: a smooth meander that drifts up then back scores high yet has no net
+  direction (high-strength sleep metrics scored 0.9 here with no drift). A finding
+  also requires the trend to move consistently one way — `|Spearman(trend, time)|` ≥
+  `trend_min_monotonicity` (`details.monotonicity`), the same single-view corroboration
+  the correlation, seasonality and anomaly guards apply.
 - **seasonality** — MSTL(7, 365): yearly pattern (amplitude + peak/trough month), from
   ≥2 years; if peak and trough are <2 months apart, the phase is flagged as uncertain
-  (`phase_confident`).
+  (`phase_confident`). MSTL fits *some* annual component for every series, so the
+  in-sample strength alone fired on basically every metric — the same single-basis
+  trap as the old correlation logic. The fix mirrors the raw-corroboration guard: a
+  genuine annual cycle also **recurs**, so a finding is kept only if the seasonal
+  *shape* is reproducible year over year (`details.reproducibility` = mean Spearman
+  between calendar years' monthly seasonal profiles, floor `seasonality_reproducibility_min`).
+  This is metric-agnostic — it rejects a strong seasonal MSTL overfit to a one-off
+  cluster (sparse/derived metrics) while keeping a genuinely recurring cycle, so a
+  seasonally-practised sport is kept where a one-off burst of the same kind is dropped.
 - **recovery_alert** — combined: HRV notably low **and** resting HR high (+ optionally
   short sleep).
 - **consistency** — rolling spread of sleep duration and bedtime (midnight wrap handled).
