@@ -1172,11 +1172,13 @@ def _trend_and_seasonality_findings(
         # guard, ARCHITECTURE.md §4.8). reproducibility is None when there are
         # fewer than two comparable years -> not trustworthy, dropped.
         reproducibility = annual["reproducibility"] if annual else None
+        # A floor of 0 disables the guard (mirrors corr_raw_min_abs); otherwise the
+        # shape must recur: reproducibility is not None and clears the floor.
+        guard = cfg.seasonality_reproducibility_min > 0
         if (
             annual
             and annual["strength"] >= cfg.seasonality_strength_min
-            and reproducibility is not None
-            and reproducibility >= cfg.seasonality_reproducibility_min
+            and (not guard or (reproducibility is not None and reproducibility >= cfg.seasonality_reproducibility_min))
         ):
             seasons.append(
                 Finding(
@@ -1189,7 +1191,7 @@ def _trend_and_seasonality_findings(
                     note=None if annual["phase_confident"] else "annual phase uncertain (peak and trough too close)",
                     details={
                         "strength": round(annual["strength"], 4),
-                        "reproducibility": round(reproducibility, 4),
+                        "reproducibility": round(reproducibility, 4) if reproducibility is not None else None,
                         "amplitude": round(annual["amplitude"], 4),
                         "peak_month": annual["peak_month"],
                         "trough_month": annual["trough_month"],
