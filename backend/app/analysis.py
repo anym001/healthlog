@@ -801,17 +801,37 @@ def _decompose_all(series: dict[str, pd.Series]) -> dict[str, Decomp | None]:
     return {name: decompose(s) for name, s in series.items()}
 
 
-def _detrend_for_correlation(
+def _detrended_series(s: pd.Series, decomp: Decomp) -> pd.Series:
+    """``s`` with only its long-run trend removed (seasonality retained).
+
+    This is the *previous* correlation basis, kept to stamp ``details.detr_coef``
+    so a report can show how much of an old number lived in shared seasonality."""
+    return s - decomp.trend.reindex(s.index)
+
+
+def _residual_series(s: pd.Series, decomp: Decomp) -> pd.Series:
+    """``s`` with both trend AND seasonal components removed (the STL residual),
+    keeping real observations only. This is the correlation basis."""
+    out = _detrended_series(s, decomp)
+    for seasonal in decomp.seasonal.values():
+        out = out - seasonal.reindex(s.index)
+    return out
+
+
+def _residual_for_correlation(
     series: dict[str, pd.Series], decomps: dict[str, Decomp | None] | None = None
 ) -> dict[str, pd.Series]:
-    """Subtract each metric's long-run trend so correlations measure day-to-day
-    co-movement, not shared drift.
+    """Strip each metric's trend AND seasonal component, leaving the STL residual,
+    so correlations measure pure day-to-day co-movement.
 
-    Two metrics that merely trend in opposite directions over the years
-    otherwise correlate spuriously (e.g. weight up vs. VO2 max down). Real
-    observations only: the series keeps its complete daily index (NaN at
-    gaps/edges) so lag shifts stay calendar-correct, but no interpolated point
-    enters a correlation. A series too short to decompose is dropped.
+    Removing only the trend (the old basis) leaves seasonality in, so two metrics
+    that merely share a weekly/annual rhythm — or that just trend together over
+    the years — correlate spuriously. Validated on live data, ~two thirds of the
+    de-trended findings collapsed to a ~0 residual once seasonality was also
+    removed (see docs/ARCHITECTURE.md §4.8). Real observations only: the series
+    keeps its complete daily index (NaN at gaps/edges) so lag shifts stay
+    calendar-correct, but no interpolated point enters a correlation. A series too
+    short to decompose is dropped.
 
     ``decomps`` reuses a precomputed decomposition cache when provided; absent
     one (e.g. a direct test call) each series is decomposed on the fly.
@@ -821,23 +841,9 @@ def _detrend_for_correlation(
         decomp = decomps.get(name) if decomps is not None else decompose(s)
         if decomp is None:
             continue
-        detrended = s - decomp.trend.reindex(s.index)
-        if not detrended.dropna().empty:
-            out[name] = detrended
-    return out
-
-
-def _residual_series(s: pd.Series, decomp: Decomp) -> pd.Series:
-    """``s`` with both trend AND seasonal components removed (the STL residual),
-    keeping real observations only.
-
-    The de-trended series (trend only removed) still carries seasonality, so two
-    metrics that merely share a weekly/annual rhythm can co-move through it.
-    Correlating on this residual instead measures pure day-to-day deviation. Used
-    only to stamp ``details.resid_coef`` for now (transparency / validation)."""
-    out = s - decomp.trend.reindex(s.index)
-    for seasonal in decomp.seasonal.values():
-        out = out - seasonal.reindex(s.index)
+        residual = _residual_series(s, decomp)
+        if not residual.dropna().empty:
+            out[name] = residual
     return out
 
 
@@ -974,8 +980,8 @@ def _correlation_findings(
     decomps: dict[str, Decomp | None] | None = None,
 ) -> list[Finding]:
     cfg = cfg or _DEFAULTS
-    detrended = _detrend_for_correlation(series, decomps)
-    names = list(detrended)
+    residual = _residual_for_correlation(series, decomps)
+    names = list(residual)
     candidates: list[tuple[str, str, int, Corr]] = []
     for i in range(len(names)):
         for j in range(i + 1, len(names)):
@@ -983,14 +989,14 @@ def _correlation_findings(
             if _is_redundant_activity_pair(a, b):
                 continue  # both measure activity volume (load or Apple ring) — structural, not health
             ma = cfg.corr_min_active
-            c0 = spearman_lag(detrended[a], detrended[b], 0, min_overlap=cfg.min_overlap, min_active=ma)
+            c0 = spearman_lag(residual[a], residual[b], 0, min_overlap=cfg.min_overlap, min_active=ma)
             if c0:
                 candidates.append((a, b, 0, c0))
             for lag in range(1, cfg.max_lag + 1):
-                cab = spearman_lag(detrended[a], detrended[b], lag, min_overlap=cfg.min_overlap, min_active=ma)
+                cab = spearman_lag(residual[a], residual[b], lag, min_overlap=cfg.min_overlap, min_active=ma)
                 if cab:
                     candidates.append((a, b, lag, cab))  # a leads b
-                cba = spearman_lag(detrended[b], detrended[a], lag, min_overlap=cfg.min_overlap, min_active=ma)
+                cba = spearman_lag(residual[b], residual[a], lag, min_overlap=cfg.min_overlap, min_active=ma)
                 if cba:
                     candidates.append((b, a, lag, cba))  # b leads a
 
@@ -1012,22 +1018,21 @@ def _correlation_findings(
 
     findings = []
     for a, b, lag, c, p_adj in best.values():
-        # Raw (non-de-trended) Spearman at the same lag/direction, for transparency
-        # about how much the de-trending shaped the reported coefficient. When the
-        # raw co-movement is ~0 but the de-trended one is strong, the de-trending
-        # manufactured the correlation rather than revealing it.
+        # The reported ``coefficient`` is the residual (trend + seasonal removed)
+        # Spearman. Stamp two comparison coefficients at the same lag/direction for
+        # transparency about what the de-seasonalising removed:
+        #   * raw_coef  — nothing removed (shared trend + seasonal + day-to-day)
+        #   * detr_coef — only the trend removed (the previous reporting basis)
+        # When detr_coef is strong but the stored residual coefficient is ~0, the
+        # old number lived in shared seasonality, not a real day-to-day link.
         raw = spearman_lag(series[a], series[b], lag, min_overlap=2, min_active=0)
-        # Residual (trend AND seasonal removed) Spearman at the same lag. Compared
-        # with raw and the stored (trend-only) coefficient it tells whether a
-        # de-trended correlation lives in the shared seasonality (artefact) or the
-        # day-to-day residual (genuine).
         dec_a = decomps.get(a) if decomps is not None else decompose(series[a])
         dec_b = decomps.get(b) if decomps is not None else decompose(series[b])
-        resid = None
+        detr = None
         if dec_a is not None and dec_b is not None:
-            resid = spearman_lag(
-                _residual_series(series[a], dec_a),
-                _residual_series(series[b], dec_b),
+            detr = spearman_lag(
+                _detrended_series(series[a], dec_a),
+                _detrended_series(series[b], dec_b),
                 lag,
                 min_overlap=2,
                 min_active=0,
@@ -1038,8 +1043,8 @@ def _correlation_findings(
         }
         if raw is not None:
             details["raw_coef"] = round(raw.coef, 4)
-        if resid is not None:
-            details["resid_coef"] = round(resid.coef, 4)
+        if detr is not None:
+            details["detr_coef"] = round(detr.coef, 4)
         findings.append(
             Finding(
                 computed_at=computed_at,
