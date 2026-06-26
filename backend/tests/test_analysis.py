@@ -157,6 +157,56 @@ def test_seasonality_phase_confident_when_peak_trough_far_apart():
     assert annual["phase_confident"] is True
 
 
+def _multiyear_seasonal(fn) -> pd.Series:
+    """A three-year daily seasonal component, value per day from ``fn(timestamp)``."""
+    idx = pd.date_range("2022-01-01", periods=365 * 3, freq="D")
+    return pd.Series([fn(ts) for ts in idx], index=idx, dtype="float64")
+
+
+def _seasonal_decomp(season: pd.Series) -> analysis.Decomp:
+    """A Decomp carrying only an annual component (zero trend/resid => strength 1)."""
+    zeros = pd.Series(np.zeros(len(season)), index=season.index)
+    return analysis.Decomp(trend=zeros, resid=zeros, seasonal={analysis.SEASONAL_PERIOD: season}, has_annual=True)
+
+
+def test_seasonal_reproducibility_high_for_recurring_cycle():
+    # The same month-by-month shape every year -> the annual cycle recurs.
+    season = _multiyear_seasonal(lambda ts: np.sin(2 * np.pi * ts.dayofyear / 365))
+    assert analysis._seasonal_reproducibility(season) > 0.8
+
+
+def test_seasonal_reproducibility_low_for_wandering_shape():
+    # A cycle whose phase shifts every year: MSTL fits "seasonal" strength, but
+    # the shape does not recur -> low/negative reproducibility (the artefact).
+    shift = {2022: 0, 2023: 120, 2024: 240}
+    season = _multiyear_seasonal(lambda ts: np.sin(2 * np.pi * (ts.dayofyear + shift[ts.year]) / 365))
+    assert analysis._seasonal_reproducibility(season) < 0.3
+
+
+def test_seasonal_reproducibility_none_with_single_year():
+    season = _multiyear_seasonal(lambda ts: np.sin(2 * np.pi * ts.dayofyear / 365)).iloc[:300]
+    assert analysis._seasonal_reproducibility(season) is None
+
+
+def test_seasonality_drops_non_reproducible_artefact():
+    # Two series with equally strong annual components: one recurs year over year,
+    # the other wanders. Both clear the strength floor; only the reproducible one
+    # is a trustworthy seasonality finding.
+    shift = {2022: 0, 2023: 120, 2024: 240}
+    recurs = _multiyear_seasonal(lambda ts: np.sin(2 * np.pi * ts.dayofyear / 365))
+    wanders = _multiyear_seasonal(lambda ts: np.sin(2 * np.pi * (ts.dayofyear + shift[ts.year]) / 365))
+    series = {"recurs": recurs, "wanders": wanders}  # values unused; decomps drive seasonality
+    decomps = {"recurs": _seasonal_decomp(recurs), "wanders": _seasonal_decomp(wanders)}
+
+    _, seasons = analysis._trend_and_seasonality_findings(series, dt.datetime.now(UTC), decomps=decomps)
+    assert {f.metric_a for f in seasons} == {"recurs"}  # wandering shape dropped
+
+    # Disabling the guard lets both through -> proof the guard is the discriminator.
+    cfg = AnalysisConfig(seasonality_reproducibility_min=0.0)
+    _, both = analysis._trend_and_seasonality_findings(series, dt.datetime.now(UTC), cfg, decomps=decomps)
+    assert {f.metric_a for f in both} == {"recurs", "wanders"}
+
+
 # --- Correlation de-trending + de-duplication -------------------------------
 
 

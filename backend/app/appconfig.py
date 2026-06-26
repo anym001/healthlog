@@ -112,6 +112,17 @@ class AnalysisConfig(BaseModel):
     # Trend / seasonality
     trend_strength_min: float = Field(default=0.30, ge=0.0, le=1.0)
     seasonality_strength_min: float = Field(default=0.20, ge=0.0, le=1.0)
+    # Reproducibility floor for annual seasonality. STL/MSTL fits *some* annual
+    # component for every series, so a high in-sample strength is necessary but
+    # not sufficient (it fires on basically every metric). A genuine annual cycle
+    # also repeats its month-by-month shape from year to year; this is the mean
+    # Spearman between calendar years' monthly seasonal profiles. It rejects the
+    # same artefact class a single STL run lets through — a strong seasonal MSTL
+    # overfit to a one-off cluster (typical of sparse or derived metrics) — while
+    # keeping reproducible cycles regardless of metric type (e.g. a seasonally
+    # practised sport is kept, a one-off cluster of the same kind is not).
+    # 0 disables the guard.
+    seasonality_reproducibility_min: float = Field(default=0.30, ge=0.0, le=1.0)
     # Recovery early-warning
     recovery_recent_days: int = Field(default=14, ge=1)
     recovery_z: float = Field(default=1.5, gt=0.0)
