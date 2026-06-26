@@ -109,6 +109,15 @@ class AnalysisConfig(BaseModel):
     anomaly_window: int = Field(default=28, ge=2)
     anomaly_threshold: float = Field(default=3.5, gt=0.0)
     anomaly_recent_days: int = Field(default=14, ge=1)
+    # Global-corroboration floor for anomalies. The rolling z flags a day against
+    # the *recent* window; that inflates when the window is unusually calm (a hard
+    # workout after a taper scores z>20 yet is a normal day vs the athlete's whole
+    # history — and is already covered by training_load/ACWR). Report a day only
+    # if it is also unusual against the series' full history: |robust z vs the
+    # global median+MAD| >= this. Mirrors the correlation raw-corroboration and
+    # seasonality reproducibility guards (a signal visible in one view only is not
+    # trustworthy). 0 disables the guard.
+    anomaly_min_global_z: float = Field(default=2.5, ge=0.0)
     # Trend / seasonality
     trend_strength_min: float = Field(default=0.30, ge=0.0, le=1.0)
     seasonality_strength_min: float = Field(default=0.20, ge=0.0, le=1.0)

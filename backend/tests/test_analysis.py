@@ -104,6 +104,45 @@ def test_rolling_mad_anomalies_clean_series_is_empty():
     assert rolling_mad_anomalies(s).empty
 
 
+def test_global_robust_z_scales_to_full_history():
+    s = _daily(np.arange(101, dtype=float))  # 0..100: median 50, MAD 25
+    assert abs(analysis._global_robust_z(s, 100.0) - 0.6745 * 50 / 25) < 1e-9
+    assert analysis._global_robust_z(_daily(np.full(40, 7.0)), 7.0) is None  # no scale
+
+
+def test_anomaly_global_guard_drops_window_only_spike():
+    # Wide global spread (alternating 0/30) makes 30 a normal recurring high; a
+    # calm recent window makes its trailing z explode. The window flags the last
+    # day, but it is unremarkable vs the full history -> the guard drops it.
+    vals = np.concatenate([np.tile([0.0, 30.0], 60), np.tile([15.0, 15.2], 14), [30.0]])
+    s = _daily(vals)
+    assert abs(analysis.robust_z(s).iloc[-1]) > analysis.ANOMALY_THRESHOLD  # window flags it
+    assert abs(analysis._global_robust_z(s, 30.0)) < 2.5  # but normal vs history
+    assert analysis._anomaly_findings({"hr": s}, dt.datetime.now(UTC)) == []
+    off = analysis._anomaly_findings({"hr": s}, dt.datetime.now(UTC), AnalysisConfig(anomaly_min_global_z=0.0))
+    assert len(off) == 1  # guard off lets the window-only spike through
+
+
+def test_anomaly_keeps_genuine_extreme():
+    # A stable series with an unprecedented final value: extreme in both views.
+    s = _daily(np.concatenate([np.tile([10.0, 10.5], 70), [40.0]]))
+    out = analysis._anomaly_findings({"hr": s}, dt.datetime.now(UTC))
+    assert len(out) == 1 and out[0].metric_a == "hr"
+    assert "global_z" in out[0].details
+
+
+def test_anomaly_dedupes_workout_family_same_day():
+    # One hard session surfaces in several co-derived workout-load series; they
+    # collapse to a single anomaly for that day. A non-workout anomaly on the
+    # same day is independent and kept.
+    def spike(peak):
+        return _daily(np.concatenate([np.tile([10.0, 10.5], 70), [peak]]))
+
+    series = {"workout_trimp": spike(40.0), "workout_edwards": spike(45.0), "hr": spike(40.0)}
+    out = analysis._anomaly_findings(series, dt.datetime.now(UTC))
+    assert sorted(f.metric_a for f in out) == ["hr", "workout_edwards"]  # family -> strongest only
+
+
 # --- Trend / seasonality ----------------------------------------------------
 
 
