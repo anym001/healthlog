@@ -74,6 +74,7 @@ CORR_RAW_MIN_ABS = _DEFAULTS.corr_raw_min_abs  # raw-corroboration floor: min |r
 ANOMALY_WINDOW = _DEFAULTS.anomaly_window  # trailing days for median + MAD baseline
 ANOMALY_THRESHOLD = _DEFAULTS.anomaly_threshold  # robust z (|0.6745*(x-med)/MAD|)
 ANOMALY_RECENT_DAYS = _DEFAULTS.anomaly_recent_days  # only report recent anomalies
+ANOMALY_MIN_GLOBAL_Z = _DEFAULTS.anomaly_min_global_z  # global-corroboration floor: min |robust z vs full history|
 
 # Structural periods are domain constants, not operator tunables.
 WEEK_PERIOD = 7
@@ -194,6 +195,23 @@ def rolling_mad_anomalies(s: pd.Series, window: int = ANOMALY_WINDOW, threshold:
         {"value": s.reindex(flagged.index).to_numpy(), "z": flagged.to_numpy()},
         index=flagged.index,
     )
+
+
+def _global_robust_z(s: pd.Series, value: float) -> float | None:
+    """Robust z of ``value`` against the series' *entire* history (median + MAD).
+
+    The trailing-window z (``robust_z``) asks "is today unusual versus the last
+    few weeks"; this asks "is it unusual versus everything we've seen". It is the
+    corroboration view for anomalies: a day inflated only because the recent
+    window was unusually calm (e.g. a normal hard workout after a taper) is
+    modest here, while a genuine extreme is large in both. ``None`` when the
+    global MAD is zero (a constant series offers no scale to judge against).
+    """
+    arr = s.to_numpy()
+    scale = _mad(arr)
+    if scale == 0:
+        return None
+    return 0.6745 * (value - float(np.median(arr))) / scale
 
 
 @dataclass
@@ -1108,10 +1126,31 @@ def _correlation_findings(
     return findings
 
 
+def _dedupe_workout_anomalies(findings: list[Finding]) -> list[Finding]:
+    """Collapse co-derived workout-load anomalies that share a day to the single
+    strongest. ``workout_{trimp,load,edwards,duration,...}`` (and per-sport
+    variants) are alternative measures of the *same* session, so one hard day
+    otherwise fires several near-identical anomalies. Non-workout metrics are
+    independent and never merged.
+    """
+    best_by_day: dict[dt.date, Finding] = {}
+    kept: list[Finding] = []
+    for f in findings:
+        if not _is_workout_load_family(f.metric_a):
+            kept.append(f)
+            continue
+        cur = best_by_day.get(f.ref_date)
+        if cur is None or f.severity > cur.severity:
+            best_by_day[f.ref_date] = f
+    kept.extend(best_by_day.values())
+    return kept
+
+
 def _anomaly_findings(
     series: dict[str, pd.Series], computed_at: dt.datetime, cfg: AnalysisConfig | None = None
 ) -> list[Finding]:
     cfg = cfg or _DEFAULTS
+    guard = cfg.anomaly_min_global_z > 0
     findings = []
     for name, s in series.items():
         s = s.dropna()
@@ -1122,6 +1161,16 @@ def _anomaly_findings(
         for ts, row in anomalies.iterrows():
             if ts < cutoff:
                 continue
+            # Global corroboration: a day flagged against a calm recent window is
+            # only an anomaly if it is also unusual against the series' own full
+            # history. Drops window-only spikes (a hard workout after a taper,
+            # already covered by training_load) while keeping genuine extremes.
+            global_z = _global_robust_z(s, float(row["value"]))
+            if guard and (global_z is None or abs(global_z) < cfg.anomaly_min_global_z):
+                continue
+            details = {"value": round(float(row["value"]), 4), "z": round(float(row["z"]), 4)}
+            if global_z is not None:
+                details["global_z"] = round(global_z, 4)
             findings.append(
                 Finding(
                     computed_at=computed_at,
@@ -1129,10 +1178,10 @@ def _anomaly_findings(
                     metric_a=name,
                     ref_date=ts.date(),
                     severity=round(abs(float(row["z"])), 4),
-                    details={"value": round(float(row["value"]), 4), "z": round(float(row["z"]), 4)},
+                    details=details,
                 )
             )
-    return findings
+    return _dedupe_workout_anomalies(findings)
 
 
 def _trend_and_seasonality_findings(

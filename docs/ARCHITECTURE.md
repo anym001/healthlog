@@ -320,7 +320,15 @@ the anomaly). Non-applicable fields stay NULL.
   `_pair_tier`): cross-subsystem links rank above expected within-subsystem pairs, so
   the narration (`narrate.report_priority`) and the Grafana "Top Correlations" panel
   lead with the informative ones without re-deriving the rule.
-- **anomaly** — 28-day trailing median + MAD (robust z), last 14 days only.
+- **anomaly** — 28-day trailing median + MAD (robust z), last 14 days only. The
+  trailing z inflates when the recent window is unusually calm (a hard workout after
+  a taper scores z>20 yet is a normal day vs the athlete's whole history), so a flag
+  is **corroborated against the full history**: keep it only if `|robust z vs the
+  global median+MAD|` clears `anomaly_min_global_z` (stamped as `details.global_z`).
+  This is the same single-view trap the correlation and seasonality guards address.
+  Co-derived workout-load metrics (`workout_{trimp,load,edwards,duration,…}`) that
+  flag the **same day** are alternative measures of one session, so they collapse to
+  the single strongest anomaly instead of reporting the session several times.
 - **trend** — STL trend component (slope + trend strength).
 - **seasonality** — MSTL(7, 365): yearly pattern (amplitude + peak/trough month), from
   ≥2 years; if peak and trough are <2 months apart, the phase is flagged as uncertain
