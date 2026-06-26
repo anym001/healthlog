@@ -329,7 +329,13 @@ the anomaly). Non-applicable fields stay NULL.
   Co-derived workout-load metrics (`workout_{trimp,load,edwards,duration,…}`) that
   flag the **same day** are alternative measures of one session, so they collapse to
   the single strongest anomaly instead of reporting the session several times.
-- **trend** — STL trend component (slope + trend strength).
+- **trend** — STL trend component (slope + trend strength). Strength (Wang/Hyndman)
+  only certifies the trend is smooth relative to the residual, not that it goes
+  anywhere: a smooth meander that drifts up then back scores high yet has no net
+  direction (high-strength sleep metrics scored 0.9 here with no drift). A finding
+  also requires the trend to move consistently one way — `|Spearman(trend, time)|` ≥
+  `trend_min_monotonicity` (`details.monotonicity`), the same single-view corroboration
+  the correlation, seasonality and anomaly guards apply.
 - **seasonality** — MSTL(7, 365): yearly pattern (amplitude + peak/trough month), from
   ≥2 years; if peak and trough are <2 months apart, the phase is flagged as uncertain
   (`phase_confident`). MSTL fits *some* annual component for every series, so the

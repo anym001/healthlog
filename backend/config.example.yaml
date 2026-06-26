@@ -66,6 +66,8 @@
 #                             # (drops window-only spikes, e.g. a hard day after a taper)
 #   # Trend / seasonality (STL/MSTL strength)
 #   trend_strength_min: 0.30
+#   trend_min_monotonicity: 0.70  # also require |Spearman(trend, time)| >= this
+#                                 # (drops smooth meanders that have no net direction)
 #   seasonality_strength_min: 0.20
 #   seasonality_reproducibility_min: 0.30  # year-over-year shape recurrence; rejects
 #                                          # one-off clusters MSTL over-fits as "seasonal"
