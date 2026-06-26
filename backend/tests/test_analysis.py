@@ -206,6 +206,10 @@ def test_correlation_finding_stamps_raw_coef():
     raw = findings[0].details["raw_coef"]
     assert raw is not None and raw > 0.5
     assert abs(raw - float(findings[0].coefficient)) < 0.2  # trend-free: raw ~ de-trended
+    # Residual (trend+seasonal removed) is also stamped; no seasonality here, so it
+    # stays a strong positive correlation too.
+    resid = findings[0].details["resid_coef"]
+    assert resid is not None and resid > 0.4
 
 
 # --- Activity-volume suppression --------------------------------------------

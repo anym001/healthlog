@@ -827,6 +827,20 @@ def _detrend_for_correlation(
     return out
 
 
+def _residual_series(s: pd.Series, decomp: Decomp) -> pd.Series:
+    """``s`` with both trend AND seasonal components removed (the STL residual),
+    keeping real observations only.
+
+    The de-trended series (trend only removed) still carries seasonality, so two
+    metrics that merely share a weekly/annual rhythm can co-move through it.
+    Correlating on this residual instead measures pure day-to-day deviation. Used
+    only to stamp ``details.resid_coef`` for now (transparency / validation)."""
+    out = s - decomp.trend.reindex(s.index)
+    for seasonal in decomp.seasonal.values():
+        out = out - seasonal.reindex(s.index)
+    return out
+
+
 # An "activity-volume" series measures *how much you moved or trained*, not a
 # body state. Two of them correlating is structural, not a health insight — it
 # just says the same activity was logged two ways. The family has two sub-groups:
@@ -1003,12 +1017,29 @@ def _correlation_findings(
         # raw co-movement is ~0 but the de-trended one is strong, the de-trending
         # manufactured the correlation rather than revealing it.
         raw = spearman_lag(series[a], series[b], lag, min_overlap=2, min_active=0)
+        # Residual (trend AND seasonal removed) Spearman at the same lag. Compared
+        # with raw and the stored (trend-only) coefficient it tells whether a
+        # de-trended correlation lives in the shared seasonality (artefact) or the
+        # day-to-day residual (genuine).
+        dec_a = decomps.get(a) if decomps is not None else decompose(series[a])
+        dec_b = decomps.get(b) if decomps is not None else decompose(series[b])
+        resid = None
+        if dec_a is not None and dec_b is not None:
+            resid = spearman_lag(
+                _residual_series(series[a], dec_a),
+                _residual_series(series[b], dec_b),
+                lag,
+                min_overlap=2,
+                min_active=0,
+            )
         details: dict[str, object] = {
             "n": c.n,
             "priority_tier": _pair_tier(_metric_domain(a), _metric_domain(b)),
         }
         if raw is not None:
             details["raw_coef"] = round(raw.coef, 4)
+        if resid is not None:
+            details["resid_coef"] = round(resid.coef, 4)
         findings.append(
             Finding(
                 computed_at=computed_at,
