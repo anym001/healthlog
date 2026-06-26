@@ -287,14 +287,19 @@ findings (id, computed_at, kind TEXT,            -- correlation|anomaly|trend|se
 the anomaly). Non-applicable fields stay NULL.
 
 **Finding types** (snapshot per run, `app/analysis.py`):
-- **correlation** — Spearman on **de-trended** series (trend component subtracted, so
-  opposing long-term trends can't produce a spurious correlation), lags 0–3 days (both
-  directions), FDR `p_value_adj`; per metric pair only the **strongest** lag/direction
-  (dedup). Each finding also records the **raw** (non-de-trended) Spearman at the same
-  lag (`details.raw_coef`) for transparency: when the raw co-movement is ~0 but the
-  de-trended coefficient is strong, the de-trending manufactured the correlation rather
-  than revealing it. Two relevance filters cut structural noise: an **effect-size floor**
-  (`analysis.corr_min_abs`, default 0.3) drops significant-but-negligible pairs, and
+- **correlation** — Spearman on the **residual** series (STL trend *and* seasonal
+  components subtracted), so the coefficient measures pure day-to-day co-movement, lags
+  0–3 days (both directions), FDR `p_value_adj`; per metric pair only the **strongest**
+  lag/direction (dedup). Removing only the trend (the previous basis) left seasonality
+  in, so two metrics that merely share a weekly/annual rhythm correlated spuriously —
+  validated on live data, ~two thirds of those de-trended findings collapsed to a ~0
+  residual once seasonality was also removed. For transparency each finding stamps two
+  comparison Spearmans at the same lag: the **raw** coefficient (nothing removed,
+  `details.raw_coef`) and the **de-trended** coefficient (trend only, the old basis,
+  `details.detr_coef`); a strong `detr_coef` next to a ~0 reported coefficient marks a
+  number that lived in shared seasonality. Two relevance filters cut structural noise: an
+  **effect-size floor** (`analysis.corr_min_abs`, default 0.25 — residual coefficients
+  run smaller than de-trended ones) drops significant-but-negligible pairs, and
   **activity-volume suppression** drops a pair when *both* series measure how much you
   moved/trained (workout-derived metrics — load/duration/count/intensity — or Apple
   activity-ring metrics — see `_is_activity_volume` in `app/analysis.py`); an activity

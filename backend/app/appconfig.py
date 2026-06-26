@@ -94,8 +94,9 @@ class AnalysisConfig(BaseModel):
     # Minimum absolute Spearman coefficient to report a correlation. With years
     # of daily data even a negligible effect clears the FDR gate (significance is
     # not relevance); this effect-size floor keeps only relationships of at least
-    # moderate strength. 0 disables it.
-    corr_min_abs: float = Field(default=0.3, ge=0.0, le=1.0)
+    # moderate strength. Calibrated for the residual (de-seasonalised) basis,
+    # whose coefficients run smaller than the old de-trended ones. 0 disables it.
+    corr_min_abs: float = Field(default=0.25, ge=0.0, le=1.0)
     # Anomaly
     anomaly_window: int = Field(default=28, ge=2)
     anomaly_threshold: float = Field(default=3.5, gt=0.0)

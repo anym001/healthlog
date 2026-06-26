@@ -175,6 +175,29 @@ def test_correlation_collapses_spurious_trend_only_pairs():
     assert all(abs(float(f.coefficient)) < 0.3 for f in findings)  # collapsed
 
 
+def test_correlation_drops_shared_seasonality_pairs():
+    # Two metrics that share a strong weekly rhythm but have independent
+    # day-to-day residuals correlate strongly when only the trend is removed
+    # (seasonality leaks through) — the old basis. That link is an artefact: on
+    # the residual basis (trend AND seasonal removed) it collapses, so the engine
+    # must report nothing.
+    rng = np.random.default_rng(77)
+    n = 400
+    t = np.arange(n)
+    weekly = 5.0 * np.sin(2 * np.pi * t / 7)  # shared weekly pattern, no trend
+    a = _daily(weekly + rng.normal(scale=1.0, size=n))
+    b = _daily(weekly + rng.normal(scale=1.0, size=n))
+
+    # De-trended (seasonality retained) the two co-move strongly...
+    da = a - analysis.decompose(a).trend.reindex(a.index)
+    db = b - analysis.decompose(b).trend.reindex(b.index)
+    assert abs(spearman_lag(da, db, 0).coef) > 0.5  # spurious shared-seasonality link
+
+    # ...but on the residual basis the shared rhythm is gone and nothing survives.
+    findings = analysis._correlation_findings({"a": a, "b": b}, dt.datetime.now(UTC))
+    assert findings == []
+
+
 def test_correlation_keeps_one_finding_per_pair():
     # An autocorrelated common signal makes several lags significant, but the
     # output must collapse to a single best row for the {a, b} pair.
@@ -190,10 +213,11 @@ def test_correlation_keeps_one_finding_per_pair():
     assert {findings[0].metric_a, findings[0].metric_b} == {"a", "b"}
 
 
-def test_correlation_finding_stamps_raw_coef():
-    # Each finding records the raw (non-de-trended) Spearman at the same lag, for
-    # transparency about how much the de-trending shaped it. With a trend-free
-    # common signal, raw and de-trended agree closely.
+def test_correlation_finding_stamps_comparison_coefs():
+    # The reported coefficient is the residual (trend + seasonal removed) Spearman.
+    # Each finding also records two comparison coefficients at the same lag for
+    # transparency: raw_coef (nothing removed) and detr_coef (only trend removed).
+    # With a trend- and seasonality-free common signal all three agree closely.
     rng = np.random.default_rng(60)
     n = 300
     base = np.zeros(n)
@@ -203,13 +227,13 @@ def test_correlation_finding_stamps_raw_coef():
     b = _daily(base + rng.normal(scale=0.3, size=n))
     findings = analysis._correlation_findings({"a": a, "b": b}, dt.datetime.now(UTC))
     assert len(findings) == 1
+    coef = float(findings[0].coefficient)  # residual basis
+    assert coef > 0.4
     raw = findings[0].details["raw_coef"]
     assert raw is not None and raw > 0.5
-    assert abs(raw - float(findings[0].coefficient)) < 0.2  # trend-free: raw ~ de-trended
-    # Residual (trend+seasonal removed) is also stamped; no seasonality here, so it
-    # stays a strong positive correlation too.
-    resid = findings[0].details["resid_coef"]
-    assert resid is not None and resid > 0.4
+    assert abs(raw - coef) < 0.2  # trend/seasonality-free: raw ~ residual
+    detr = findings[0].details["detr_coef"]
+    assert detr is not None and abs(detr - coef) < 0.2  # likewise detr ~ residual
 
 
 # --- Activity-volume suppression --------------------------------------------
@@ -345,7 +369,7 @@ def test_spearman_lag_min_active_keeps_dense_series():
 
 def test_correlation_effect_size_floor_drops_weak_pairs():
     # A weak but, over a long series, "significant" correlation: ~0.15. The
-    # default floor (0.3) must drop it; disabling the floor must keep it.
+    # default floor (0.25) must drop it; disabling the floor must keep it.
     rng = np.random.default_rng(55)
     n = 600
     base = rng.normal(size=n)
@@ -355,7 +379,7 @@ def test_correlation_effect_size_floor_drops_weak_pairs():
     assert raw is not None and 0.05 < abs(raw.coef) < 0.30  # weak-but-present
 
     series = {"a": a, "b": b}
-    assert analysis._correlation_findings(series, dt.datetime.now(UTC)) == []  # default floor 0.3
+    assert analysis._correlation_findings(series, dt.datetime.now(UTC)) == []  # default floor 0.25
     kept = analysis._correlation_findings(series, dt.datetime.now(UTC), AnalysisConfig(corr_min_abs=0.0))
     assert len(kept) == 1 and abs(float(kept[0].coefficient)) < 0.30
 
