@@ -120,6 +120,14 @@ class AnalysisConfig(BaseModel):
     anomaly_min_global_z: float = Field(default=2.5, ge=0.0)
     # Trend / seasonality
     trend_strength_min: float = Field(default=0.30, ge=0.0, le=1.0)
+    # Directional-consistency floor for trends. trend_strength_min only certifies
+    # that the trend component is smooth relative to the residual; it cannot tell
+    # a genuine drift from a smooth meander that wanders up then back (high-
+    # strength sleep metrics scored 0.9 here yet had no net direction). Require
+    # the trend to also move consistently one way: |Spearman(trend, time)| >= this
+    # (~1 for a steady climb/decline, ~0 for a meander). Mirrors the other kinds'
+    # second-view guards. 0 disables the guard.
+    trend_min_monotonicity: float = Field(default=0.70, ge=0.0, le=1.0)
     seasonality_strength_min: float = Field(default=0.20, ge=0.0, le=1.0)
     # Reproducibility floor for annual seasonality. STL/MSTL fits *some* annual
     # component for every series, so a high in-sample strength is necessary but

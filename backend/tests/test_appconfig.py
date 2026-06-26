@@ -174,6 +174,7 @@ def test_analysis_defaults_are_stable():
     assert (d.anomaly_window, d.anomaly_threshold, d.anomaly_recent_days) == (28, 3.5, 14)
     assert d.anomaly_min_global_z == 2.5
     assert (d.trend_strength_min, d.seasonality_strength_min) == (0.30, 0.20)
+    assert d.trend_min_monotonicity == 0.70
     assert d.seasonality_reproducibility_min == 0.30
     assert (d.recovery_recent_days, d.recovery_z, d.recovery_sleep_z) == (14, 1.5, -1.0)
     assert (d.consistency_window, d.consistency_duration_std, d.consistency_bedtime_std) == (28, 1.0, 1.0)

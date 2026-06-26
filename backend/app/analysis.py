@@ -85,6 +85,7 @@ SEASONAL_MIN_SHARED_MONTHS = 6  # >= half a year of overlapping calendar months
 #                                 before two years' seasonal shapes are compared
 
 TREND_STRENGTH_MIN = _DEFAULTS.trend_strength_min  # report a trend above this
+TREND_MIN_MONOTONICITY = _DEFAULTS.trend_min_monotonicity  # directional consistency floor
 SEASONALITY_STRENGTH_MIN = _DEFAULTS.seasonality_strength_min  # annual seasonality
 SEASONALITY_REPRODUCIBILITY_MIN = _DEFAULTS.seasonality_reproducibility_min  # year-over-year shape recurrence
 
@@ -271,6 +272,23 @@ def trend_slope(trend: pd.Series) -> float:
     x = np.arange(len(y))
     slope, _ = np.polyfit(x, y, 1)
     return float(slope)
+
+
+def trend_monotonicity(trend: pd.Series) -> float | None:
+    """How consistently the (smooth) trend component moves in one direction.
+
+    ``_component_strength`` only measures that the trend is smooth relative to
+    the residual; it cannot tell a genuine directional drift from a smooth
+    meander that wanders up then back. This is ``|Spearman(trend, time)|``: ~1 for
+    a steady climb/decline, ~0 for a meander. It is the directional corroboration
+    view for trends, mirroring the other kinds' second-view guards. ``None`` when
+    the trend is constant (no direction to judge).
+    """
+    y = trend.dropna().to_numpy()
+    if len(y) < 2 or np.std(y) == 0:
+        return None
+    rho = stats.spearmanr(y, np.arange(len(y))).statistic
+    return None if np.isnan(rho) else abs(float(rho))
 
 
 def _seasonal_reproducibility(season: pd.Series) -> float | None:
@@ -1199,8 +1217,20 @@ def _trend_and_seasonality_findings(
         start, end = decomp.trend.index.min().date(), decomp.trend.index.max().date()
 
         strength = _component_strength(decomp.trend, decomp.resid)
-        if strength >= cfg.trend_strength_min:
+        # Strength only certifies the trend is smooth vs the residual, not that it
+        # goes anywhere: a smooth meander (up then back) scores high yet has no
+        # direction. Require the trend to also move consistently one way
+        # (monotonicity, mirrors the other kinds' corroboration guards). A floor
+        # of 0 disables the guard.
+        monotonicity = trend_monotonicity(decomp.trend)
+        trend_guard = cfg.trend_min_monotonicity > 0
+        if strength >= cfg.trend_strength_min and (
+            not trend_guard or (monotonicity is not None and monotonicity >= cfg.trend_min_monotonicity)
+        ):
             slope = trend_slope(decomp.trend)
+            details = {"slope_per_day": round(slope, 6), "strength": round(strength, 4)}
+            if monotonicity is not None:
+                details["monotonicity"] = round(monotonicity, 4)
             trends.append(
                 Finding(
                     computed_at=computed_at,
@@ -1209,7 +1239,7 @@ def _trend_and_seasonality_findings(
                     window_start=start,
                     window_end=end,
                     severity=round(strength, 4),
-                    details={"slope_per_day": round(slope, 6), "strength": round(strength, 4)},
+                    details=details,
                 )
             )
 

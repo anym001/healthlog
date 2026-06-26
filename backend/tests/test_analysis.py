@@ -163,6 +163,37 @@ def test_decompose_flat_series_has_weak_trend():
     assert abs(trend_slope(decomp.trend)) < 0.05
 
 
+def _trend_decomp(trend: pd.Series) -> analysis.Decomp:
+    """A Decomp carrying only a (zero-residual) trend, so strength is 1.0."""
+    zeros = pd.Series(np.zeros(len(trend)), index=trend.index)
+    return analysis.Decomp(trend=trend, resid=zeros, seasonal={}, has_annual=False)
+
+
+def test_trend_monotonicity_high_for_ramp_low_for_meander():
+    n = 200
+    assert analysis.trend_monotonicity(_daily(np.linspace(0.0, 10.0, n))) > 0.99
+    assert analysis.trend_monotonicity(_daily(5 * np.cos(np.linspace(0, 2 * np.pi, n)))) < 0.3
+    assert analysis.trend_monotonicity(_daily(np.full(n, 3.0))) is None  # constant: no direction
+
+
+def test_trend_drops_smooth_meander():
+    # Both have a strong (smooth, zero-residual) trend, but only the ramp goes
+    # somewhere; the meander wanders up then back -> not a trend.
+    n = 200
+    ramp = _daily(np.linspace(0.0, 10.0, n))
+    meander = _daily(5 * np.cos(np.linspace(0, 2 * np.pi, n)))
+    series = {"ramp": ramp, "meander": meander}
+    decomps = {"ramp": _trend_decomp(ramp), "meander": _trend_decomp(meander)}
+
+    trends, _ = analysis._trend_and_seasonality_findings(series, dt.datetime.now(UTC), decomps=decomps)
+    assert {f.metric_a for f in trends} == {"ramp"}  # meander dropped
+
+    # Disabling the guard lets both through -> proof the guard is the discriminator.
+    cfg = AnalysisConfig(trend_min_monotonicity=0.0)
+    both, _ = analysis._trend_and_seasonality_findings(series, dt.datetime.now(UTC), cfg, decomps=decomps)
+    assert {f.metric_a for f in both} == {"ramp", "meander"}
+
+
 def test_annual_seasonality_detected_over_two_years():
     rng = np.random.default_rng(7)
     t = np.arange(800)
