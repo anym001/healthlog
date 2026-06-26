@@ -198,6 +198,34 @@ def test_correlation_drops_shared_seasonality_pairs():
     assert findings == []
 
 
+def test_correlation_raw_corroboration_drops_residual_only_artefacts():
+    # The mirror artefact: a weak shared day-to-day base is swamped at the raw
+    # level by large, *orthogonal* weekly seasonals, so the raw series barely
+    # correlate — but de-seasonalising recovers the base and the residual looks
+    # strong. That is a residual-only artefact (what a sparse/derived metric's
+    # decomposition noise produces); the raw-corroboration guard must drop it.
+    rng = np.random.default_rng(101)
+    n = 400
+    t = np.arange(n)
+    base = np.zeros(n)
+    for k in range(1, n):
+        base[k] = 0.8 * base[k - 1] + rng.normal()  # shared AR(1) day-to-day signal
+    a = _daily(base + 8 * np.sin(2 * np.pi * t / 7) + rng.normal(scale=0.3, size=n))
+    b = _daily(base + 8 * np.cos(2 * np.pi * t / 7) + rng.normal(scale=0.3, size=n))
+
+    # The residual correlation is strong, but the raw one is ~0 (uncorroborated).
+    assert spearman_lag(a, b, 0).coef < 0.2  # raw: not visible
+    ra = analysis._residual_series(a, analysis.decompose(a))
+    rb = analysis._residual_series(b, analysis.decompose(b))
+    assert spearman_lag(ra, rb, 0).coef > 0.5  # residual: looks strong
+
+    # With the guard (default) the pair is rejected; disabling it lets the
+    # residual-only artefact through — proof that the guard is what dropped it.
+    assert analysis._correlation_findings({"a": a, "b": b}, dt.datetime.now(UTC)) == []
+    kept = analysis._correlation_findings({"a": a, "b": b}, dt.datetime.now(UTC), AnalysisConfig(corr_raw_min_abs=0.0))
+    assert len(kept) == 1 and abs(float(kept[0].coefficient)) > 0.5
+
+
 def test_correlation_keeps_one_finding_per_pair():
     # An autocorrelated common signal makes several lags significant, but the
     # output must collapse to a single best row for the {a, b} pair.

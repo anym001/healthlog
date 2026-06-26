@@ -97,6 +97,14 @@ class AnalysisConfig(BaseModel):
     # moderate strength. Calibrated for the residual (de-seasonalised) basis,
     # whose coefficients run smaller than the old de-trended ones. 0 disables it.
     corr_min_abs: float = Field(default=0.25, ge=0.0, le=1.0)
+    # Raw-corroboration floor. A correlation is reported on the residual basis,
+    # but is trusted only if the *raw* series corroborate it: same sign and at
+    # least this |Spearman|. This rejects, symmetrically, both artefact classes a
+    # single basis lets through — shared seasonality (strong de-trended, ~0
+    # residual) and decomposition/estimation noise in sparse or derived metrics
+    # (strong residual, ~0 or opposite-sign raw). A genuine day-to-day link is
+    # visible in both representations. 0 disables the guard.
+    corr_raw_min_abs: float = Field(default=0.15, ge=0.0, le=1.0)
     # Anomaly
     anomaly_window: int = Field(default=28, ge=2)
     anomaly_threshold: float = Field(default=3.5, gt=0.0)

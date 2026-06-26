@@ -54,6 +54,10 @@
 #   corr_min_abs: 0.25        # effect-size floor: min |coefficient| to report
 #                             # (drops significant-but-negligible correlations;
 #                             #  calibrated for the residual / de-seasonalised basis)
+#   corr_raw_min_abs: 0.15    # raw-corroboration floor: report a residual
+#                             # correlation only if the raw series agree in sign
+#                             # and reach this |Spearman| (drops residual-only
+#                             # artefacts from sparse/derived metrics)
 #   # Anomaly (robust rolling median + MAD)
 #   anomaly_window: 28        # trailing days for the baseline
 #   anomaly_threshold: 3.5    # robust z above which a day is flagged

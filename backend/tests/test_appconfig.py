@@ -170,7 +170,7 @@ def test_analysis_defaults_are_stable():
     # constants; pin them so a change is deliberate.
     d = AnalysisConfig()
     assert (d.max_lag, d.min_overlap, d.corr_keep_alpha, d.fdr_alpha) == (3, 42, 0.10, 0.05)
-    assert (d.corr_min_active, d.corr_min_abs) == (10, 0.25)
+    assert (d.corr_min_active, d.corr_min_abs, d.corr_raw_min_abs) == (10, 0.25, 0.15)
     assert (d.anomaly_window, d.anomaly_threshold, d.anomaly_recent_days) == (28, 3.5, 14)
     assert (d.trend_strength_min, d.seasonality_strength_min) == (0.30, 0.20)
     assert (d.recovery_recent_days, d.recovery_z, d.recovery_sleep_z) == (14, 1.5, -1.0)
