@@ -65,6 +65,8 @@
 #   # Trend / seasonality (STL/MSTL strength)
 #   trend_strength_min: 0.30
 #   seasonality_strength_min: 0.20
+#   seasonality_reproducibility_min: 0.30  # year-over-year shape recurrence; rejects
+#                                          # one-off clusters MSTL over-fits as "seasonal"
 #   # Recovery early-warning (HRV low AND resting HR high)
 #   recovery_recent_days: 14
 #   recovery_z: 1.5

@@ -324,7 +324,15 @@ the anomaly). Non-applicable fields stay NULL.
 - **trend** — STL trend component (slope + trend strength).
 - **seasonality** — MSTL(7, 365): yearly pattern (amplitude + peak/trough month), from
   ≥2 years; if peak and trough are <2 months apart, the phase is flagged as uncertain
-  (`phase_confident`).
+  (`phase_confident`). MSTL fits *some* annual component for every series, so the
+  in-sample strength alone fired on basically every metric — the same single-basis
+  trap as the old correlation logic. The fix mirrors the raw-corroboration guard: a
+  genuine annual cycle also **recurs**, so a finding is kept only if the seasonal
+  *shape* is reproducible year over year (`details.reproducibility` = mean Spearman
+  between calendar years' monthly seasonal profiles, floor `seasonality_reproducibility_min`).
+  This is metric-agnostic — it rejects a strong seasonal MSTL overfit to a one-off
+  cluster (sparse/derived metrics) while keeping a genuinely recurring cycle, so a
+  seasonally-practised sport is kept where a one-off burst of the same kind is dropped.
 - **recovery_alert** — combined: HRV notably low **and** resting HR high (+ optionally
   short sleep).
 - **consistency** — rolling spread of sleep duration and bedtime (midnight wrap handled).

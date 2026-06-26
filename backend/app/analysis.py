@@ -80,9 +80,12 @@ WEEK_PERIOD = 7
 SEASONAL_PERIOD = 365
 SEASONAL_MIN_PEAK_TROUGH_GAP = 2  # months; a near-adjacent peak/trough means the
 #                                   annual phase estimate is unreliable (flagged)
+SEASONAL_MIN_SHARED_MONTHS = 6  # >= half a year of overlapping calendar months
+#                                 before two years' seasonal shapes are compared
 
 TREND_STRENGTH_MIN = _DEFAULTS.trend_strength_min  # report a trend above this
 SEASONALITY_STRENGTH_MIN = _DEFAULTS.seasonality_strength_min  # annual seasonality
+SEASONALITY_REPRODUCIBILITY_MIN = _DEFAULTS.seasonality_reproducibility_min  # year-over-year shape recurrence
 
 RECOVERY_RECENT_DAYS = _DEFAULTS.recovery_recent_days
 RECOVERY_Z = _DEFAULTS.recovery_z  # both HRV (low) and resting HR (high) exceed this
@@ -252,8 +255,39 @@ def trend_slope(trend: pd.Series) -> float:
     return float(slope)
 
 
+def _seasonal_reproducibility(season: pd.Series) -> float | None:
+    """Year-over-year stability of the annual seasonal *shape*.
+
+    A genuine annual cycle repeats its month-by-month profile from one calendar
+    year to the next; an annual component MSTL has overfit to a one-off cluster
+    (typical of sparse or derived metrics) does not. Returns the mean Spearman
+    correlation between every pair of years' monthly seasonal profiles, or
+    ``None`` if fewer than two years share enough months to compare.
+
+    This is the corroboration guard for seasonality, mirroring the raw-
+    corroboration guard for correlations (ARCHITECTURE.md §4.8): a single STL run
+    always fits *some* seasonal, so a high in-sample strength is not enough — the
+    pattern must recur across years to be trusted.
+    """
+    by_year_month = season.groupby([season.index.year, season.index.month]).mean()
+    table = by_year_month.unstack(0)  # rows = month (1..12), columns = calendar year
+    years = list(table.columns)
+    if len(years) < 2:
+        return None
+    cors: list[float] = []
+    for i in range(len(years)):
+        for j in range(i + 1, len(years)):
+            pair = pd.concat([table[years[i]], table[years[j]]], axis=1).dropna()
+            if len(pair) >= SEASONAL_MIN_SHARED_MONTHS:
+                cors.append(float(pair.iloc[:, 0].corr(pair.iloc[:, 1], method="spearman")))
+    if not cors:
+        return None
+    return float(np.mean(cors))
+
+
 def annual_seasonality(decomp: Decomp) -> dict | None:
-    """Amplitude, peak/trough month and strength of the annual component."""
+    """Amplitude, peak/trough month, strength and reproducibility of the annual
+    component."""
     if not decomp.has_annual or SEASONAL_PERIOD not in decomp.seasonal:
         return None
     season = decomp.seasonal[SEASONAL_PERIOD]
@@ -268,6 +302,7 @@ def annual_seasonality(decomp: Decomp) -> dict | None:
     gap = min(gap, 12 - gap)
     return {
         "strength": strength,
+        "reproducibility": _seasonal_reproducibility(season),
         "amplitude": float(season.max() - season.min()),
         "peak_month": peak_month,
         "trough_month": trough_month,
@@ -1130,7 +1165,21 @@ def _trend_and_seasonality_findings(
             )
 
         annual = annual_seasonality(decomp)
-        if annual and annual["strength"] >= cfg.seasonality_strength_min:
+        # Strength alone over-fires: MSTL fits *some* annual component for every
+        # series, so a high in-sample strength is necessary but not sufficient. A
+        # genuine annual cycle also recurs year over year; require the seasonal
+        # shape to be reproducible (mirrors the correlation raw-corroboration
+        # guard, ARCHITECTURE.md §4.8). reproducibility is None when there are
+        # fewer than two comparable years -> not trustworthy, dropped.
+        reproducibility = annual["reproducibility"] if annual else None
+        # A floor of 0 disables the guard (mirrors corr_raw_min_abs); otherwise the
+        # shape must recur: reproducibility is not None and clears the floor.
+        guard = cfg.seasonality_reproducibility_min > 0
+        if (
+            annual
+            and annual["strength"] >= cfg.seasonality_strength_min
+            and (not guard or (reproducibility is not None and reproducibility >= cfg.seasonality_reproducibility_min))
+        ):
             seasons.append(
                 Finding(
                     computed_at=computed_at,
@@ -1142,6 +1191,7 @@ def _trend_and_seasonality_findings(
                     note=None if annual["phase_confident"] else "annual phase uncertain (peak and trough too close)",
                     details={
                         "strength": round(annual["strength"], 4),
+                        "reproducibility": round(reproducibility, 4) if reproducibility is not None else None,
                         "amplitude": round(annual["amplitude"], 4),
                         "peak_month": annual["peak_month"],
                         "trough_month": annual["trough_month"],
