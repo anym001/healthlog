@@ -217,6 +217,10 @@ class NarrateConfig(BaseModel):
     # are summarised as a count so the report leads with the informative links
     # rather than expected/structural ones. 0 = no cap (pass them all).
     max_correlations: int = Field(default=15, ge=0, le=200)
+    # Enable qwen3 extended-thinking mode (passes "think": true in the Ollama
+    # /api/chat request). Only has an effect with qwen3-family models; ignored
+    # by others. Substantially improves analysis depth at the cost of latency.
+    thinking: bool = False
 
 
 class AppConfig(BaseModel):

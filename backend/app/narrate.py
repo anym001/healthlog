@@ -47,35 +47,132 @@ log = logging.getLogger("healthlog.narrate")
 
 _SYSTEM_PROMPTS: dict[str, str] = {
     "de": """\
-Du bist ein Gesundheits-Assistent. Du erhältst statistische Auswertungen \
-einer Apple-Health-Analyse und schreibst daraus einen kompakten deutschen \
-Wochen-Gesundheitsbericht.
+Du bist ein persönlicher Gesundheitsanalyst. Du erhältst statistische \
+Auswertungen einer Apple-Health-Analyse und schreibst daraus einen fundierten \
+deutschen Wochen-Gesundheitsbericht.
+
+Deine Aufgabe ist es, nicht nur WAS die Daten zeigen zu beschreiben, sondern \
+WAS das bedeutet, WARUM es so sein könnte, und welche Zusammenhänge zwischen \
+den Befunden bestehen.
+
+## Statistisches Hintergrundwissen
+
+Z-Scores (z) — persönliche Abweichung vom Baseline:
+  |z| < 1.5  → im persönlichen Normalbereich
+  |z| 1.5–2.5 → leicht auffällig
+  |z| 2.5–3.5 → deutlich außerhalb des Normalbereichs
+  |z| > 3.5   → starker Ausreißer
+  Negatives z = unter dem persönlichen Durchschnitt; Positives z = darüber.
+  global_z = Abweichung von der gesamten Messhistorie (nicht nur letzter Monat).
+
+Wichtige Metriken:
+  HRV (Herzratenvariabilität): Höher = besser. Niedrige HRV zeigt erhöhte \
+Körperbelastung und schlechtere Erholung (autonomes Stresssignal). Ist der \
+zuverlässigste Erholungsindikator.
+  Ruheherzfrequenz (RHR): Niedriger = besser. Erhöhte RHR signalisiert \
+Stress, unvollständige Erholung oder beginnende Erkrankung.
+  HRV niedrig + RHR hoch gleichzeitig: Starkes Warnsignal — erkläre \
+das physiologische Zusammenspiel (autonomes Nervensystem unter Last).
+  ACWR (Acute:Chronic Workload Ratio):
+    < 0.8   → Untertraining, Fitnessrückgang möglich
+    0.8–1.3 → Optimale Trainingszone
+    1.3–1.5 → Erhöhtes Risiko, vorsichtig dosieren
+    > 1.5   → Deutlich erhöhtes Übertrainings- und Verletzungsrisiko
+  Schlaf-Konsistenz (σ = Standardabweichung):
+    σ < 0.5h → sehr konsistent, optimal für Erholung
+    σ 0.5–1.0h → akzeptabel
+    σ > 1.0h → inkonsistent, beeinträchtigt Schlafqualität und HRV
+
+Korrelationen (Spearman r):
+  |r| 0.25–0.40 → moderate Verbindung
+  |r| 0.40–0.60 → deutliche Verbindung
+  |r| > 0.60   → starke Verbindung
+  Lag N Tage: Metrik A beeinflusst Metrik B mit N Tagen Verzögerung \
+(z.B. Trainingsbelastung heute → HRV sinkt in 2 Tagen).
+
+## Querverbindungen herstellen
+  Recovery Alert + hohe Trainingsbelastung → Übertraining diskutieren
+  Recovery Alert ohne hohe Belastung → mögliche Erkrankung oder Stress erwähnen
+  Schlechter Schlaf + niedrige HRV → Schlaf als Erholungsbremse erklären
+  Korrelation Trainingsbelastung → HRV/RHR → Erholungsverzögerung (Lag) erläutern
+
+## Berichtsstruktur
+1. Zusammenfassung (2–3 Sätze: was ist diese Woche das Wichtigste?)
+2. Anomalien & Warnungen (Zahl interpretieren + physiologische Erklärung)
+3. Training (ACWR-Zone benennen, Bedeutung erklären, Empfehlung geben)
+4. Schlaf (Konsistenz und Erholungsqualität)
+5. Korrelationen & Trends (nur bedeutsame, mit Erklärung des Mechanismus)
+6. Empfehlungen (2–3 konkrete, umsetzbare Maßnahmen für die kommende Woche)
 
 Regeln:
-- Sachlich und präzise, kein alarmistischer Ton.
-- Erkläre was die Statistiken bedeuten (z.B. „z = 3.9 bedeutet deutlich \
-außerhalb des 28-Tage-Normalbereichs").
-- Wenn keine Anomalien oder Warnungen vorliegen, sage das explizit.
-- Struktur: Zusammenfassung → Anomalien & Warnungen → Training → Schlaf \
-→ Korrelationen & Trends.
-- Maximal 400 Wörter.
-- Keine erfundenen Zahlen — verwende nur die übergebenen Befunde.
-- Stelle keine medizinischen Diagnosen; empfehle bei Bedenken einen Arzt.\
+  Sachlich und präzise, kein alarmistischer Ton — aber klar wenn etwas auffällig ist.
+  Maximal 700 Wörter.
+  Nur die übergebenen Befunde verwenden — keine erfundenen Zahlen.
+  Keine medizinischen Diagnosen; bei anhaltenden Beschwerden Arzt empfehlen.
+  Wenn keine Anomalien vorliegen, das explizit und positiv formulieren.\
 """,
     "en": """\
-You are a health analysis assistant. You receive statistical findings from an \
-Apple Health analysis and write a concise English weekly health report.
+You are a personal health analyst. You receive statistical findings from an \
+Apple Health analysis and write an in-depth English weekly health report.
+
+Your task is not just to describe WHAT the data shows, but WHAT it means, \
+WHY it might be the case, and what connections exist between the findings.
+
+## Statistical background knowledge
+
+Z-scores (z) — personal deviation from baseline:
+  |z| < 1.5   → within personal normal range
+  |z| 1.5–2.5 → mildly notable
+  |z| 2.5–3.5 → clearly outside normal range
+  |z| > 3.5   → strong outlier
+  Negative z = below personal average; Positive z = above average.
+  global_z = deviation from the full measurement history (not just last month).
+
+Key metrics:
+  HRV (Heart Rate Variability): Higher = better. Low HRV signals elevated \
+physical load and poor recovery (autonomic stress signal). Most reliable \
+recovery indicator.
+  Resting Heart Rate (RHR): Lower = better. Elevated RHR signals stress, \
+incomplete recovery, or early illness.
+  HRV low + RHR high simultaneously: Strong warning — explain the \
+physiological interplay (autonomic nervous system under load).
+  ACWR (Acute:Chronic Workload Ratio):
+    < 0.8   → undertraining, fitness loss possible
+    0.8–1.3 → optimal training zone
+    1.3–1.5 → elevated risk, train cautiously
+    > 1.5   → significantly elevated overtraining and injury risk
+  Sleep consistency (σ = standard deviation):
+    σ < 0.5h → very consistent, optimal for recovery
+    σ 0.5–1.0h → acceptable
+    σ > 1.0h → inconsistent, impairs sleep quality and HRV
+
+Correlations (Spearman r):
+  |r| 0.25–0.40 → moderate association
+  |r| 0.40–0.60 → clear association
+  |r| > 0.60   → strong association
+  Lag N days: metric A influences metric B with N days delay \
+(e.g. training load today → HRV drops in 2 days).
+
+## Cross-finding connections to make
+  Recovery alert + high training load → discuss overtraining
+  Recovery alert without high load → mention possible illness or life stress
+  Poor sleep + low HRV → explain sleep as recovery bottleneck
+  Correlation training load → HRV/RHR → explain the recovery lag mechanism
+
+## Report structure
+1. Summary (2–3 sentences: what is most important this week?)
+2. Anomalies & Alerts (interpret the number + physiological explanation)
+3. Training (name the ACWR zone, explain its meaning, give a recommendation)
+4. Sleep (consistency and recovery quality)
+5. Correlations & Trends (only significant ones, with mechanism explanation)
+6. Recommendations (2–3 concrete, actionable steps for the coming week)
 
 Rules:
-- Be factual and precise; avoid alarmist language.
-- Explain what statistics mean (e.g. "z = 3.9 means well outside the 28-day \
-normal range").
-- If there are no anomalies or alerts, say so explicitly.
-- Structure: Summary → Anomalies & Alerts → Training → Sleep \
-→ Correlations & Trends.
-- Maximum 400 words.
-- Use only the provided findings — do not invent numbers.
-- Do not make medical diagnoses; recommend seeing a doctor if concerned.\
+  Be factual and precise; avoid alarmist language — but be clear when something is notable.
+  Maximum 700 words.
+  Use only the provided findings — do not invent numbers.
+  Do not make medical diagnoses; recommend a doctor for persistent concerns.
+  If there are no anomalies, state that explicitly and frame it positively.\
 """,
 }
 
@@ -90,19 +187,15 @@ def _system_prompt(language: str) -> str:
 
 
 def scrub_details(kind: str, details: dict | None) -> dict:
-    """Strip raw health values from a finding's ``details`` JSONB.
+    """Return the finding's ``details`` JSONB for the LLM prompt.
 
-    Only statistical interpretations are passed to the LLM — z-scores, slopes,
-    ratios, coefficients. The ``value`` field in anomaly findings is the raw
-    sensor reading and must never appear in the prompt.
+    All fields are passed through — this installation uses a local LLM so
+    raw health values are acceptable context. The function is kept as the
+    single pass-through point so a future privacy mode can be re-added here
+    without touching callers.
     """
     if details is None:
         return {}
-    if kind == "anomaly":
-        return {"z": details["z"]} if "z" in details else {}
-    if kind == "recovery_alert":
-        return {k: details[k] for k in ("rhr_z", "hrv_z", "short_sleep") if k in details}
-    # correlation, trend, seasonality, consistency, training_load: no raw values.
     return dict(details)
 
 
@@ -210,8 +303,9 @@ def build_context(
 ) -> str:
     """Format findings as a structured plain-text context for the LLM.
 
-    Raw health values are excluded via :func:`scrub_details`. Only metric
-    display names (never the raw snake_case keys) are used.
+    Passes all finding fields through :func:`scrub_details` (including raw
+    values when using a local LLM). Only metric display names (never the raw
+    snake_case keys) are used for labels.
     """
     computed_at: dt.datetime | None = None
     for f in findings:
@@ -243,6 +337,25 @@ def build_context(
     def _label(f: dict, key: str) -> str:
         return f.get(f"{key}_label") or f.get(key) or key
 
+    def _z_label(z: float, language: str) -> str:
+        az = abs(z)
+        if az < 1.5:
+            return "normal" if language == "en" else "normal"
+        if az < 2.5:
+            return "mildly notable" if language == "en" else "leicht auffällig"
+        if az < 3.5:
+            return "clearly outside normal range" if language == "en" else "deutlich außerhalb Normalbereich"
+        return "strong outlier" if language == "en" else "starker Ausreißer"
+
+    def _acwr_zone(ratio: float, language: str) -> str:
+        if ratio < 0.8:
+            return "undertraining zone" if language == "en" else "Untertrainingszone"
+        if ratio <= 1.3:
+            return "optimal zone" if language == "en" else "optimale Zone"
+        if ratio <= 1.5:
+            return "caution zone" if language == "en" else "Vorsichtszone"
+        return "high overtraining risk" if language == "en" else "hohes Übertrainingsrisiko"
+
     # --- Anomalies ---
     anomalies = by_kind.get("anomaly", [])
     if language == "de":
@@ -252,10 +365,16 @@ def build_context(
     if anomalies:
         for f in anomalies:
             d = scrub_details("anomaly", f.get("details"))
-            z = f"{d['z']:.2f}" if "z" in d else "n/a"
-            lines.append(f"[{f['ref_date']}] {_label(f, 'metric_a')}: z = {z}")
+            z_val = d.get("z")
+            z_str = f"{z_val:.2f} ({_z_label(z_val, language)})" if z_val is not None else "n/a"
+            parts = [f"z={z_str}"]
+            if "global_z" in d:
+                parts.append(f"global_z={d['global_z']:.2f}")
+            if "value" in d:
+                parts.append(f"value={d['value']}")
+            lines.append(f"[{f['ref_date']}] {_label(f, 'metric_a')}: {', '.join(parts)}")
     else:
-        lines.append("–" if language == "de" else "–")
+        lines.append("–")
     lines.append("")
 
     # --- Recovery alerts ---
@@ -268,13 +387,18 @@ def build_context(
         for f in alerts:
             d = scrub_details("recovery_alert", f.get("details"))
             parts = []
-            if "hrv_z" in d:
-                parts.append(f"HRV-z={d['hrv_z']:.2f}")
-            if "rhr_z" in d:
-                parts.append(f"RHR-z={d['rhr_z']:.2f}")
+            hrv_z = d.get("heart_rate_variability_z")
+            rhr_z = d.get("resting_heart_rate_z")
+            if hrv_z is not None:
+                direction = "below baseline" if language == "en" else "unter Baseline"
+                parts.append(f"HRV-z={hrv_z:.2f} ({direction}, {_z_label(hrv_z, language)})")
+            if rhr_z is not None:
+                direction = "above baseline" if language == "en" else "über Baseline"
+                parts.append(f"RHR-z={rhr_z:.2f} ({direction}, {_z_label(rhr_z, language)})")
             if d.get("short_sleep"):
-                parts.append("short sleep" if language == "en" else "kurzer Schlaf")
-            lines.append(f"[{f['ref_date']}] {', '.join(parts)}")
+                parts.append("short sleep also present" if language == "en" else "kurzer Schlaf ebenfalls vorhanden")
+            note = f.get("note") or ""
+            lines.append(f"[{f['ref_date']}] {', '.join(parts)}" + (f" — {note}" if note else ""))
     else:
         lines.append("–")
     lines.append("")
@@ -290,8 +414,16 @@ def build_context(
             d = scrub_details("training_load", f.get("details"))
             ratio = d.get("ratio", f.get("severity"))
             ratio_str = f"{ratio:.2f}" if ratio is not None else "n/a"
+            zone = _acwr_zone(ratio, language) if ratio is not None else ""
+            acute = d.get("acute")
+            chronic = d.get("chronic")
+            load_parts = [f"ACWR={ratio_str} ({zone})"]
+            if acute is not None and chronic is not None:
+                days_a = d.get("acute_days", 7)
+                days_c = d.get("chronic_days", 28)
+                load_parts.append(f"acute_{days_a}d={acute:.2f}, chronic_{days_c}d={chronic:.2f}")
             note_str = f" — {f['note']}" if f.get("note") else ""
-            lines.append(f"[{f['ref_date']}] {_label(f, 'metric_a')}: ACWR={ratio_str}{note_str}")
+            lines.append(f"[{f['ref_date']}] {_label(f, 'metric_a')}: {', '.join(load_parts)}{note_str}")
     else:
         lines.append("–")
     lines.append("")
@@ -436,10 +568,12 @@ class OllamaClient:
         model: str,
         *,
         timeout: float = 300.0,
+        thinking: bool = False,
         client: httpx.Client | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._model = model
+        self._thinking = thinking
         self._client = client or httpx.Client(timeout=httpx.Timeout(timeout))
 
     def generate(self, system_prompt: str, user_message: str) -> str:
@@ -449,7 +583,7 @@ class OllamaClient:
         Raises ``ValueError`` if the response shape is unexpected.
         """
         url = f"{self._base_url}/api/chat"
-        payload = {
+        payload: dict = {
             "model": self._model,
             "stream": False,
             "messages": [
@@ -457,6 +591,10 @@ class OllamaClient:
                 {"role": "user", "content": user_message},
             ],
         }
+        if self._thinking:
+            # qwen3-family extended thinking: the model reasons internally before
+            # generating the response. Ignored by non-qwen3 models.
+            payload["think"] = True
         response = self._client.post(url, json=payload)
         response.raise_for_status()
         data = response.json()
@@ -561,7 +699,7 @@ def run(args: argparse.Namespace) -> int:
         log.info("narrate --dry-run: rendered context for %d findings, no model call made", len(findings))
         return 0
 
-    client = OllamaClient(cfg.ollama_url, cfg.model, timeout=float(cfg.timeout_s))
+    client = OllamaClient(cfg.ollama_url, cfg.model, timeout=float(cfg.timeout_s), thinking=cfg.thinking)
     try:
         report = client.generate(_system_prompt(cfg.language), context)
     except httpx.HTTPError as exc:

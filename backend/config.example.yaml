@@ -99,6 +99,9 @@
 #   timeout_s: 300            # generous — 14B models take time
 #   max_correlations: 15      # cap the correlations narrated, highest-priority
 #                             # first (cross-domain + effect size + lag); 0 = all
+#   thinking: false           # enable qwen3 extended-thinking mode ("think": true
+#                             # in the Ollama request); improves analysis depth at
+#                             # the cost of latency; ignored by non-qwen3 models
 
 # --- Notifications ---------------------------------------------------------
 # Push run outcomes / health alerts to a push-notification service. The
