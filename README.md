@@ -188,8 +188,8 @@ expects.
 
 > **Do the one-time [bulk backfill](#bulk-backfill-full-history) first**, *then*
 > enable the automation. A multi-year first export is too large for the HTTP
-> endpoint, and a "Since Last Sync" automation started on an empty database
-> would never carry your history.
+> endpoint, and an hourly automation started on an empty database only carries
+> the last day or two, never your full history.
 
 | Setting | Value | Why |
 |---|---|---|
@@ -204,7 +204,7 @@ expects.
 | Aggregate Data | **on** | drastically reduces payload size |
 | Time grouping | **hourly** | the analysis runs on a daily grid, so sub-hourly detail isn't needed |
 | Batch Requests | **off** | deltas are small; large one-offs go through the backfill CLI instead |
-| Date range | **Since Last Sync** | sends only new data; server-side dedup makes overlap safe |
+| Date range | **Standard** | full previous day + today; re-sends data Apple finalises hours late (sleep stages are written after waking, carrying the prior evening's timestamps, so "Since Last Sync" would miss them). Server-side dedup makes the small overlap safe |
 | Sync cadence | **every 1 hour** | plenty — the analysis runs nightly (`ANALYSIS_CRON`); 5-minute syncs work but are overkill |
 | *Use Localized Units* | **off** | HealthLog normalises units itself; localized units only get flagged |
 
@@ -228,7 +228,7 @@ URL, header and timeout, changing only the workout-specific settings:
 | Time grouping | **minutes** | per-minute HR buckets are the shape the Edwards parser expects |
 | Export format | **JSON** | CSV is **not** parsed |
 | Export version | **v2** | the parser targets HAE v2 payloads |
-| Date range | **Since Last Sync** | sends only new workouts; server-side dedup makes overlap safe |
+| Date range | **Standard** | full previous day + today; matches the metrics automation. Server-side dedup makes the overlap safe |
 | Sync cadence | **every 1 hour** | matches the metrics automation; the analysis runs nightly |
 
 The nightly analysis folds workouts in as daily training-load series (TRIMP /
