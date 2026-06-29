@@ -62,29 +62,26 @@ def _client(handler) -> OllamaClient:
 
 
 # ---------------------------------------------------------------------------
-# scrub_details — privacy boundary
+# scrub_details — all fields pass through (local LLM, no privacy scrubbing)
 # ---------------------------------------------------------------------------
 
 
-def test_scrub_details_anomaly_removes_raw_value():
-    result = scrub_details("anomaly", {"z": 3.9, "value": 72.5})
-    assert result == {"z": 3.9}
-    assert "value" not in result
+def test_scrub_details_anomaly_passes_all_fields():
+    d = {"z": 3.9, "value": 72.5, "global_z": 2.8}
+    assert scrub_details("anomaly", d) == d
 
 
 def test_scrub_details_anomaly_none_returns_empty():
     assert scrub_details("anomaly", None) == {}
 
 
-def test_scrub_details_anomaly_missing_z_returns_empty():
-    assert scrub_details("anomaly", {"value": 72.5}) == {}
+def test_scrub_details_anomaly_value_only_passes_through():
+    assert scrub_details("anomaly", {"value": 72.5}) == {"value": 72.5}
 
 
-def test_scrub_details_recovery_alert_keeps_expected_keys():
-    d = {"rhr_z": 1.8, "hrv_z": -2.1, "short_sleep": True, "extra": 99}
-    result = scrub_details("recovery_alert", d)
-    assert result == {"rhr_z": 1.8, "hrv_z": -2.1, "short_sleep": True}
-    assert "extra" not in result
+def test_scrub_details_recovery_alert_passes_all_fields():
+    d = {"resting_heart_rate_z": 1.8, "heart_rate_variability_z": -2.1, "short_sleep": True, "extra": 99}
+    assert scrub_details("recovery_alert", d) == d
 
 
 def test_scrub_details_recovery_alert_none_returns_empty():
@@ -133,11 +130,11 @@ def test_build_context_anomaly_shows_z_score():
     assert "3.90" in ctx
 
 
-def test_build_context_anomaly_does_not_contain_raw_value():
+def test_build_context_anomaly_contains_raw_value():
     findings = [_finding("anomaly", details={"z": 3.9, "value": 72.5}, severity=3.9)]
     ctx = build_context(findings, 7, _TODAY)
-    # 72.5 is the raw sensor value — must not appear
-    assert "72.5" not in ctx
+    # raw sensor value is included for local-LLM context
+    assert "72.5" in ctx
 
 
 def test_build_context_uses_display_name_not_metric_key():
@@ -152,7 +149,7 @@ def test_build_context_recovery_alert_shows_z_scores_and_sleep():
         "recovery_alert",
         metric_a="recovery",
         metric_a_label="Erholung",
-        details={"hrv_z": -2.1, "rhr_z": 1.8, "short_sleep": True},
+        details={"heart_rate_variability_z": -2.1, "resting_heart_rate_z": 1.8, "short_sleep": True},
     )
     ctx = build_context([f], 7, _TODAY)
     assert "HRV-z=-2.10" in ctx
@@ -332,7 +329,7 @@ def test_run_dry_run_renders_context_without_ollama(tmp_path, monkeypatch, capsy
     assert rc == 0
     assert "ANOMALIES" in out or "ANOMALIEN" in out  # context was rendered
     assert "3.90" in out  # z-score present
-    assert "72.5" not in out  # raw sensor value still scrubbed
+    assert "72.5" in out  # raw sensor value included for local-LLM context
 
 
 # ---------------------------------------------------------------------------
