@@ -424,8 +424,9 @@ It holds:
   the intra-workout HR series is present and self-gates off when it isn't.
 - **`narrate`** — Ollama endpoint (`ollama_url`), model (`qwen2.5:14b`),
   report language (`en`/`de`, default `en`), lookback window for time-anchored
-  findings and HTTP timeout. Off until `ollama_url` is set; used only when you
-  run `healthlog narrate` (see [LLM narration](#llm-narration)).
+  findings, HTTP timeout, and `thinking` (default `false`; enables qwen3
+  extended-thinking mode for deeper analysis). Off until `ollama_url` is set;
+  used only when you run `healthlog narrate` (see [LLM narration](#llm-narration)).
 - **`notify`** — push notifications (see below).
 
 Malformed YAML or an out-of-range value fails fast with a clear message. See the
