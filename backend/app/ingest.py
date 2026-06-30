@@ -22,7 +22,7 @@ from sqlalchemy.sql.expression import literal_column
 
 from . import units
 from .models import MetricRegistry, MetricSample, RawIngest, SleepSession, Workout, WorkoutHrSample
-from .registry import METRIC_REGISTRY, SLEEP_METRIC
+from .registry import METRIC_REGISTRY, SLEEP_METRIC, value_in_bounds
 from .timeutil import parse_hae_datetime
 from .workout_types import canonical_workout_type
 
@@ -39,6 +39,9 @@ class ParsedPayload:
     # Metrics seen in the payload that are absent from the registry seed.
     unknown_metrics: dict[str, str] = field(default_factory=dict)  # metric -> unit
     flagged_units: list[tuple[str, str]] = field(default_factory=list)  # (metric, unit)
+    # Values dropped for falling outside the registry plausibility envelope; the
+    # raw payload is still archived verbatim, so a re-derive can recover them.
+    implausible: list[tuple[str, float]] = field(default_factory=list)  # (metric, value)
 
 
 def _num(value) -> float | None:
@@ -48,6 +51,17 @@ def _num(value) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _keep_value(metric: str, value: float | None, out: ParsedPayload) -> bool:
+    """False if ``value`` falls outside the metric's plausibility envelope (and
+    records it on ``out.implausible`` so the count surfaces); True when it should
+    be stored. The value must already be in the canonical unit, so a flagged
+    (unconverted, foreign-unit) value is never routed through here."""
+    if value_in_bounds(metric, value):
+        return True
+    out.implausible.append((metric, value))
+    return False
 
 
 def _parse_metric(name: str, payload_unit: str | None, point: dict, out: ParsedPayload) -> None:
@@ -65,6 +79,8 @@ def _parse_metric(name: str, payload_unit: str | None, point: dict, out: ParsedP
         norm_avg = units.normalise(name, raw_unit, _num(point.get("Avg")))
         if norm_avg.flagged:
             out.flagged_units.append((name, raw_unit or ""))
+        elif not _keep_value(name, norm_avg.value, out):
+            return  # representative value implausible -> drop (raw archive keeps it)
         out.metric_rows.append(
             {
                 "time": ts,
@@ -82,6 +98,8 @@ def _parse_metric(name: str, payload_unit: str | None, point: dict, out: ParsedP
         norm = units.normalise(name, raw_unit, _num(point.get("qty")))
         if norm.flagged:
             out.flagged_units.append((name, raw_unit or ""))
+        elif not _keep_value(name, norm.value, out):
+            return  # value implausible -> drop (raw archive keeps it)
         out.metric_rows.append(
             {
                 "time": ts,
@@ -267,6 +285,11 @@ class StoreResult:
     workout_rows: int = 0
     workout_hr_rows: int = 0
     unknown_metrics: int = 0
+    # Data-quality counters: metric values whose incoming unit deviated with no
+    # known conversion (kept as-is), and values dropped for failing the registry
+    # plausibility envelope. Both are surfaced so a silent drift is visible.
+    flagged_units: int = 0
+    implausible_values: int = 0
     # New vs. updated counts from the Postgres xmax trick: xmax=0 means the
     # row was freshly inserted; xmax!=0 means an existing row was updated (i.e.
     # the payload contained data that was already in the DB).
@@ -440,6 +463,12 @@ def store(db: Session, parsed: ParsedPayload) -> StoreResult:
 
     for metric, unit in parsed.flagged_units:
         log.warning("unit mismatch for %s: incoming '%s' kept as-is (no known conversion)", metric, unit)
+    for metric, value in parsed.implausible:
+        log.warning(
+            "implausible value for %s: %r outside registry bounds, dropped (raw archive keeps it)",
+            metric,
+            value,
+        )
 
     return StoreResult(
         metric_rows=len(parsed.metric_rows),
@@ -447,6 +476,8 @@ def store(db: Session, parsed: ParsedPayload) -> StoreResult:
         workout_rows=len(parsed.workout_rows),
         workout_hr_rows=workout_hr_rows,
         unknown_metrics=len(parsed.unknown_metrics),
+        flagged_units=len(parsed.flagged_units),
+        implausible_values=len(parsed.implausible),
         metric_new=metric_new,
         sleep_new=sleep_new,
         workout_new=workout_new,

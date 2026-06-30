@@ -268,6 +268,31 @@ def test_build_context_note_appended():
     assert "NUTZERHINWEIS" in ctx or "USER NOTE" in ctx
 
 
+def test_build_context_user_note_survives_recovery_alert_with_note():
+    """A recovery alert carrying its own note must not overwrite the user note.
+
+    Regression: the recovery section once rebound the ``note`` parameter, so a
+    user note was clobbered (or wrongly fabricated) whenever recovery alerts
+    were present.
+    """
+    alert = _finding(
+        "recovery_alert",
+        details={"heart_rate_variability_z": -2.1},
+        note="alert-specific note",
+    )
+    ctx = build_context([alert], 7, _TODAY, note="Focus on HRV.")
+    assert "Focus on HRV." in ctx  # the user note, not the alert note
+    note_section = ctx.split("NUTZERHINWEIS")[-1].split("USER NOTE")[-1]
+    assert "alert-specific note" not in note_section
+
+
+def test_build_context_no_user_note_means_no_note_section():
+    """Without a user note there is no note section, even when alerts have notes."""
+    alert = _finding("recovery_alert", details={"heart_rate_variability_z": -2.1}, note="alert note")
+    ctx = build_context([alert], 7, _TODAY)
+    assert "NUTZERHINWEIS" not in ctx and "USER NOTE" not in ctx
+
+
 def test_build_context_english_language():
     ctx = build_context([], 7, _TODAY, language="en")
     assert "ANOMALIES" in ctx
@@ -296,7 +321,7 @@ def test_run_dry_run_renders_context_without_ollama(tmp_path, monkeypatch, capsy
     """A dry run prints the findings context, needs no ollama_url, and never
     constructs the client — the deterministic 'data -> report' bridge."""
     import app.database as database_mod
-    import app.narrate as narrate_mod
+    import app.narrate.cli as narrate_cli
     from app.appconfig import AppConfig
 
     class _Settings:
@@ -311,19 +336,21 @@ def test_run_dry_run_renders_context_without_ollama(tmp_path, monkeypatch, capsy
     def _no_client(*_a, **_k):
         raise AssertionError("OllamaClient must not be constructed in a dry run")
 
+    # run() lives in the narrate.cli submodule; patch the names it looks up there.
     # Default AppConfig has narrate.ollama_url = None — the dry run must still work.
-    monkeypatch.setattr(narrate_mod, "get_settings", lambda: _Settings())
-    monkeypatch.setattr(narrate_mod, "load_config", lambda _path: AppConfig())
+    # bootstrap() (settings + logging) is the shared CLI entry; stub it to the fake settings.
+    monkeypatch.setattr(narrate_cli, "bootstrap", lambda: _Settings())
+    monkeypatch.setattr(narrate_cli, "load_config", lambda _path: AppConfig())
     monkeypatch.setattr(database_mod, "SessionLocal", lambda: _DB())
     monkeypatch.setattr(
-        narrate_mod,
+        narrate_cli,
         "load_findings",
         lambda _db, _lookback: [_finding("anomaly", details={"z": 3.9, "value": 72.5}, severity=3.9)],
     )
-    monkeypatch.setattr(narrate_mod, "OllamaClient", _no_client)
+    monkeypatch.setattr(narrate_cli, "OllamaClient", _no_client)
 
     args = argparse.Namespace(lookback_days=None, output_dir=None, note=None, dry_run=True)
-    rc = narrate_mod.run(args)
+    rc = narrate_cli.run(args)
 
     out = capsys.readouterr().out
     assert rc == 0

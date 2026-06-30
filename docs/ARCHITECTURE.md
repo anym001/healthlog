@@ -227,6 +227,20 @@ the incoming `unit` is checked against it → on mismatch **convert** (known fac
 kJ→kcal ×0.239006) **or flag**, never silently accept. Exactly this case occurred in
 the real export — the guard is no theoretical construct. A test pins it.
 
+**Plausibility envelope:** beyond units, a metric may carry optional `value_min`/
+`value_max` bounds (in the canonical unit) in the registry seed (`app/registry.py`).
+After unit normalisation the ingest parser drops any value outside the envelope —
+a spurious `heart_rate = 0` or a negative `step_count` never reaches
+`metric_samples`, so it can't corrupt the median/MAD baselines or correlations the
+nightly analysis runs on. The bounds are generous sanity rails (non-negativity for
+cumulative/count metrics, wide physiological ranges for vitals), not tight clinical
+limits, because bucket granularity varies. Dropped values are **counted** (surfaced
+in the ingest response as `implausible_values`, alongside `flagged_units`, and
+logged) but never lost: the verbatim payload still lands in the raw archive (§4.1),
+so a future re-derive can recover them once the envelope is widened. A
+flagged-but-unconverted value is exempt — its unit isn't canonical, so the bounds
+would compare against the wrong scale.
+
 ### 4.6 Metric inventory & tiering
 
 The curated registry — every metric's tier, canonical unit, daily aggregate
@@ -286,7 +300,7 @@ findings (id, computed_at, kind TEXT,            -- correlation|anomaly|trend|se
 `ref_date`/`window_*` make a finding **markable** in Grafana (annotation on the day of
 the anomaly). Non-applicable fields stay NULL.
 
-**Finding types** (snapshot per run, `app/analysis.py`):
+**Finding types** (snapshot per run, `app/analysis/findings.py`):
 - **correlation** — Spearman on the **residual** series (STL trend *and* seasonal
   components subtracted), so the coefficient measures pure day-to-day co-movement, lags
   0–3 days (both directions), FDR `p_value_adj`; per metric pair only the **strongest**
@@ -314,7 +328,7 @@ the anomaly). Non-applicable fields stay NULL.
   de-trended ones) drops significant-but-negligible pairs, and
   **activity-volume suppression** drops a pair when *both* series measure how much you
   moved/trained (workout-derived metrics — load/duration/count/intensity — or Apple
-  activity-ring metrics — see `_is_activity_volume` in `app/analysis.py`); an activity
+  activity-ring metrics — see `_is_activity_volume` in `app/analysis/findings.py`); an activity
   series vs a body-state metric (recovery/sleep/vital) is kept. Each surviving
   correlation is stamped with a **priority tier** (`details.priority_tier`, via
   `_pair_tier`): cross-subsystem links rank above expected within-subsystem pairs, so
