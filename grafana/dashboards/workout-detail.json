@@ -3,7 +3,7 @@
   "title": "HealthLog – Workout Detail",
   "description": "Single-session drill-down: pick a workout to inspect its intra-workout heart-rate curve, summary KPIs, and metadata. Open it from the Workouts table in the Training dashboard (the link zooms the time range to the session), or pick a session from the Recent Workouts table at the bottom. Adjust Timezone if you are not in Europe/Vienna.",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "timezone": "Europe/Vienna",
   "time": {
     "from": "now-30d",
@@ -477,13 +477,105 @@
       ]
     },
     {
+      "id": 104,
+      "type": "row",
+      "title": "Route",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 8,
+      "type": "geomap",
+      "title": "Route — ${workout:text}",
+      "description": "GPS route from workout_route_points, drawn newest-to-oldest along the recorded timestamps. Only outdoor GPS workouts with route export enabled in Health Auto Export carry this; indoor sessions show an empty map.",
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 24,
+        "h": 12
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "basemap": {
+          "type": "default",
+          "name": "Layer 0",
+          "config": {}
+        },
+        "controls": {
+          "showZoom": true,
+          "mouseWheelZoom": true,
+          "showAttribution": true,
+          "showScale": false,
+          "showDebug": false,
+          "showMeasure": false
+        },
+        "layers": [
+          {
+            "type": "route",
+            "name": "Route",
+            "config": {
+              "style": {
+                "color": {
+                  "fixed": "red"
+                },
+                "lineWidth": 3,
+                "opacity": 0.8
+              }
+            },
+            "location": {
+              "mode": "coords",
+              "latitude": "lat",
+              "longitude": "lon"
+            },
+            "tooltip": true
+          }
+        ],
+        "tooltip": {
+          "mode": "details"
+        },
+        "view": {
+          "id": "fit",
+          "lat": 0,
+          "lon": 0,
+          "zoom": 15
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT ts, lat, lon, altitude_m FROM workout_route_points WHERE workout_hae_id = '$workout'::uuid AND lat IS NOT NULL AND lon IS NOT NULL ORDER BY ts",
+          "format": "table"
+        }
+      ]
+    },
+    {
       "id": 102,
       "type": "row",
       "title": "Session Details",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 15,
+        "y": 28,
         "w": 24,
         "h": 1
       },
@@ -496,7 +588,7 @@
       "description": "Full metadata for the selected workout. Times are shown in the selected Timezone. Group comes from the workout_type_groups table; '—' marks values not present for this workout.",
       "gridPos": {
         "x": 0,
-        "y": 16,
+        "y": 29,
         "w": 24,
         "h": 9
       },
@@ -528,7 +620,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 25,
+        "y": 38,
         "w": 24,
         "h": 1
       },
@@ -541,7 +633,7 @@
       "description": "Workouts with intra-workout HR samples in the selected time range (newest first). Click the Date cell to load that session above — the link selects the workout and zooms the time range to it.",
       "gridPos": {
         "x": 0,
-        "y": 26,
+        "y": 39,
         "w": 24,
         "h": 8
       },

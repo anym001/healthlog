@@ -184,8 +184,12 @@ HAE delivers, per workout, a **stable `id` (UUID)** — a better idempotency key
 summary `{min, avg, max}` and intra-workout time series (`heartRateData`,
 `stepCount`, `heartRateRecovery`, …). The HR time series is parsed into
 `workout_hr_samples` (for zone-based Edwards TRIMP, see
-[`workout-analysis.md`](workout-analysis.md)); the other time series stay in the raw
-archive.
+[`workout-analysis.md`](workout-analysis.md)). When the operator enables route
+export in HAE, an outdoor GPS workout also carries a `route` array; those points are
+parsed into `workout_route_points` (the data behind the Workout Detail dashboard's
+geomap — display only, not used by the analysis). HAE ships two route schema versions:
+v2 (`latitude`/`longitude` + `speed`/accuracy) and v1 (abbreviated `lat`/`lon`); the
+parser accepts both. The other intra-workout time series stay in the raw archive.
 
 ```sql
 workouts (hae_id UUID PRIMARY KEY,        -- HAE `id`, stable → idempotency
@@ -197,6 +201,15 @@ workouts (hae_id UUID PRIMARY KEY,        -- HAE `id`, stable → idempotency
           intensity, elevation_up_m,
           temperature_c, humidity_pct DOUBLE PRECISION,  -- environment context
           source TEXT)
+
+workout_hr_samples (workout_hae_id UUID REFERENCES workouts ON DELETE CASCADE,
+                    ts TIMESTAMPTZ, bpm DOUBLE PRECISION,
+                    PRIMARY KEY (workout_hae_id, ts))   -- intra-workout HR series
+
+workout_route_points (workout_hae_id UUID REFERENCES workouts ON DELETE CASCADE,
+                      ts TIMESTAMPTZ, lat, lon DOUBLE PRECISION NOT NULL,
+                      altitude_m, speed_mps DOUBLE PRECISION,  -- optional
+                      PRIMARY KEY (workout_hae_id, ts))   -- intra-workout GPS route
 ```
 **Watch out — localisation:** `name` is language-dependent (`'Outdoor Walk'`) — like
 units, workout types need normalisation (mapping localised→canonical), otherwise

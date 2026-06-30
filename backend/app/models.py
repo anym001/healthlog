@@ -165,6 +165,29 @@ class WorkoutHrSample(Base):
     bpm: Mapped[float] = mapped_column(Float, nullable=False)
 
 
+class WorkoutRoutePoint(Base):
+    """One intra-workout GPS location (HAE ``route``).
+
+    HAE attaches this only for outdoor GPS workouts when "Include Route Data"
+    is enabled, so the table is sparse. (workout_hae_id, ts) is the natural
+    idempotency key so a replayed payload upserts rather than duplicates.
+    Cascades with its workout. Read directly by the Workout Detail dashboard's
+    geomap; not used by the analysis."""
+
+    __tablename__ = "workout_route_points"
+
+    workout_hae_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workouts.hae_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    ts: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    lat: Mapped[float] = mapped_column(Float, nullable=False)
+    lon: Mapped[float] = mapped_column(Float, nullable=False)
+    altitude_m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    speed_mps: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
 class MetricRegistry(Base):
     """Per-metric behaviour as data: canonical unit, daily aggregate, tier."""
 

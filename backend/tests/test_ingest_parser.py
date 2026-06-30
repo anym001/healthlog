@@ -202,3 +202,66 @@ def test_workout_heart_rate_series_parsed_to_samples():
     assert first["workout_hae_id"] == uuid.UUID(wid)
     assert first["bpm"] == 104.5  # the Avg of the bucket
     assert first["ts"] == dt.datetime(2026, 6, 15, 12, 28, 21, tzinfo=dt.timezone(dt.timedelta(hours=2)))
+
+
+def test_workout_route_parsed_to_points_v2_and_v1():
+    wid = "3213AD95-044D-4777-9D99-B473968262F1"
+    payload = {
+        "data": {
+            "workouts": [
+                {
+                    "id": wid,
+                    "name": "Outdoor Run",
+                    "start": "2026-06-15 12:28:00 +0200",
+                    "end": "2026-06-15 13:00:00 +0200",
+                    "route": [
+                        # v2 shape: latitude/longitude + altitude/speed
+                        {
+                            "latitude": 48.2082,
+                            "longitude": 16.3738,
+                            "altitude": 171.0,
+                            "speed": 3.1,
+                            "timestamp": "2026-06-15 12:28:21 +0200",
+                        },
+                        # v1 shape: abbreviated lat/lon, no speed
+                        {
+                            "lat": 48.2090,
+                            "lon": 16.3750,
+                            "altitude": 172.5,
+                            "timestamp": "2026-06-15 12:29:21 +0200",
+                        },
+                        {"latitude": 48.21, "timestamp": "2026-06-15 12:30:00 +0200"},  # no lon -> dropped
+                        {"lat": 48.21, "lon": 16.38, "timestamp": "bad-timestamp"},  # unparseable -> dropped
+                        {"lat": 48.21, "lon": 16.38},  # no timestamp -> dropped
+                    ],
+                }
+            ]
+        }
+    }
+    parsed = parse_payload(payload)
+    assert len(parsed.workout_route_rows) == 2  # only the two timed, coordinate-bearing points
+    first = parsed.workout_route_rows[0]
+    assert first["workout_hae_id"] == uuid.UUID(wid)
+    assert (first["lat"], first["lon"]) == (48.2082, 16.3738)
+    assert first["altitude_m"] == 171.0
+    assert first["speed_mps"] == 3.1
+    assert first["ts"] == dt.datetime(2026, 6, 15, 12, 28, 21, tzinfo=dt.timezone(dt.timedelta(hours=2)))
+    # v1 point carries no speed.
+    assert parsed.workout_route_rows[1]["speed_mps"] is None
+    assert (parsed.workout_route_rows[1]["lat"], parsed.workout_route_rows[1]["lon"]) == (48.2090, 16.3750)
+
+
+def test_summary_only_workout_has_no_route():
+    payload = {
+        "data": {
+            "workouts": [
+                {
+                    "id": "3213AD95-044D-4777-9D99-B473968262F1",
+                    "name": "Indoor Cycle",
+                    "start": "2026-06-15 12:28:00 +0200",
+                    "end": "2026-06-15 13:00:00 +0200",
+                }
+            ]
+        }
+    }
+    assert parse_payload(payload).workout_route_rows == []
