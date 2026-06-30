@@ -268,6 +268,31 @@ def test_build_context_note_appended():
     assert "NUTZERHINWEIS" in ctx or "USER NOTE" in ctx
 
 
+def test_build_context_user_note_survives_recovery_alert_with_note():
+    """A recovery alert carrying its own note must not overwrite the user note.
+
+    Regression: the recovery section once rebound the ``note`` parameter, so a
+    user note was clobbered (or wrongly fabricated) whenever recovery alerts
+    were present.
+    """
+    alert = _finding(
+        "recovery_alert",
+        details={"heart_rate_variability_z": -2.1},
+        note="alert-specific note",
+    )
+    ctx = build_context([alert], 7, _TODAY, note="Focus on HRV.")
+    assert "Focus on HRV." in ctx  # the user note, not the alert note
+    note_section = ctx.split("NUTZERHINWEIS")[-1].split("USER NOTE")[-1]
+    assert "alert-specific note" not in note_section
+
+
+def test_build_context_no_user_note_means_no_note_section():
+    """Without a user note there is no note section, even when alerts have notes."""
+    alert = _finding("recovery_alert", details={"heart_rate_variability_z": -2.1}, note="alert note")
+    ctx = build_context([alert], 7, _TODAY)
+    assert "NUTZERHINWEIS" not in ctx and "USER NOTE" not in ctx
+
+
 def test_build_context_english_language():
     ctx = build_context([], 7, _TODAY, language="en")
     assert "ANOMALIES" in ctx
