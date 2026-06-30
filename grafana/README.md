@@ -80,7 +80,14 @@ the time range zoomed to the workout. You can also pick a session from the
 `Workout` dropdown or from the Recent Workouts table at the bottom (both list
 only workouts that carry HR samples). Panels: duration / avg HR / max HR / active
 energy KPIs, the second-by-second HR curve with dashed average and maximum
-reference lines, and a full session-metadata table.
+reference lines, a **GPS route map**, and a full session-metadata table.
+
+The route map is populated from `workout_route_points`. That data only arrives
+for **outdoor GPS workouts** and only when **Include Route Data** is enabled in
+Health Auto Export (Workouts → Datenart-Einstellungen → *Routendaten
+einschließen*); indoor sessions and pre-existing workouts exported without it show
+an empty map. Enabling the toggle affects future exports only — to add routes to
+past workouts, re-export that date range from HAE with the toggle on.
 
 ## Updating a dashboard
 

@@ -9,7 +9,15 @@ import uuid
 from sqlalchemy import func, select
 
 from app.ingest import archive_raw, parse_payload, store
-from app.models import MetricRegistry, MetricSample, RawIngest, SleepSession, Workout, WorkoutHrSample
+from app.models import (
+    MetricRegistry,
+    MetricSample,
+    RawIngest,
+    SleepSession,
+    Workout,
+    WorkoutHrSample,
+    WorkoutRoutePoint,
+)
 
 _WID = "3213AD95-044D-4777-9D99-B473968262F1"
 
@@ -26,6 +34,35 @@ def _workout_hr_payload(avg_first: float = 104.5) -> dict:
                     "heartRateData": [
                         {"date": "2026-06-15 12:28:21 +0200", "Avg": avg_first},
                         {"date": "2026-06-15 12:29:21 +0200", "Avg": 111.0},
+                    ],
+                }
+            ]
+        }
+    }
+
+
+def _workout_route_payload(lat_first: float = 48.2082) -> dict:
+    return {
+        "data": {
+            "workouts": [
+                {
+                    "id": _WID,
+                    "name": "Outdoor Run",
+                    "start": "2026-06-15 12:28:00 +0200",
+                    "end": "2026-06-15 12:31:00 +0200",
+                    "route": [
+                        {
+                            "latitude": lat_first,
+                            "longitude": 16.3738,
+                            "altitude": 171.0,
+                            "timestamp": "2026-06-15 12:28:21 +0200",
+                        },
+                        {
+                            "latitude": 48.2090,
+                            "longitude": 16.3750,
+                            "altitude": 172.5,
+                            "timestamp": "2026-06-15 12:29:21 +0200",
+                        },
                     ],
                 }
             ]
@@ -119,6 +156,25 @@ def test_workout_hr_samples_idempotent_upsert(db):
     assert _count(db, WorkoutHrSample) == 2
     first = db.execute(select(WorkoutHrSample).order_by(WorkoutHrSample.ts)).scalars().first()
     assert first.bpm == 150.0
+    assert first.workout_hae_id == uuid.UUID(_WID)
+
+
+def test_workout_route_points_idempotent_upsert(db):
+    store(db, parse_payload(_workout_route_payload()))
+    db.flush()
+    assert _count(db, WorkoutRoutePoint) == 2
+
+    # Replay: same (workout_hae_id, ts) keys -> no duplicate rows.
+    store(db, parse_payload(_workout_route_payload()))
+    db.flush()
+    assert _count(db, WorkoutRoutePoint) == 2
+
+    # Same keys, changed coordinate -> upsert updates in place.
+    store(db, parse_payload(_workout_route_payload(lat_first=49.0)))
+    db.flush()
+    assert _count(db, WorkoutRoutePoint) == 2
+    first = db.execute(select(WorkoutRoutePoint).order_by(WorkoutRoutePoint.ts)).scalars().first()
+    assert first.lat == 49.0
     assert first.workout_hae_id == uuid.UUID(_WID)
 
 
