@@ -43,6 +43,74 @@ def test_unknown_metric_flagged_for_registration(sample_payload):
     assert parsed.unknown_metrics["future_unknown_metric"] == "widgets"
 
 
+def _metric_payload(name, points, units="count/min"):
+    return {"data": {"metrics": [{"name": name, "units": units, "data": points}]}}
+
+
+def test_implausible_qty_value_is_dropped_and_recorded():
+    # step_count is non-negative; a negative reading is garbage and must not
+    # enter the series the analysis runs on (the raw archive still keeps it).
+    payload = _metric_payload(
+        "step_count",
+        [{"date": "2026-06-15 10:00:00 +0000", "qty": -42}],
+        units="count",
+    )
+    parsed = parse_payload(payload)
+    assert not parsed.metric_rows  # dropped
+    assert parsed.implausible == [("step_count", -42.0)]
+
+
+def test_implausible_minmax_value_is_dropped():
+    # heart_rate arrives as {Min,Avg,Max}; an Avg of 0 (< the 20 bpm floor) is a
+    # spurious bucket and the whole row is dropped on the representative value.
+    payload = _metric_payload(
+        "heart_rate",
+        [{"date": "2026-06-15 10:00:00 +0000", "Min": 0, "Avg": 0, "Max": 0}],
+    )
+    parsed = parse_payload(payload)
+    assert not parsed.metric_rows
+    assert parsed.implausible == [("heart_rate", 0.0)]
+
+
+def test_plausible_value_is_kept():
+    payload = _metric_payload(
+        "heart_rate",
+        [{"date": "2026-06-15 10:00:00 +0000", "Min": 50, "Avg": 60, "Max": 92}],
+    )
+    parsed = parse_payload(payload)
+    assert len(parsed.metric_rows) == 1
+    assert parsed.implausible == []
+
+
+def test_unknown_metric_value_is_not_bounds_checked():
+    # An unknown metric has no envelope, so even an odd value is kept (and the
+    # metric is queued for auto-registration).
+    payload = _metric_payload(
+        "future_unknown_metric",
+        [{"date": "2026-06-15 10:00:00 +0000", "qty": -999}],
+        units="widgets",
+    )
+    parsed = parse_payload(payload)
+    assert len(parsed.metric_rows) == 1
+    assert parsed.implausible == []
+    assert "future_unknown_metric" in parsed.unknown_metrics
+
+
+def test_flagged_unit_value_skips_the_bounds_check():
+    # A value whose unit deviated with no known conversion is kept as-is and only
+    # flagged: bounds are canonical, so an unconverted value is never dropped on
+    # them (it would be a false positive against the wrong unit).
+    payload = _metric_payload(
+        "heart_rate",
+        [{"date": "2026-06-15 10:00:00 +0000", "Min": 0, "Avg": 0, "Max": 0}],
+        units="bogus_unit",
+    )
+    parsed = parse_payload(payload)
+    assert len(parsed.metric_rows) == 1
+    assert parsed.implausible == []
+    assert parsed.flagged_units == [("heart_rate", "bogus_unit")]
+
+
 def test_sleep_routed_to_sleep_rows_with_wake_day(sample_payload):
     parsed = parse_payload(sample_payload)
     assert not any(r["metric"] == "sleep_analysis" for r in parsed.metric_rows)

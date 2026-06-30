@@ -82,7 +82,8 @@ async def ingest_payload(
         return IngestResponse(status="duplicate")
 
     audit.info(
-        "ingest.stored ip=%s metrics=%d(%d new) sleep=%d(%d new) workouts=%d(%d new) unknown=%d",
+        "ingest.stored ip=%s metrics=%d(%d new) sleep=%d(%d new) workouts=%d(%d new) "
+        "unknown=%d flagged_units=%d implausible=%d",
         ip,
         result.metric_rows,
         result.metric_new,
@@ -91,6 +92,8 @@ async def ingest_payload(
         result.workout_rows,
         result.workout_new,
         result.unknown_metrics,
+        result.flagged_units,
+        result.implausible_values,
     )
     # Best-effort push after the response is sent (never blocks the HAE sync).
     background_tasks.add_task(
@@ -109,6 +112,8 @@ async def ingest_payload(
         sleep_rows=result.sleep_rows,
         workout_rows=result.workout_rows,
         unknown_metrics=result.unknown_metrics,
+        flagged_units=result.flagged_units,
+        implausible_values=result.implausible_values,
         metric_new=result.metric_new,
         sleep_new=result.sleep_new,
         workout_new=result.workout_new,

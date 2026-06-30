@@ -227,6 +227,20 @@ the incoming `unit` is checked against it → on mismatch **convert** (known fac
 kJ→kcal ×0.239006) **or flag**, never silently accept. Exactly this case occurred in
 the real export — the guard is no theoretical construct. A test pins it.
 
+**Plausibility envelope:** beyond units, a metric may carry optional `value_min`/
+`value_max` bounds (in the canonical unit) in the registry seed (`app/registry.py`).
+After unit normalisation the ingest parser drops any value outside the envelope —
+a spurious `heart_rate = 0` or a negative `step_count` never reaches
+`metric_samples`, so it can't corrupt the median/MAD baselines or correlations the
+nightly analysis runs on. The bounds are generous sanity rails (non-negativity for
+cumulative/count metrics, wide physiological ranges for vitals), not tight clinical
+limits, because bucket granularity varies. Dropped values are **counted** (surfaced
+in the ingest response as `implausible_values`, alongside `flagged_units`, and
+logged) but never lost: the verbatim payload still lands in the raw archive (§4.1),
+so a future re-derive can recover them once the envelope is widened. A
+flagged-but-unconverted value is exempt — its unit isn't canonical, so the bounds
+would compare against the wrong scale.
+
 ### 4.6 Metric inventory & tiering
 
 The curated registry — every metric's tier, canonical unit, daily aggregate

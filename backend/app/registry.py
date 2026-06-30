@@ -17,13 +17,22 @@ agg_default: which daily aggregate is meaningful for this metric
   avg -> daily mean (HRV, SpO2, heart rate)
   max -> daily maximum
 
+value_min / value_max (both optional): the plausibility envelope for a single
+stored value in the metric's *canonical* unit. The ingest parser drops values
+outside it (the raw payload is still archived verbatim, so nothing is lost and a
+re-derive can recover them) instead of letting a spurious ``heart_rate = 0`` or a
+negative ``step_count`` corrupt the series the nightly analysis runs on. Bounds
+are deliberately generous sanity rails — non-negativity for cumulative/count
+metrics and wide physiological ranges for vitals — not tight clinical limits,
+because a metric's bucket granularity (per-minute vs. daily) varies.
+
 The special metric ``sleep_analysis`` is NOT listed here: it is routed to the
 dedicated ``sleep_sessions`` table, not ``metric_samples``.
 """
 
 from __future__ import annotations
 
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 
 class MetricSpec(TypedDict):
@@ -32,6 +41,10 @@ class MetricSpec(TypedDict):
     agg_default: str
     category: str  # activity | sleep | vital | mobility | environment | mindfulness | nutrition
     tier: str  # core | secondary
+    # Plausibility envelope (canonical unit); see module docstring. Both optional:
+    # a missing bound means "unbounded on that side".
+    value_min: NotRequired[float]
+    value_max: NotRequired[float]
 
 
 # Confirmed against real Health Auto Export v2 payloads (curated, not exhaustive:
@@ -44,6 +57,7 @@ METRIC_REGISTRY: dict[str, MetricSpec] = {
         "agg_default": "sum",
         "category": "activity",
         "tier": "core",
+        "value_min": 0,
     },
     "active_energy": {
         "display_name": "Active Energy",
@@ -51,6 +65,7 @@ METRIC_REGISTRY: dict[str, MetricSpec] = {
         "agg_default": "sum",
         "category": "activity",
         "tier": "core",
+        "value_min": 0,
     },
     "apple_exercise_time": {
         "display_name": "Exercise Time",
@@ -58,6 +73,7 @@ METRIC_REGISTRY: dict[str, MetricSpec] = {
         "agg_default": "sum",
         "category": "activity",
         "tier": "core",
+        "value_min": 0,
     },
     "walking_running_distance": {
         "display_name": "Walking + Running Distance",
@@ -65,6 +81,7 @@ METRIC_REGISTRY: dict[str, MetricSpec] = {
         "agg_default": "sum",
         "category": "activity",
         "tier": "core",
+        "value_min": 0,
     },
     "flights_climbed": {
         "display_name": "Flights Climbed",
@@ -72,6 +89,7 @@ METRIC_REGISTRY: dict[str, MetricSpec] = {
         "agg_default": "sum",
         "category": "activity",
         "tier": "core",
+        "value_min": 0,
     },
     "physical_effort": {
         "display_name": "Physical Effort",
@@ -79,6 +97,7 @@ METRIC_REGISTRY: dict[str, MetricSpec] = {
         "agg_default": "avg",
         "category": "activity",
         "tier": "core",
+        "value_min": 0,
     },
     "apple_stand_time": {
         "display_name": "Stand Time",
@@ -86,6 +105,7 @@ METRIC_REGISTRY: dict[str, MetricSpec] = {
         "agg_default": "sum",
         "category": "activity",
         "tier": "core",
+        "value_min": 0,
     },
     # --- core: sleep ------------------------------------------------------
     "apple_sleeping_wrist_temperature": {
@@ -94,6 +114,8 @@ METRIC_REGISTRY: dict[str, MetricSpec] = {
         "agg_default": "avg",
         "category": "sleep",
         "tier": "core",
+        "value_min": 20,
+        "value_max": 45,
     },
     "breathing_disturbances": {
         "display_name": "Breathing Disturbances",
@@ -101,6 +123,7 @@ METRIC_REGISTRY: dict[str, MetricSpec] = {
         "agg_default": "sum",
         "category": "sleep",
         "tier": "core",
+        "value_min": 0,
     },
     "time_in_daylight": {
         "display_name": "Time in Daylight",
@@ -108,6 +131,7 @@ METRIC_REGISTRY: dict[str, MetricSpec] = {
         "agg_default": "sum",
         "category": "sleep",
         "tier": "core",
+        "value_min": 0,
     },
     # --- core: vital ------------------------------------------------------
     # Recovery vitals: measured mostly overnight by the watch, but they are
@@ -119,6 +143,8 @@ METRIC_REGISTRY: dict[str, MetricSpec] = {
         "agg_default": "avg",
         "category": "vital",
         "tier": "core",
+        "value_min": 0,
+        "value_max": 1000,
     },
     "resting_heart_rate": {
         "display_name": "Resting Heart Rate",
@@ -126,6 +152,8 @@ METRIC_REGISTRY: dict[str, MetricSpec] = {
         "agg_default": "min",
         "category": "vital",
         "tier": "core",
+        "value_min": 20,
+        "value_max": 200,
     },
     "respiratory_rate": {
         "display_name": "Respiratory Rate",
@@ -133,6 +161,8 @@ METRIC_REGISTRY: dict[str, MetricSpec] = {
         "agg_default": "avg",
         "category": "vital",
         "tier": "core",
+        "value_min": 3,
+        "value_max": 80,
     },
     "heart_rate": {
         "display_name": "Heart Rate",
@@ -140,6 +170,8 @@ METRIC_REGISTRY: dict[str, MetricSpec] = {
         "agg_default": "avg",
         "category": "vital",
         "tier": "core",
+        "value_min": 20,
+        "value_max": 250,
     },
     "blood_oxygen_saturation": {
         "display_name": "Blood Oxygen Saturation",
@@ -147,6 +179,8 @@ METRIC_REGISTRY: dict[str, MetricSpec] = {
         "agg_default": "avg",
         "category": "vital",
         "tier": "core",
+        "value_min": 50,
+        "value_max": 100,
     },
     "walking_heart_rate_average": {
         "display_name": "Walking Heart Rate Average",
@@ -154,6 +188,8 @@ METRIC_REGISTRY: dict[str, MetricSpec] = {
         "agg_default": "avg",
         "category": "vital",
         "tier": "core",
+        "value_min": 20,
+        "value_max": 250,
     },
     "vo2_max": {
         "display_name": "VO2 Max",
@@ -161,6 +197,8 @@ METRIC_REGISTRY: dict[str, MetricSpec] = {
         "agg_default": "avg",
         "category": "vital",
         "tier": "core",
+        "value_min": 5,
+        "value_max": 120,
     },
     "weight_body_mass": {
         "display_name": "Body Mass",
@@ -168,6 +206,8 @@ METRIC_REGISTRY: dict[str, MetricSpec] = {
         "agg_default": "avg",
         "category": "vital",
         "tier": "core",
+        "value_min": 2,
+        "value_max": 500,
     },
     # --- secondary: mobility ---------------------------------------------
     "walking_speed": {
@@ -257,6 +297,8 @@ METRIC_REGISTRY: dict[str, MetricSpec] = {
         "agg_default": "avg",
         "category": "vital",
         "tier": "core",
+        "value_min": 0,
+        "value_max": 200,
     },
     "waist_circumference": {
         "display_name": "Waist Circumference",
@@ -325,3 +367,26 @@ METRIC_REGISTRY: dict[str, MetricSpec] = {
 
 # Routed to sleep_sessions, never metric_samples.
 SLEEP_METRIC = "sleep_analysis"
+
+
+def value_in_bounds(metric: str, value: float | None) -> bool:
+    """True if ``value`` is within the metric's plausibility envelope.
+
+    Pure (no DB): reads the in-process registry, the same source the ingest
+    unit-guard uses. Treated as plausible — nothing to reject — when the value is
+    ``None``, the metric is unknown, or the relevant bound is unset. Bounds are
+    inclusive; the value must already be in the canonical unit (i.e. checked
+    after ``units.normalise``). See the module docstring for the rationale.
+    """
+    if value is None:
+        return True
+    spec = METRIC_REGISTRY.get(metric)
+    if spec is None:
+        return True
+    low = spec.get("value_min")
+    high = spec.get("value_max")
+    if low is not None and value < low:
+        return False
+    if high is not None and value > high:
+        return False
+    return True
