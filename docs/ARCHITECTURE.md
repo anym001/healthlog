@@ -300,7 +300,7 @@ findings (id, computed_at, kind TEXT,            -- correlation|anomaly|trend|se
 `ref_date`/`window_*` make a finding **markable** in Grafana (annotation on the day of
 the anomaly). Non-applicable fields stay NULL.
 
-**Finding types** (snapshot per run, `app/analysis.py`):
+**Finding types** (snapshot per run, `app/analysis/findings.py`):
 - **correlation** — Spearman on the **residual** series (STL trend *and* seasonal
   components subtracted), so the coefficient measures pure day-to-day co-movement, lags
   0–3 days (both directions), FDR `p_value_adj`; per metric pair only the **strongest**
@@ -328,7 +328,7 @@ the anomaly). Non-applicable fields stay NULL.
   de-trended ones) drops significant-but-negligible pairs, and
   **activity-volume suppression** drops a pair when *both* series measure how much you
   moved/trained (workout-derived metrics — load/duration/count/intensity — or Apple
-  activity-ring metrics — see `_is_activity_volume` in `app/analysis.py`); an activity
+  activity-ring metrics — see `_is_activity_volume` in `app/analysis/findings.py`); an activity
   series vs a body-state metric (recovery/sleep/vital) is kept. Each surviving
   correlation is stamped with a **priority tier** (`details.priority_tier`, via
   `_pair_tier`): cross-subsystem links rank above expected within-subsystem pairs, so

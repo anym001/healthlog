@@ -11,7 +11,7 @@ Two configuration homes, deliberately split (mirrors pocketlog-importer):
 
 The file is optional: a missing ``config.yaml`` yields all-default values, so a
 fresh container behaves exactly as before this module existed. Defaults here are
-the single source of truth for the analysis tunables — ``app/analysis.py``
+the single source of truth for the analysis tunables — ``app/analysis/constants.py``
 derives its module constants from :class:`AnalysisConfig`.
 """
 
@@ -72,7 +72,7 @@ class WorkoutConfig(BaseModel):
 class AnalysisConfig(BaseModel):
     """Tunables for the nightly statistical pipeline.
 
-    Defaults equal the values previously hard-coded in ``analysis.py``; changing
+    Defaults equal the values previously hard-coded in the analysis package; changing
     them in ``config.yaml`` lets an operator retune without rebuilding the image.
     Structural periods (weekly=7, annual=365) are NOT exposed — they are domain
     constants, not knobs.

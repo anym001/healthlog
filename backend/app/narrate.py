@@ -26,8 +26,9 @@ from typing import TYPE_CHECKING
 
 import httpx
 
-# report_priority (and its helpers) live in analysis.py next to the metric
-# taxonomy, so the nightly pipeline can stamp each correlation with its tier and
+# report_priority (and its helpers) live in the analysis package (findings.py)
+# next to the metric taxonomy, so the nightly pipeline can stamp each correlation
+# with its tier and
 # the narration/Grafana rank by the same rule. Re-exported here for tests.
 from .analysis import _metric_domain, _pair_tier, report_priority  # noqa: F401
 from .appconfig import NarrateConfig, load_config

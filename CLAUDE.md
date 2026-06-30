@@ -17,8 +17,11 @@ local LLM. Everything runs on the user's own hardware — no external calls.
 - `backend/app/` — the application (one Python package):
   - `routers/` — FastAPI endpoints (`/api/ingest`, `/api/health`)
   - `ingest.py` — HAE payload parser (pure function) + idempotent upsert
-  - `analysis.py` — nightly statistics; pure-math helpers (DB-free, top of file) +
-    DB orchestration. Run as an isolated subprocess by the scheduler.
+  - `analysis/` — nightly statistics, split by role: `pure.py` (DB-free math,
+    unit-tested), `load.py` (DB loaders), `findings.py` (series assembly + finding
+    builders), `run.py` (orchestration), `constants.py` (tunables). `__init__.py`
+    re-exports the flat public API; `python -m app.analysis` runs it as an isolated
+    subprocess via the scheduler.
   - `cli.py` — the `healthlog` operator CLI (`backfill`, `analyze`, `audit`,
     `narrate`, `check-workout-hr`, `rederive-workout-hr`)
   - `registry.py`, `units.py`, `workout_types.py` — normalisation (metric registry,
