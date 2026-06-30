@@ -12,8 +12,8 @@ from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from ..appconfig import AppConfig, load_config
+from ..cli_support import bootstrap, db_session
 from ..config import get_settings
-from ..logging_config import configure_logging
 from ..models import Finding
 from .constants import _DEFAULT_APP_CONFIG, log
 from .findings import (
@@ -71,22 +71,17 @@ def run(db: Session, tz: str | None = None, config: AppConfig | None = None) -> 
 
 
 def main() -> int:
-    settings = get_settings()
-    configure_logging(settings.log_level, settings.log_format)
+    settings = bootstrap()
     app_config = load_config(settings.config_file)
 
-    from ..database import SessionLocal
-
-    db = SessionLocal()
-    try:
-        result = run(db, settings.local_tz, app_config)
-        db.commit()
-    except Exception:
-        db.rollback()
-        log.exception("analysis run failed")
-        raise
-    finally:
-        db.close()
+    with db_session() as db:
+        try:
+            result = run(db, settings.local_tz, app_config)
+            db.commit()
+        except Exception:
+            db.rollback()
+            log.exception("analysis run failed")
+            raise
 
     log.info("analysis done: %s", " ".join(f"{name}={count}" for name, count in result.counts()))
 

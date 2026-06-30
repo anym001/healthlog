@@ -26,8 +26,7 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session
 
 from . import ingest as ingest_svc
-from .config import get_settings
-from .logging_config import configure_logging
+from .cli_support import bootstrap, db_session, module_main
 
 log = logging.getLogger("healthlog.rederive")
 
@@ -87,29 +86,23 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def run(args: argparse.Namespace) -> int:
-    settings = get_settings()
-    configure_logging(settings.log_level, settings.log_format)
+    bootstrap()
 
-    # Lazy import so --help works without a configured DATABASE_URL.
-    from .database import SessionLocal
-
-    db = SessionLocal()
-    try:
+    with db_session() as db:
         summary = run_rederive(db, dry_run=args.dry_run)
-    finally:
-        db.close()
 
     _log_summary(summary, args.dry_run)
     return 1 if summary.failures else 0
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
+    return module_main(
+        add_arguments,
+        run,
         prog="python -m app.rederive",
         description="Re-derive intra-workout HR samples from the raw archive.",
+        argv=argv,
     )
-    add_arguments(parser)
-    return run(parser.parse_args(argv))
 
 
 if __name__ == "__main__":

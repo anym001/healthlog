@@ -32,8 +32,8 @@ import httpx
 # the narration/Grafana rank by the same rule. Re-exported here for tests.
 from .analysis import _metric_domain, _pair_tier, report_priority  # noqa: F401
 from .appconfig import NarrateConfig, load_config
-from .config import get_settings
-from .logging_config import configure_logging, safe
+from .cli_support import bootstrap, db_session
+from .logging_config import safe
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -658,8 +658,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def run(args: argparse.Namespace) -> int:
-    settings = get_settings()
-    configure_logging(settings.log_level, settings.log_format)
+    settings = bootstrap()
     app_config = load_config(settings.config_file)
     cfg: NarrateConfig = app_config.narrate
 
@@ -673,13 +672,8 @@ def run(args: argparse.Namespace) -> int:
         log.error("narrate.ollama_url is not set — add it to config.yaml (e.g. ollama_url: http://192.168.1.100:11434)")
         return 1
 
-    from .database import SessionLocal
-
-    db = SessionLocal()
-    try:
+    with db_session() as db:
         findings = load_findings(db, lookback_days)
-    finally:
-        db.close()
 
     log.info("narrate: loaded %d findings (lookback_days=%d)", len(findings), lookback_days)
 

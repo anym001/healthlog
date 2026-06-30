@@ -35,8 +35,7 @@ from sqlalchemy.orm import Session
 
 from . import ingest as ingest_svc
 from .appconfig import get_app_config
-from .config import get_settings
-from .logging_config import configure_logging
+from .cli_support import bootstrap, db_session, module_main
 
 log = logging.getLogger("healthlog.backfill")
 
@@ -174,8 +173,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
 def run(args: argparse.Namespace) -> int:
     """Execute a parsed backfill invocation. Returns a process exit code."""
-    settings = get_settings()
-    configure_logging(settings.log_level, settings.log_format)
+    bootstrap()
 
     try:
         files = collect_files(args.paths, args.glob)
@@ -188,27 +186,22 @@ def run(args: argparse.Namespace) -> int:
 
     log.info("backfill: %d file(s) to import%s", len(files), " (dry-run)" if args.dry_run else "")
 
-    # Imported lazily so --help works without a configured DATABASE_URL.
-    from .database import SessionLocal
-
     type_map = get_app_config().workouts.type_map
-    db = SessionLocal()
-    try:
+    with db_session() as db:
         summary = run_backfill(db, files, dry_run=args.dry_run, type_map=type_map)
-    finally:
-        db.close()
 
     _log_summary(summary, args.dry_run)
     return 1 if summary.failures else 0
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
+    return module_main(
+        add_arguments,
+        run,
         prog="python -m app.backfill",
         description="Bulk-import Apple Health history exported by Health Auto Export.",
+        argv=argv,
     )
-    add_arguments(parser)
-    return run(parser.parse_args(argv))
 
 
 if __name__ == "__main__":

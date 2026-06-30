@@ -312,7 +312,8 @@ def test_run_dry_run_renders_context_without_ollama(tmp_path, monkeypatch, capsy
         raise AssertionError("OllamaClient must not be constructed in a dry run")
 
     # Default AppConfig has narrate.ollama_url = None — the dry run must still work.
-    monkeypatch.setattr(narrate_mod, "get_settings", lambda: _Settings())
+    # bootstrap() (settings + logging) is the shared CLI entry; stub it to the fake settings.
+    monkeypatch.setattr(narrate_mod, "bootstrap", lambda: _Settings())
     monkeypatch.setattr(narrate_mod, "load_config", lambda _path: AppConfig())
     monkeypatch.setattr(database_mod, "SessionLocal", lambda: _DB())
     monkeypatch.setattr(

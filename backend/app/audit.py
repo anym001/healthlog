@@ -40,8 +40,7 @@ import sys
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
-from .config import get_settings
-from .logging_config import configure_logging
+from .cli_support import bootstrap, db_session, module_main
 
 log = logging.getLogger("healthlog.audit")
 
@@ -227,21 +226,18 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:  # noqa: ARG001 - no
 
 
 def run(_args: argparse.Namespace) -> int:
-    settings = get_settings()
-    configure_logging(settings.log_level, settings.log_format)
+    settings = bootstrap()
 
     # Lazy imports so --help works without a configured DATABASE_URL, and the
     # heavy appconfig/yaml load only happens on a real run.
     from sqlalchemy import func, select, text
 
     from .appconfig import load_config
-    from .database import SessionLocal
     from .models import Finding, MetricRegistry, MetricSample
 
     min_overlap = load_config(settings.config_file).analysis.min_overlap
 
-    db = SessionLocal()
-    try:
+    with db_session() as db:
         registry: dict[str, dict] = {
             metric: {"tier": tier, "unit_canonical": unit}
             for metric, tier, unit in db.execute(
@@ -260,8 +256,6 @@ def run(_args: argparse.Namespace) -> int:
 
         finding_rows = db.execute(select(Finding.kind, func.count()).group_by(Finding.kind)).all()
         last_run = db.execute(select(func.max(Finding.computed_at))).scalar_one_or_none()
-    finally:
-        db.close()
 
     report = AuditReport(
         min_overlap=min_overlap,
@@ -275,12 +269,13 @@ def run(_args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
+    return module_main(
+        add_arguments,
+        run,
         prog="python -m app.audit",
         description="Read-only data-quality audit: findings snapshot, coverage, unit anomalies.",
+        argv=argv,
     )
-    add_arguments(parser)
-    return run(parser.parse_args(argv))
 
 
 if __name__ == "__main__":
