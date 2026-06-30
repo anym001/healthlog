@@ -1,6 +1,6 @@
 # Grafana Dashboards
 
-Four pre-built Grafana dashboards for HealthLog. Import them once via the
+Five pre-built Grafana dashboards for HealthLog. Import them once via the
 Grafana UI — no provisioning required.
 
 ## Prerequisites
@@ -61,6 +61,7 @@ Dashboards → New → Import → upload JSON file (repeat for each):
 | `dashboards/overview.json` | Overview — daily summary (14-day window) |
 | `dashboards/sleep.json` | Sleep — phases, efficiency, bedtime, overnight vitals (30-day window) |
 | `dashboards/training.json` | Training & Recovery — TRIMP by sport, HRV, workouts table (30-day window) |
+| `dashboards/workout-detail.json` | Workout Detail — single-session drill-down: intra-workout HR curve, KPIs, metadata |
 | `dashboards/metrics.json` | Metrics Explorer — raw values for any metric, Apple-Health-style (30-day window) |
 
 The **Metrics Explorer** is metric-agnostic: two cascading dropdowns at the top —
@@ -70,6 +71,16 @@ category) — select what to inspect, and every panel follows. Latest reading,
 per the metric registry), the intraday min–avg–max range, daily sample count,
 and the raw `metric_samples` rows. The canonical unit is shown in panel titles
 and chart axes.
+
+The **Workout Detail** dashboard is a single-session drill-down for the
+intra-workout HR samples (`workout_hr_samples`) that the ingest already collects.
+The fastest way in is the **Workouts** table on the Training dashboard: click a
+`Date` cell and Grafana opens Workout Detail with that session pre-selected and
+the time range zoomed to the workout. You can also pick a session from the
+`Workout` dropdown or from the Recent Workouts table at the bottom (both list
+only workouts that carry HR samples). Panels: duration / avg HR / max HR / active
+energy KPIs, the second-by-second HR curve with dashed average and maximum
+reference lines, and a full session-metadata table.
 
 ## Updating a dashboard
 

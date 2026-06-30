@@ -1,0 +1,666 @@
+{
+  "uid": "healthlog-workout-detail",
+  "title": "HealthLog – Workout Detail",
+  "description": "Single-session drill-down: pick a workout to inspect its intra-workout heart-rate curve, summary KPIs, and metadata. Open it from the Workouts table in the Training dashboard (the link zooms the time range to the session), or pick a session from the Recent Workouts table at the bottom. Adjust Timezone if you are not in Europe/Vienna.",
+  "schemaVersion": 39,
+  "version": 1,
+  "timezone": "Europe/Vienna",
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "refresh": "",
+  "tags": [
+    "healthlog"
+  ],
+  "links": [
+    {
+      "title": "Overview",
+      "url": "/d/healthlog-overview",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": true,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Overview dashboard"
+    },
+    {
+      "title": "Sleep",
+      "url": "/d/healthlog-sleep",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": true,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Sleep dashboard"
+    },
+    {
+      "title": "Training",
+      "url": "/d/healthlog-training",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": true,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Training & Recovery dashboard"
+    },
+    {
+      "title": "Metrics Explorer",
+      "url": "/d/healthlog-metrics",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": true,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Metrics Explorer"
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "tz",
+        "type": "custom",
+        "label": "Timezone",
+        "description": "Timezone used to display workout timestamps and to group the picker by local date. Must match a valid PostgreSQL timezone name.",
+        "query": "Europe/Vienna,Europe/Berlin,Europe/London,America/New_York,America/Los_Angeles,UTC",
+        "current": {
+          "value": "Europe/Vienna",
+          "text": "Europe/Vienna"
+        },
+        "options": [
+          {"text": "Europe/Vienna", "value": "Europe/Vienna", "selected": true},
+          {"text": "Europe/Berlin", "value": "Europe/Berlin", "selected": false},
+          {"text": "Europe/London", "value": "Europe/London", "selected": false},
+          {"text": "America/New_York", "value": "America/New_York", "selected": false},
+          {"text": "America/Los_Angeles", "value": "America/Los_Angeles", "selected": false},
+          {"text": "UTC", "value": "UTC", "selected": false}
+        ],
+        "hide": 0,
+        "multi": false,
+        "includeAll": false,
+        "sort": 0,
+        "refresh": 0
+      },
+      {
+        "name": "workout",
+        "type": "query",
+        "label": "Workout",
+        "description": "Workout session to inspect. The dropdown lists workouts that carry intra-workout HR samples (newest first); the label is the local start time and the workout name.",
+        "datasource": {
+          "uid": "healthlog-db"
+        },
+        "query": "SELECT TO_CHAR(w.start_time AT TIME ZONE '$tz', 'YYYY-MM-DD HH24:MI') || '  ·  ' || COALESCE(w.name, 'Workout') AS __text, w.hae_id::text AS __value FROM workouts w WHERE EXISTS (SELECT 1 FROM workout_hr_samples s WHERE s.workout_hae_id = w.hae_id) ORDER BY w.start_time DESC",
+        "refresh": 1,
+        "sort": 0,
+        "multi": false,
+        "includeAll": false,
+        "current": {},
+        "options": []
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 100,
+      "type": "row",
+      "title": "Selected Workout",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Duration",
+      "description": "Total duration of the selected workout.",
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:min",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT ROUND(duration_s/60.0)::int AS \"Duration\" FROM workouts WHERE hae_id = '$workout'::uuid",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Avg HR",
+      "description": "Average heart rate over the selected workout (from the workouts summary).",
+      "gridPos": {
+        "x": 6,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:bpm",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT ROUND(avg_hr::numeric, 0) AS \"Avg HR\" FROM workouts WHERE hae_id = '$workout'::uuid",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Max HR",
+      "description": "Maximum heart rate over the selected workout (from the workouts summary).",
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:bpm",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT ROUND(max_hr::numeric, 0) AS \"Max HR\" FROM workouts WHERE hae_id = '$workout'::uuid",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Active Energy",
+      "description": "Active energy burned during the selected workout.",
+      "gridPos": {
+        "x": 18,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:kcal",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT ROUND(active_energy_kcal::numeric, 0) AS \"Active Energy\" FROM workouts WHERE hae_id = '$workout'::uuid",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 101,
+      "type": "row",
+      "title": "Heart Rate",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Heart Rate — ${workout:text}",
+      "description": "Intra-workout heart rate from workout_hr_samples (one point per recorded reading). The dashed lines mark the session's average and maximum HR for context. Tip: open this dashboard via the Workouts table in the Training dashboard to auto-zoom the time range to the session.",
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 24,
+        "h": 9
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:bpm",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "spanNulls": false,
+            "showPoints": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Heart Rate (bpm)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {"mode": "fixed", "fixedColor": "red"}
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Avg HR (bpm)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {"mode": "fixed", "fixedColor": "gray"}
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {"fill": "dash", "dash": [8, 4]}
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Max HR (bpm)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {"mode": "fixed", "fixedColor": "orange"}
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {"fill": "dash", "dash": [8, 4]}
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT ts AS time, bpm AS \"Heart Rate (bpm)\" FROM workout_hr_samples WHERE workout_hae_id = '$workout'::uuid ORDER BY ts",
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "rawSql": "SELECT s.ts AS time, w.avg_hr AS \"Avg HR (bpm)\" FROM workout_hr_samples s JOIN workouts w ON w.hae_id = s.workout_hae_id WHERE s.workout_hae_id = '$workout'::uuid ORDER BY s.ts",
+          "format": "time_series"
+        },
+        {
+          "refId": "C",
+          "rawSql": "SELECT s.ts AS time, w.max_hr AS \"Max HR (bpm)\" FROM workout_hr_samples s JOIN workouts w ON w.hae_id = s.workout_hae_id WHERE s.workout_hae_id = '$workout'::uuid ORDER BY s.ts",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "id": 102,
+      "type": "row",
+      "title": "Session Details",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Session Details",
+      "description": "Full metadata for the selected workout. Times are shown in the selected Timezone. Group comes from the workout_type_groups table; '—' marks values not present for this workout.",
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 24,
+        "h": 9
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT t.\"Field\", t.\"Value\" FROM ( SELECT 1 AS ord, 'Type' AS \"Field\", COALESCE(w.name, '—') AS \"Value\" FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 2, 'Group', COALESCE(g.group_name, '—') FROM workouts w LEFT JOIN workout_type_groups g ON g.canonical_type = w.canonical_type WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 3, 'Location', COALESCE(CASE WHEN w.is_indoor THEN 'Indoor' ELSE w.location END, '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 4, 'Start', COALESCE(TO_CHAR(w.start_time AT TIME ZONE '$tz', 'YYYY-MM-DD HH24:MI'), '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 5, 'End', COALESCE(TO_CHAR(w.end_time AT TIME ZONE '$tz', 'YYYY-MM-DD HH24:MI'), '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 6, 'Duration', COALESCE(ROUND(w.duration_s/60.0)::int::text || ' min', '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 7, 'Distance', COALESCE(ROUND(w.distance_km::numeric, 2)::text || ' km', '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 8, 'Active Energy', COALESCE(ROUND(w.active_energy_kcal::numeric, 0)::text || ' kcal', '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 9, 'Total Energy', COALESCE(ROUND(w.total_energy_kcal::numeric, 0)::text || ' kcal', '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 10, 'Avg HR', COALESCE(ROUND(w.avg_hr::numeric, 0)::text || ' bpm', '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 11, 'Max HR', COALESCE(ROUND(w.max_hr::numeric, 0)::text || ' bpm', '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 12, 'HR Recovery', COALESCE(ROUND(w.hr_recovery::numeric, 0)::text || ' bpm', '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 13, 'Elevation Gain', COALESCE(ROUND(w.elevation_up_m::numeric, 0)::text || ' m', '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 14, 'Temperature', COALESCE(ROUND(w.temperature_c::numeric, 1)::text || ' °C', '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 15, 'Humidity', COALESCE(ROUND(w.humidity_pct::numeric, 0)::text || ' %', '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 16, 'HR Samples', COALESCE((SELECT COUNT(*) FROM workout_hr_samples s WHERE s.workout_hae_id = w.hae_id)::text, '0') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 17, 'Source', COALESCE(w.source, '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid ) t ORDER BY t.ord",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 103,
+      "type": "row",
+      "title": "Recent Workouts",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 25,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Recent Workouts",
+      "description": "Workouts with intra-workout HR samples in the selected time range (newest first). Click the Date cell to load that session above — the link selects the workout and zooms the time range to it.",
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "hae_id"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "from_ms"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "to_ms"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Date"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Load this workout above",
+                    "url": "/d/healthlog-workout-detail/healthlog-workout-detail?var-workout=${__data.fields.hae_id}&var-tz=${tz}&from=${__data.fields.from_ms}&to=${__data.fields.to_ms}",
+                    "targetBlank": false
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Duration (min)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:min"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Avg HR (bpm)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:bpm"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Max HR (bpm)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:bpm"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "sortBy": [
+          {
+            "displayName": "Date",
+            "desc": true
+          }
+        ],
+        "footer": {
+          "show": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT w.hae_id::text AS hae_id, (EXTRACT(EPOCH FROM (w.start_time - INTERVAL '2 min')) * 1000)::bigint AS from_ms, (EXTRACT(EPOCH FROM (COALESCE(w.end_time, w.start_time + INTERVAL '1 hour') + INTERVAL '2 min')) * 1000)::bigint AS to_ms, TO_CHAR(w.start_time AT TIME ZONE '$tz', 'YYYY-MM-DD HH24:MI') AS \"Date\", w.name AS \"Type\", COALESCE(g.group_name, '—') AS \"Group\", ROUND(w.duration_s/60.0)::int AS \"Duration (min)\", ROUND(w.avg_hr::numeric, 0) AS \"Avg HR (bpm)\", ROUND(w.max_hr::numeric, 0) AS \"Max HR (bpm)\", COUNT(s.ts) AS \"HR Samples\" FROM workouts w LEFT JOIN workout_type_groups g ON g.canonical_type = w.canonical_type JOIN workout_hr_samples s ON s.workout_hae_id = w.hae_id WHERE $__timeFilter(w.start_time) GROUP BY w.hae_id, w.start_time, w.end_time, w.name, g.group_name, w.duration_s, w.avg_hr, w.max_hr ORDER BY w.start_time DESC",
+          "format": "table"
+        }
+      ]
+    }
+  ]
+}
