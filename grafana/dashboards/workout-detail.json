@@ -1,9 +1,9 @@
 {
   "uid": "healthlog-workout-detail",
   "title": "HealthLog – Workout Detail",
-  "description": "Single-session drill-down: pick a workout — via the Workout dropdown below, a drill-down link from the Training dashboard, or a row in the Recent Workouts table at the bottom — to inspect its intra-workout heart-rate curve, route, and metadata. All panels are scoped to the selected workout by ID, not by the dashboard's time range; the Heart Rate and Elevation charts plot elapsed time since the workout's start (not wall-clock time) so they always match whichever workout is picked. Adjust Timezone if you are not in Europe/Vienna.",
+  "description": "Single-session drill-down: pick a workout — via the Workout dropdown below, a drill-down link from the Training dashboard, or a row in the Recent Workouts table at the bottom — to inspect its intra-workout heart-rate curve, route, and metadata. All panels are scoped to the selected workout by ID, not by the dashboard's time range; the Heart Rate and Elevation charts show the recorded wall-clock time on a data-driven axis, so they always match whichever workout is picked regardless of the dashboard's time range. Adjust Timezone if you are not in Europe/Vienna.",
   "schemaVersion": 39,
-  "version": 6,
+  "version": 7,
   "timezone": "Europe/Vienna",
   "time": {
     "from": "now-30d",
@@ -350,7 +350,7 @@
       "id": 5,
       "type": "trend",
       "title": "Heart Rate — ${workout:text}",
-      "description": "Intra-workout heart rate from workout_hr_samples (one point per recorded reading), plotted against elapsed time since the workout's start — not the dashboard's time range, so this always matches whichever workout is selected above. The dashed lines mark the session's average and maximum HR for context.",
+      "description": "Intra-workout heart rate from workout_hr_samples (one point per recorded reading). The x-axis is the recorded wall-clock time of each reading (shown in the dashboard timezone), but is plotted as a data-driven numeric axis rather than the dashboard's time range — so it always matches whichever workout is selected above. The dashed lines mark the session's average and maximum HR for context.",
       "gridPos": {
         "x": 0,
         "y": 6,
@@ -380,12 +380,12 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Elapsed (min)"
+              "options": "Time"
             },
             "properties": [
               {
                 "id": "unit",
-                "value": "suffix:min"
+                "value": "time:HH:mm"
               }
             ]
           },
@@ -460,7 +460,7 @@
         ]
       },
       "options": {
-        "xField": "Elapsed (min)",
+        "xField": "Time",
         "legend": {
           "displayMode": "list",
           "placement": "bottom",
@@ -475,7 +475,7 @@
         {
           "id": "joinByField",
           "options": {
-            "byField": "Elapsed (min)",
+            "byField": "Time",
             "mode": "outer"
           }
         }
@@ -483,17 +483,17 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT EXTRACT(EPOCH FROM (ts - (SELECT start_time FROM workouts WHERE hae_id = '$workout'::uuid)))/60.0 AS \"Elapsed (min)\", bpm AS \"Heart Rate (bpm)\" FROM workout_hr_samples WHERE workout_hae_id = '$workout'::uuid ORDER BY ts",
+          "rawSql": "SELECT (EXTRACT(EPOCH FROM ts) * 1000)::bigint AS \"Time\", bpm AS \"Heart Rate (bpm)\" FROM workout_hr_samples WHERE workout_hae_id = '$workout'::uuid ORDER BY ts",
           "format": "table"
         },
         {
           "refId": "B",
-          "rawSql": "SELECT EXTRACT(EPOCH FROM (s.ts - w.start_time))/60.0 AS \"Elapsed (min)\", w.avg_hr AS \"Avg HR (bpm)\" FROM workout_hr_samples s JOIN workouts w ON w.hae_id = s.workout_hae_id WHERE s.workout_hae_id = '$workout'::uuid ORDER BY s.ts",
+          "rawSql": "SELECT (EXTRACT(EPOCH FROM s.ts) * 1000)::bigint AS \"Time\", w.avg_hr AS \"Avg HR (bpm)\" FROM workout_hr_samples s JOIN workouts w ON w.hae_id = s.workout_hae_id WHERE s.workout_hae_id = '$workout'::uuid ORDER BY s.ts",
           "format": "table"
         },
         {
           "refId": "C",
-          "rawSql": "SELECT EXTRACT(EPOCH FROM (s.ts - w.start_time))/60.0 AS \"Elapsed (min)\", w.max_hr AS \"Max HR (bpm)\" FROM workout_hr_samples s JOIN workouts w ON w.hae_id = s.workout_hae_id WHERE s.workout_hae_id = '$workout'::uuid ORDER BY s.ts",
+          "rawSql": "SELECT (EXTRACT(EPOCH FROM s.ts) * 1000)::bigint AS \"Time\", w.max_hr AS \"Max HR (bpm)\" FROM workout_hr_samples s JOIN workouts w ON w.hae_id = s.workout_hae_id WHERE s.workout_hae_id = '$workout'::uuid ORDER BY s.ts",
           "format": "table"
         }
       ]
@@ -687,7 +687,7 @@
       "id": 9,
       "type": "trend",
       "title": "Elevation",
-      "description": "Altitude (m) over the course of the workout, from workout_route_points, plotted against elapsed time since the workout's start — not the dashboard's time range, so this always matches whichever workout is selected above. Empty for indoor sessions and workouts without route data.",
+      "description": "Altitude (m) over the course of the workout, from workout_route_points. The x-axis is the recorded wall-clock time (shown in the dashboard timezone), plotted as a data-driven numeric axis rather than the dashboard's time range — so it always matches whichever workout is selected above. Empty for indoor sessions and workouts without route data.",
       "gridPos": {
         "x": 16,
         "y": 16,
@@ -718,19 +718,19 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Elapsed (min)"
+              "options": "Time"
             },
             "properties": [
               {
                 "id": "unit",
-                "value": "suffix:min"
+                "value": "time:HH:mm"
               }
             ]
           }
         ]
       },
       "options": {
-        "xField": "Elapsed (min)",
+        "xField": "Time",
         "legend": {
           "displayMode": "list",
           "placement": "bottom",
@@ -744,7 +744,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT EXTRACT(EPOCH FROM (ts - (SELECT start_time FROM workouts WHERE hae_id = '$workout'::uuid)))/60.0 AS \"Elapsed (min)\", altitude_m AS \"Altitude (m)\" FROM workout_route_points WHERE workout_hae_id = '$workout'::uuid AND altitude_m IS NOT NULL ORDER BY ts",
+          "rawSql": "SELECT (EXTRACT(EPOCH FROM ts) * 1000)::bigint AS \"Time\", altitude_m AS \"Altitude (m)\" FROM workout_route_points WHERE workout_hae_id = '$workout'::uuid AND altitude_m IS NOT NULL ORDER BY ts",
           "format": "table"
         }
       ]
