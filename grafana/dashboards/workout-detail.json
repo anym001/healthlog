@@ -3,7 +3,7 @@
   "title": "HealthLog – Workout Detail",
   "description": "Single-session drill-down: pick a workout — via the Workout dropdown below, a drill-down link from the Training dashboard, or a row in the Recent Workouts table at the bottom — to inspect its intra-workout heart-rate curve, route, and metadata. All panels are scoped to the selected workout by ID, not by the dashboard's time range; the Heart Rate and Elevation charts plot elapsed time since the workout's start (not wall-clock time) so they always match whichever workout is picked. Adjust Timezone if you are not in Europe/Vienna.",
   "schemaVersion": 39,
-  "version": 5,
+  "version": 6,
   "timezone": "Europe/Vienna",
   "time": {
     "from": "now-30d",
@@ -348,7 +348,7 @@
     },
     {
       "id": 5,
-      "type": "xychart",
+      "type": "trend",
       "title": "Heart Rate — ${workout:text}",
       "description": "Intra-workout heart rate from workout_hr_samples (one point per recorded reading), plotted against elapsed time since the workout's start — not the dashboard's time range, so this always matches whichever workout is selected above. The dashed lines mark the session's average and maximum HR for context.",
       "gridPos": {
@@ -368,12 +368,12 @@
             "mode": "palette-classic"
           },
           "custom": {
-            "show": "lines",
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
             "lineWidth": 2,
-            "fillOpacity": 0,
-            "pointSize": {
-              "fixed": 4
-            }
+            "fillOpacity": 15,
+            "spanNulls": false,
+            "showPoints": "auto"
           }
         },
         "overrides": [
@@ -386,10 +386,6 @@
               {
                 "id": "unit",
                 "value": "suffix:min"
-              },
-              {
-                "id": "custom.axisLabel",
-                "value": "Elapsed"
               }
             ]
           },
@@ -402,10 +398,6 @@
               {
                 "id": "color",
                 "value": {"mode": "fixed", "fixedColor": "red"}
-              },
-              {
-                "id": "custom.fillOpacity",
-                "value": 15
               }
             ]
           },
@@ -426,6 +418,14 @@
               {
                 "id": "custom.lineWidth",
                 "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
               }
             ]
           },
@@ -446,43 +446,40 @@
               {
                 "id": "custom.lineWidth",
                 "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
               }
             ]
           }
         ]
       },
       "options": {
-        "mapping": "manual",
-        "series": [
-          {
-            "frame": {"matcher": {"id": "byIndex", "options": 0}},
-            "x": {"matcher": {"id": "byName", "options": "Elapsed (min)"}},
-            "y": {"matcher": {"id": "byName", "options": "Heart Rate (bpm)"}},
-            "name": {"fixed": "Heart Rate (bpm)"}
-          },
-          {
-            "frame": {"matcher": {"id": "byIndex", "options": 1}},
-            "x": {"matcher": {"id": "byName", "options": "Elapsed (min)"}},
-            "y": {"matcher": {"id": "byName", "options": "Avg HR (bpm)"}},
-            "name": {"fixed": "Avg HR (bpm)"}
-          },
-          {
-            "frame": {"matcher": {"id": "byIndex", "options": 2}},
-            "x": {"matcher": {"id": "byName", "options": "Elapsed (min)"}},
-            "y": {"matcher": {"id": "byName", "options": "Max HR (bpm)"}},
-            "name": {"fixed": "Max HR (bpm)"}
-          }
-        ],
+        "xField": "Elapsed (min)",
         "legend": {
           "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
         },
         "tooltip": {
-          "mode": "single",
+          "mode": "multi",
           "sort": "none"
         }
       },
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "Elapsed (min)",
+            "mode": "outer"
+          }
+        }
+      ],
       "targets": [
         {
           "refId": "A",
@@ -688,7 +685,7 @@
     },
     {
       "id": 9,
-      "type": "xychart",
+      "type": "trend",
       "title": "Elevation",
       "description": "Altitude (m) over the course of the workout, from workout_route_points, plotted against elapsed time since the workout's start — not the dashboard's time range, so this always matches whichever workout is selected above. Empty for indoor sessions and workouts without route data.",
       "gridPos": {
@@ -709,9 +706,12 @@
             "fixedColor": "green"
           },
           "custom": {
-            "show": "lines",
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
             "lineWidth": 2,
-            "fillOpacity": 20
+            "fillOpacity": 20,
+            "spanNulls": true,
+            "showPoints": "never"
           }
         },
         "overrides": [
@@ -724,25 +724,13 @@
               {
                 "id": "unit",
                 "value": "suffix:min"
-              },
-              {
-                "id": "custom.axisLabel",
-                "value": "Elapsed"
               }
             ]
           }
         ]
       },
       "options": {
-        "mapping": "manual",
-        "series": [
-          {
-            "frame": {"matcher": {"id": "byIndex", "options": 0}},
-            "x": {"matcher": {"id": "byName", "options": "Elapsed (min)"}},
-            "y": {"matcher": {"id": "byName", "options": "Altitude (m)"}},
-            "name": {"fixed": "Altitude (m)"}
-          }
-        ],
+        "xField": "Elapsed (min)",
         "legend": {
           "displayMode": "list",
           "placement": "bottom",
