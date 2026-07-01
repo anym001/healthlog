@@ -3,7 +3,7 @@
   "title": "HealthLog – Metrics Explorer",
   "description": "Apple Health-style deep-dive into any single metric. Select a Category, then a Metric from the cascading dropdowns. All panels update automatically: latest reading, 7-day average, 30-day min/max, daily trend with 7-day moving average, intraday range, sample count, and raw samples.",
   "schemaVersion": 39,
-  "version": 3,
+  "version": 4,
   "timezone": "Europe/Vienna",
   "time": {
     "from": "now-30d",
@@ -43,6 +43,16 @@
       "targetBlank": false,
       "includeVars": false,
       "tooltip": "Open Training & Recovery dashboard"
+    },
+    {
+      "title": "Workout Detail",
+      "url": "/d/healthlog-workout-detail",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": true,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Workout Detail dashboard"
     }
   ],
   "templating": {

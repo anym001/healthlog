@@ -1,9 +1,9 @@
 {
   "uid": "healthlog-workout-detail",
   "title": "HealthLog – Workout Detail",
-  "description": "Single-session drill-down: pick a workout to inspect its intra-workout heart-rate curve, summary KPIs, and metadata. Open it from the Workouts table in the Training dashboard (the link zooms the time range to the session), or pick a session from the Recent Workouts table at the bottom. Adjust Timezone if you are not in Europe/Vienna.",
+  "description": "Single-session drill-down: pick a workout — via the Workout dropdown below, a drill-down link from the Training dashboard, or a row in the Recent Workouts table at the bottom — to inspect its intra-workout heart-rate curve, route, and metadata. All panels are scoped to the selected workout by ID, not by the dashboard's time range; the Heart Rate and Elevation charts show the recorded wall-clock time on a data-driven axis, so they always match whichever workout is picked regardless of the dashboard's time range. All times use the dashboard timezone (Settings → Timezone, default Europe/Vienna).",
   "schemaVersion": 39,
-  "version": 3,
+  "version": 9,
   "timezone": "Europe/Vienna",
   "time": {
     "from": "now-30d",
@@ -59,33 +59,19 @@
     "list": [
       {
         "name": "tz",
-        "type": "custom",
+        "type": "constant",
         "label": "Timezone",
-        "description": "Timezone used to display workout timestamps and to group the picker by local date. Must match a valid PostgreSQL timezone name.",
-        "query": "Europe/Vienna,Europe/Berlin,Europe/London,America/New_York,America/Los_Angeles,UTC",
-        "current": {
-          "value": "Europe/Vienna",
-          "text": "Europe/Vienna"
-        },
-        "options": [
-          {"text": "Europe/Vienna", "value": "Europe/Vienna", "selected": true},
-          {"text": "Europe/Berlin", "value": "Europe/Berlin", "selected": false},
-          {"text": "Europe/London", "value": "Europe/London", "selected": false},
-          {"text": "America/New_York", "value": "America/New_York", "selected": false},
-          {"text": "America/Los_Angeles", "value": "America/Los_Angeles", "selected": false},
-          {"text": "UTC", "value": "UTC", "selected": false}
-        ],
-        "hide": 0,
-        "multi": false,
-        "includeAll": false,
-        "sort": 0,
-        "refresh": 0
+        "description": "Hidden constant. Timezone name used only for SQL-side local-time work that Grafana's dashboard timezone cannot reach: the workout-picker label and the Session Details Start/End rows. Change the value here to re-localise those queries.",
+        "query": "Europe/Vienna",
+        "current": {"value": "Europe/Vienna", "text": "Europe/Vienna", "selected": false},
+        "options": [{"text": "Europe/Vienna", "value": "Europe/Vienna", "selected": false}],
+        "hide": 2
       },
       {
         "name": "workout",
         "type": "query",
         "label": "Workout",
-        "description": "Workout session to inspect. The dropdown lists workouts that carry intra-workout HR samples (newest first); the label is the local start time and the workout name.",
+        "description": "Workout session to inspect. The dropdown lists workouts that carry intra-workout HR samples (newest first); the label is the local start time (dashboard timezone) and the workout name. All panels key off this selection directly (not the dashboard's time range), so switching it here updates every panel immediately.",
         "datasource": {
           "uid": "healthlog-db"
         },
@@ -348,9 +334,9 @@
     },
     {
       "id": 5,
-      "type": "timeseries",
+      "type": "trend",
       "title": "Heart Rate — ${workout:text}",
-      "description": "Intra-workout heart rate from workout_hr_samples (one point per recorded reading). The dashed lines mark the session's average and maximum HR for context. Tip: open this dashboard via the Workouts table in the Training dashboard to auto-zoom the time range to the session.",
+      "description": "Intra-workout heart rate from workout_hr_samples (one point per recorded reading). The x-axis is the recorded wall-clock time of each reading (shown in the dashboard timezone), but is plotted as a data-driven numeric axis rather than the dashboard's time range — so it always matches whichever workout is selected above. The dashed lines mark the session's average and maximum HR for context.",
       "gridPos": {
         "x": 0,
         "y": 6,
@@ -377,6 +363,18 @@
           }
         },
         "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "time:HH:mm"
+              }
+            ]
+          },
           {
             "matcher": {
               "id": "byName",
@@ -448,6 +446,7 @@
         ]
       },
       "options": {
+        "xField": "Time",
         "legend": {
           "displayMode": "list",
           "placement": "bottom",
@@ -458,21 +457,30 @@
           "sort": "none"
         }
       },
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "Time",
+            "mode": "outer"
+          }
+        }
+      ],
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT ts AS time, bpm AS \"Heart Rate (bpm)\" FROM workout_hr_samples WHERE workout_hae_id = '$workout'::uuid ORDER BY ts",
-          "format": "time_series"
+          "rawSql": "SELECT (EXTRACT(EPOCH FROM ts) * 1000)::bigint AS \"Time\", bpm AS \"Heart Rate (bpm)\" FROM workout_hr_samples WHERE workout_hae_id = '$workout'::uuid ORDER BY ts",
+          "format": "table"
         },
         {
           "refId": "B",
-          "rawSql": "SELECT s.ts AS time, w.avg_hr AS \"Avg HR (bpm)\" FROM workout_hr_samples s JOIN workouts w ON w.hae_id = s.workout_hae_id WHERE s.workout_hae_id = '$workout'::uuid ORDER BY s.ts",
-          "format": "time_series"
+          "rawSql": "SELECT (EXTRACT(EPOCH FROM s.ts) * 1000)::bigint AS \"Time\", w.avg_hr AS \"Avg HR (bpm)\" FROM workout_hr_samples s JOIN workouts w ON w.hae_id = s.workout_hae_id WHERE s.workout_hae_id = '$workout'::uuid ORDER BY s.ts",
+          "format": "table"
         },
         {
           "refId": "C",
-          "rawSql": "SELECT s.ts AS time, w.max_hr AS \"Max HR (bpm)\" FROM workout_hr_samples s JOIN workouts w ON w.hae_id = s.workout_hae_id WHERE s.workout_hae_id = '$workout'::uuid ORDER BY s.ts",
-          "format": "time_series"
+          "rawSql": "SELECT (EXTRACT(EPOCH FROM s.ts) * 1000)::bigint AS \"Time\", w.max_hr AS \"Max HR (bpm)\" FROM workout_hr_samples s JOIN workouts w ON w.hae_id = s.workout_hae_id WHERE s.workout_hae_id = '$workout'::uuid ORDER BY s.ts",
+          "format": "table"
         }
       ]
     },
@@ -663,9 +671,9 @@
     },
     {
       "id": 9,
-      "type": "timeseries",
+      "type": "trend",
       "title": "Elevation",
-      "description": "Altitude (m) over the course of the workout, from workout_route_points. Empty for indoor sessions and workouts without route data.",
+      "description": "Altitude (m) over the course of the workout, from workout_route_points. The x-axis is the recorded wall-clock time (shown in the dashboard timezone), plotted as a data-driven numeric axis rather than the dashboard's time range — so it always matches whichever workout is selected above. Empty for indoor sessions and workouts without route data.",
       "gridPos": {
         "x": 16,
         "y": 16,
@@ -692,9 +700,23 @@
             "showPoints": "never"
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "time:HH:mm"
+              }
+            ]
+          }
+        ]
       },
       "options": {
+        "xField": "Time",
         "legend": {
           "displayMode": "list",
           "placement": "bottom",
@@ -708,8 +730,8 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT ts AS time, altitude_m AS \"Altitude (m)\" FROM workout_route_points WHERE workout_hae_id = '$workout'::uuid AND altitude_m IS NOT NULL ORDER BY ts",
-          "format": "time_series"
+          "rawSql": "SELECT (EXTRACT(EPOCH FROM ts) * 1000)::bigint AS \"Time\", altitude_m AS \"Altitude (m)\" FROM workout_route_points WHERE workout_hae_id = '$workout'::uuid AND altitude_m IS NOT NULL ORDER BY ts",
+          "format": "table"
         }
       ]
     },
@@ -775,7 +797,7 @@
       "id": 7,
       "type": "table",
       "title": "Recent Workouts",
-      "description": "Workouts with intra-workout HR samples in the selected time range (newest first). Click the Date cell to load that session above — the link selects the workout and zooms the time range to it.",
+      "description": "The 100 most recent workouts with intra-workout HR samples, independent of the dashboard's current time range — so it stays usable even after a drill-down link has zoomed to a single session. Click the Date cell to load that session above; the link selects the workout and re-zooms the time range to it.",
       "gridPos": {
         "x": 0,
         "y": 39,
@@ -831,11 +853,15 @@
             },
             "properties": [
               {
+                "id": "unit",
+                "value": "time:YYYY-MM-DD HH:mm"
+              },
+              {
                 "id": "links",
                 "value": [
                   {
                     "title": "Load this workout above",
-                    "url": "/d/healthlog-workout-detail/healthlog-workout-detail?var-workout=${__data.fields.hae_id}&var-tz=${tz}&from=${__data.fields.from_ms}&to=${__data.fields.to_ms}",
+                    "url": "/d/healthlog-workout-detail/healthlog-workout-detail?var-workout=${__data.fields.hae_id}&from=${__data.fields.from_ms}&to=${__data.fields.to_ms}",
                     "targetBlank": false
                   }
                 ]
@@ -894,7 +920,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT w.hae_id::text AS hae_id, (EXTRACT(EPOCH FROM (w.start_time - INTERVAL '2 min')) * 1000)::bigint AS from_ms, (EXTRACT(EPOCH FROM (COALESCE(w.end_time, w.start_time + INTERVAL '1 hour') + INTERVAL '2 min')) * 1000)::bigint AS to_ms, TO_CHAR(w.start_time AT TIME ZONE '$tz', 'YYYY-MM-DD HH24:MI') AS \"Date\", w.name AS \"Type\", COALESCE(g.group_name, '—') AS \"Group\", ROUND(w.duration_s/60.0)::int AS \"Duration (min)\", ROUND(w.avg_hr::numeric, 0) AS \"Avg HR (bpm)\", ROUND(w.max_hr::numeric, 0) AS \"Max HR (bpm)\", COUNT(s.ts) AS \"HR Samples\" FROM workouts w LEFT JOIN workout_type_groups g ON g.canonical_type = w.canonical_type JOIN workout_hr_samples s ON s.workout_hae_id = w.hae_id WHERE $__timeFilter(w.start_time) GROUP BY w.hae_id, w.start_time, w.end_time, w.name, g.group_name, w.duration_s, w.avg_hr, w.max_hr ORDER BY w.start_time DESC",
+          "rawSql": "SELECT w.hae_id::text AS hae_id, (EXTRACT(EPOCH FROM (w.start_time - INTERVAL '2 min')) * 1000)::bigint AS from_ms, (EXTRACT(EPOCH FROM (COALESCE(w.end_time, w.start_time + INTERVAL '1 hour') + INTERVAL '2 min')) * 1000)::bigint AS to_ms, w.start_time AS \"Date\", w.name AS \"Type\", COALESCE(g.group_name, '—') AS \"Group\", ROUND(w.duration_s/60.0)::int AS \"Duration (min)\", ROUND(w.avg_hr::numeric, 0) AS \"Avg HR (bpm)\", ROUND(w.max_hr::numeric, 0) AS \"Max HR (bpm)\", COUNT(s.ts) AS \"HR Samples\" FROM workouts w LEFT JOIN workout_type_groups g ON g.canonical_type = w.canonical_type JOIN workout_hr_samples s ON s.workout_hae_id = w.hae_id GROUP BY w.hae_id, w.start_time, w.end_time, w.name, g.group_name, w.duration_s, w.avg_hr, w.max_hr ORDER BY w.start_time DESC LIMIT 100",
           "format": "table"
         }
       ]

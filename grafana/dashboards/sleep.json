@@ -1,9 +1,9 @@
 {
   "uid": "healthlog-sleep",
   "title": "HealthLog – Sleep",
-  "description": "30-day sleep analysis: phases, duration, efficiency, bedtime consistency, and sleep-related findings. Adjust the Timezone variable if you are not in Europe/Vienna.",
+  "description": "30-day sleep analysis: phases, duration, efficiency, bedtime consistency, and sleep-related findings. Bedtime/wake-up clock hours are computed via the hidden 'tz' constant (default Europe/Vienna); other times use the dashboard timezone (Settings → Timezone, default Europe/Vienna).",
   "schemaVersion": 39,
-  "version": 4,
+  "version": 7,
   "timezone": "Europe/Vienna",
   "time": {
     "from": "now-30d",
@@ -43,33 +43,29 @@
       "targetBlank": false,
       "includeVars": false,
       "tooltip": "Open Metrics Explorer"
+    },
+    {
+      "title": "Workout Detail",
+      "url": "/d/healthlog-workout-detail",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": true,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Workout Detail dashboard"
     }
   ],
   "templating": {
     "list": [
       {
         "name": "tz",
-        "type": "custom",
+        "type": "constant",
         "label": "Timezone",
-        "description": "Timezone used to display bedtime and wake-up hours. Must match a valid PostgreSQL timezone name.",
-        "query": "Europe/Vienna,Europe/Berlin,Europe/London,America/New_York,America/Los_Angeles,UTC",
-        "current": {
-          "value": "Europe/Vienna",
-          "text": "Europe/Vienna"
-        },
-        "options": [
-          {"text": "Europe/Vienna", "value": "Europe/Vienna", "selected": true},
-          {"text": "Europe/Berlin", "value": "Europe/Berlin", "selected": false},
-          {"text": "Europe/London", "value": "Europe/London", "selected": false},
-          {"text": "America/New_York", "value": "America/New_York", "selected": false},
-          {"text": "America/Los_Angeles", "value": "America/Los_Angeles", "selected": false},
-          {"text": "UTC", "value": "UTC", "selected": false}
-        ],
-        "hide": 0,
-        "multi": false,
-        "includeAll": false,
-        "sort": 0,
-        "refresh": 0
+        "description": "Hidden constant. Timezone name used only for the SQL-side local clock-hour math of the bedtime/wake-up panels (EXTRACT(HOUR FROM sleep_start AT TIME ZONE ...)), which Grafana's dashboard timezone cannot reach. Change the value here to re-localise those computations.",
+        "query": "Europe/Vienna",
+        "current": {"value": "Europe/Vienna", "text": "Europe/Vienna", "selected": false},
+        "options": [{"text": "Europe/Vienna", "value": "Europe/Vienna", "selected": false}],
+        "hide": 2
       }
     ]
   },
