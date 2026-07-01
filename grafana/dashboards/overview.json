@@ -3,7 +3,7 @@
   "title": "HealthLog – Overview",
   "description": "Daily health snapshot: last night's sleep, current HRV & resting heart rate, steps, active energy, and key findings. Time window: 14 days.",
   "schemaVersion": 39,
-  "version": 5,
+  "version": 6,
   "timezone": "Europe/Vienna",
   "time": {
     "from": "now-14d",
@@ -43,6 +43,16 @@
       "targetBlank": false,
       "includeVars": false,
       "tooltip": "Open Metrics Explorer"
+    },
+    {
+      "title": "Workout Detail",
+      "url": "/d/healthlog-workout-detail",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": true,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Workout Detail dashboard"
     }
   ],
   "panels": [

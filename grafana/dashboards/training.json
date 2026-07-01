@@ -3,7 +3,7 @@
   "title": "HealthLog – Training",
   "description": "30-day training load, recovery metrics, and workout history. Adjust HR Base and HR Reserve to match your physiology for accurate TRIMP values. Adjust Timezone if you are not in Europe/Vienna.",
   "schemaVersion": 39,
-  "version": 4,
+  "version": 5,
   "timezone": "Europe/Vienna",
   "time": {
     "from": "now-30d",
@@ -43,6 +43,16 @@
       "targetBlank": false,
       "includeVars": false,
       "tooltip": "Open Metrics Explorer"
+    },
+    {
+      "title": "Workout Detail",
+      "url": "/d/healthlog-workout-detail",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": true,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Workout Detail dashboard"
     }
   ],
   "templating": {
