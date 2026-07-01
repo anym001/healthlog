@@ -1,9 +1,9 @@
 {
   "uid": "healthlog-sleep",
   "title": "HealthLog – Sleep",
-  "description": "30-day sleep analysis: phases, duration, efficiency, bedtime consistency, and sleep-related findings. Bedtime/wake-up clock hours are computed in Europe/Vienna; other times use the dashboard timezone (Settings → Timezone, default Europe/Vienna).",
+  "description": "30-day sleep analysis: phases, duration, efficiency, bedtime consistency, and sleep-related findings. Bedtime/wake-up clock hours are computed via the hidden 'tz' constant (default Europe/Vienna); other times use the dashboard timezone (Settings → Timezone, default Europe/Vienna).",
   "schemaVersion": 39,
-  "version": 6,
+  "version": 7,
   "timezone": "Europe/Vienna",
   "time": {
     "from": "now-30d",
@@ -56,7 +56,18 @@
     }
   ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "name": "tz",
+        "type": "constant",
+        "label": "Timezone",
+        "description": "Hidden constant. Timezone name used only for the SQL-side local clock-hour math of the bedtime/wake-up panels (EXTRACT(HOUR FROM sleep_start AT TIME ZONE ...)), which Grafana's dashboard timezone cannot reach. Change the value here to re-localise those computations.",
+        "query": "Europe/Vienna",
+        "current": {"value": "Europe/Vienna", "text": "Europe/Vienna", "selected": false},
+        "options": [{"text": "Europe/Vienna", "value": "Europe/Vienna", "selected": false}],
+        "hide": 2
+      }
+    ]
   },
   "panels": [
     {
@@ -595,7 +606,7 @@
             "fillOpacity": 15,
             "spanNulls": false,
             "showPoints": "auto",
-            "axisLabel": "Clock hour (Europe/Vienna)"
+            "axisLabel": "Clock hour ($tz)"
           },
           "min": 20,
           "max": 30
@@ -645,12 +656,12 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT sleep_date AS time, EXTRACT(HOUR FROM (sleep_start AT TIME ZONE 'Europe/Vienna')) + EXTRACT(MINUTE FROM (sleep_start AT TIME ZONE 'Europe/Vienna'))/60.0 + CASE WHEN EXTRACT(HOUR FROM (sleep_start AT TIME ZONE 'Europe/Vienna')) < 12 THEN 24 ELSE 0 END AS \"Bedtime (h)\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) AND sleep_start IS NOT NULL ORDER BY sleep_date",
+          "rawSql": "SELECT sleep_date AS time, EXTRACT(HOUR FROM (sleep_start AT TIME ZONE '$tz')) + EXTRACT(MINUTE FROM (sleep_start AT TIME ZONE '$tz'))/60.0 + CASE WHEN EXTRACT(HOUR FROM (sleep_start AT TIME ZONE '$tz')) < 12 THEN 24 ELSE 0 END AS \"Bedtime (h)\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) AND sleep_start IS NOT NULL ORDER BY sleep_date",
           "format": "time_series"
         },
         {
           "refId": "B",
-          "rawSql": "SELECT sleep_date AS time, ROUND(AVG(EXTRACT(HOUR FROM (sleep_start AT TIME ZONE 'Europe/Vienna')) + EXTRACT(MINUTE FROM (sleep_start AT TIME ZONE 'Europe/Vienna'))/60.0 + CASE WHEN EXTRACT(HOUR FROM (sleep_start AT TIME ZONE 'Europe/Vienna')) < 12 THEN 24 ELSE 0 END) OVER (ORDER BY sleep_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 2) AS \"7d Trend (h)\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) AND sleep_start IS NOT NULL ORDER BY sleep_date",
+          "rawSql": "SELECT sleep_date AS time, ROUND(AVG(EXTRACT(HOUR FROM (sleep_start AT TIME ZONE '$tz')) + EXTRACT(MINUTE FROM (sleep_start AT TIME ZONE '$tz'))/60.0 + CASE WHEN EXTRACT(HOUR FROM (sleep_start AT TIME ZONE '$tz')) < 12 THEN 24 ELSE 0 END) OVER (ORDER BY sleep_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 2) AS \"7d Trend (h)\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) AND sleep_start IS NOT NULL ORDER BY sleep_date",
           "format": "time_series"
         }
       ]
@@ -683,7 +694,7 @@
             "fillOpacity": 15,
             "spanNulls": false,
             "showPoints": "auto",
-            "axisLabel": "Clock hour (Europe/Vienna)"
+            "axisLabel": "Clock hour ($tz)"
           }
         },
         "overrides": [
@@ -731,12 +742,12 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT sleep_date AS time, EXTRACT(HOUR FROM (sleep_end AT TIME ZONE 'Europe/Vienna')) + EXTRACT(MINUTE FROM (sleep_end AT TIME ZONE 'Europe/Vienna'))/60.0 AS \"Wake-up (h)\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) AND sleep_end IS NOT NULL ORDER BY sleep_date",
+          "rawSql": "SELECT sleep_date AS time, EXTRACT(HOUR FROM (sleep_end AT TIME ZONE '$tz')) + EXTRACT(MINUTE FROM (sleep_end AT TIME ZONE '$tz'))/60.0 AS \"Wake-up (h)\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) AND sleep_end IS NOT NULL ORDER BY sleep_date",
           "format": "time_series"
         },
         {
           "refId": "B",
-          "rawSql": "SELECT sleep_date AS time, ROUND(AVG(EXTRACT(HOUR FROM (sleep_end AT TIME ZONE 'Europe/Vienna')) + EXTRACT(MINUTE FROM (sleep_end AT TIME ZONE 'Europe/Vienna'))/60.0) OVER (ORDER BY sleep_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 2) AS \"7d Trend (h)\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) AND sleep_end IS NOT NULL ORDER BY sleep_date",
+          "rawSql": "SELECT sleep_date AS time, ROUND(AVG(EXTRACT(HOUR FROM (sleep_end AT TIME ZONE '$tz')) + EXTRACT(MINUTE FROM (sleep_end AT TIME ZONE '$tz'))/60.0) OVER (ORDER BY sleep_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 2) AS \"7d Trend (h)\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) AND sleep_end IS NOT NULL ORDER BY sleep_date",
           "format": "time_series"
         }
       ]

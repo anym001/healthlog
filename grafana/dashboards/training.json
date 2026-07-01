@@ -1,9 +1,9 @@
 {
   "uid": "healthlog-training",
   "title": "HealthLog – Training",
-  "description": "30-day training load, recovery metrics, and workout history. Adjust HR Base and HR Reserve to match your physiology for accurate TRIMP values. Times and daily buckets use the dashboard timezone (Settings → Timezone, default Europe/Vienna); the TRIMP day grouping is fixed to Europe/Vienna.",
+  "description": "30-day training load, recovery metrics, and workout history. Adjust HR Base and HR Reserve to match your physiology for accurate TRIMP values. Display times use the dashboard timezone (Settings → Timezone, default Europe/Vienna); the TRIMP daily grouping is bucketed via the hidden 'tz' constant (default Europe/Vienna).",
   "schemaVersion": 39,
-  "version": 7,
+  "version": 8,
   "timezone": "Europe/Vienna",
   "time": {
     "from": "now-30d",
@@ -57,6 +57,16 @@
   ],
   "templating": {
     "list": [
+      {
+        "name": "tz",
+        "type": "constant",
+        "label": "Timezone",
+        "description": "Hidden constant. Timezone name used only for the SQL-side local-date bucketing of the TRIMP-by-day panels (DATE(start_time AT TIME ZONE ...)), which Grafana's dashboard timezone cannot reach. Change the value here to re-localise the daily grouping.",
+        "query": "Europe/Vienna",
+        "current": {"value": "Europe/Vienna", "text": "Europe/Vienna", "selected": false},
+        "options": [{"text": "Europe/Vienna", "value": "Europe/Vienna", "selected": false}],
+        "hide": 2
+      },
       {
         "name": "hr_rest",
         "type": "textbox",
@@ -400,7 +410,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT DATE(start_time AT TIME ZONE 'Europe/Vienna') AS time, ROUND(SUM(CASE WHEN avg_hr IS NOT NULL AND duration_s IS NOT NULL AND duration_s > 0 THEN (duration_s/60.0) * LEAST(1.0,GREATEST(0.0,(avg_hr-${hr_rest}::numeric)/${hr_reserve}::numeric)) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,(avg_hr-${hr_rest}::numeric)/${hr_reserve}::numeric)))) ELSE 0 END)::numeric, 1) AS \"TRIMP\" FROM workouts WHERE $__timeFilter(start_time) GROUP BY DATE(start_time AT TIME ZONE 'Europe/Vienna') ORDER BY time",
+          "rawSql": "SELECT DATE(start_time AT TIME ZONE '$tz') AS time, ROUND(SUM(CASE WHEN avg_hr IS NOT NULL AND duration_s IS NOT NULL AND duration_s > 0 THEN (duration_s/60.0) * LEAST(1.0,GREATEST(0.0,(avg_hr-${hr_rest}::numeric)/${hr_reserve}::numeric)) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,(avg_hr-${hr_rest}::numeric)/${hr_reserve}::numeric)))) ELSE 0 END)::numeric, 1) AS \"TRIMP\" FROM workouts WHERE $__timeFilter(start_time) GROUP BY DATE(start_time AT TIME ZONE '$tz') ORDER BY time",
           "format": "time_series"
         }
       ]
@@ -456,7 +466,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT DATE(w.start_time AT TIME ZONE 'Europe/Vienna') AS time, COALESCE(g.group_name, 'Other') AS sport_group, ROUND(SUM(CASE WHEN w.avg_hr IS NOT NULL AND w.duration_s IS NOT NULL AND w.duration_s > 0 THEN (w.duration_s/60.0) * LEAST(1.0,GREATEST(0.0,(w.avg_hr-${hr_rest}::numeric)/${hr_reserve}::numeric)) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,(w.avg_hr-${hr_rest}::numeric)/${hr_reserve}::numeric)))) ELSE 0 END)::numeric, 1) AS trimp FROM workouts w LEFT JOIN workout_type_groups g ON g.canonical_type = w.canonical_type WHERE $__timeFilter(w.start_time) GROUP BY DATE(w.start_time AT TIME ZONE 'Europe/Vienna'), COALESCE(g.group_name, 'Other'), COALESCE(g.sort_order, 99) ORDER BY time, COALESCE(g.sort_order, 99), sport_group",
+          "rawSql": "SELECT DATE(w.start_time AT TIME ZONE '$tz') AS time, COALESCE(g.group_name, 'Other') AS sport_group, ROUND(SUM(CASE WHEN w.avg_hr IS NOT NULL AND w.duration_s IS NOT NULL AND w.duration_s > 0 THEN (w.duration_s/60.0) * LEAST(1.0,GREATEST(0.0,(w.avg_hr-${hr_rest}::numeric)/${hr_reserve}::numeric)) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,(w.avg_hr-${hr_rest}::numeric)/${hr_reserve}::numeric)))) ELSE 0 END)::numeric, 1) AS trimp FROM workouts w LEFT JOIN workout_type_groups g ON g.canonical_type = w.canonical_type WHERE $__timeFilter(w.start_time) GROUP BY DATE(w.start_time AT TIME ZONE '$tz'), COALESCE(g.group_name, 'Other'), COALESCE(g.sort_order, 99) ORDER BY time, COALESCE(g.sort_order, 99), sport_group",
           "format": "table"
         }
       ]

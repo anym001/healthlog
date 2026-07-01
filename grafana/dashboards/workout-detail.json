@@ -3,7 +3,7 @@
   "title": "HealthLog – Workout Detail",
   "description": "Single-session drill-down: pick a workout — via the Workout dropdown below, a drill-down link from the Training dashboard, or a row in the Recent Workouts table at the bottom — to inspect its intra-workout heart-rate curve, route, and metadata. All panels are scoped to the selected workout by ID, not by the dashboard's time range; the Heart Rate and Elevation charts show the recorded wall-clock time on a data-driven axis, so they always match whichever workout is picked regardless of the dashboard's time range. All times use the dashboard timezone (Settings → Timezone, default Europe/Vienna).",
   "schemaVersion": 39,
-  "version": 8,
+  "version": 9,
   "timezone": "Europe/Vienna",
   "time": {
     "from": "now-30d",
@@ -58,6 +58,16 @@
   "templating": {
     "list": [
       {
+        "name": "tz",
+        "type": "constant",
+        "label": "Timezone",
+        "description": "Hidden constant. Timezone name used only for SQL-side local-time work that Grafana's dashboard timezone cannot reach: the workout-picker label and the Session Details Start/End rows. Change the value here to re-localise those queries.",
+        "query": "Europe/Vienna",
+        "current": {"value": "Europe/Vienna", "text": "Europe/Vienna", "selected": false},
+        "options": [{"text": "Europe/Vienna", "value": "Europe/Vienna", "selected": false}],
+        "hide": 2
+      },
+      {
         "name": "workout",
         "type": "query",
         "label": "Workout",
@@ -65,7 +75,7 @@
         "datasource": {
           "uid": "healthlog-db"
         },
-        "query": "SELECT TO_CHAR(w.start_time AT TIME ZONE 'Europe/Vienna', 'YYYY-MM-DD HH24:MI') || '  ·  ' || COALESCE(w.name, 'Workout') AS __text, w.hae_id::text AS __value FROM workouts w WHERE EXISTS (SELECT 1 FROM workout_hr_samples s WHERE s.workout_hae_id = w.hae_id) ORDER BY w.start_time DESC",
+        "query": "SELECT TO_CHAR(w.start_time AT TIME ZONE '$tz', 'YYYY-MM-DD HH24:MI') || '  ·  ' || COALESCE(w.name, 'Workout') AS __text, w.hae_id::text AS __value FROM workouts w WHERE EXISTS (SELECT 1 FROM workout_hr_samples s WHERE s.workout_hae_id = w.hae_id) ORDER BY w.start_time DESC",
         "refresh": 1,
         "sort": 0,
         "multi": false,
@@ -765,7 +775,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT t.\"Field\", t.\"Value\" FROM ( SELECT 1 AS ord, 'Type' AS \"Field\", COALESCE(w.name, '—') AS \"Value\" FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 2, 'Group', COALESCE(g.group_name, '—') FROM workouts w LEFT JOIN workout_type_groups g ON g.canonical_type = w.canonical_type WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 3, 'Location', COALESCE(CASE WHEN w.is_indoor THEN 'Indoor' ELSE w.location END, '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 4, 'Start', COALESCE(TO_CHAR(w.start_time AT TIME ZONE 'Europe/Vienna', 'YYYY-MM-DD HH24:MI'), '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 5, 'End', COALESCE(TO_CHAR(w.end_time AT TIME ZONE 'Europe/Vienna', 'YYYY-MM-DD HH24:MI'), '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 6, 'Duration', COALESCE(ROUND(w.duration_s/60.0)::int::text || ' min', '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 7, 'Distance', COALESCE(ROUND(w.distance_km::numeric, 2)::text || ' km', '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 8, 'Active Energy', COALESCE(ROUND(w.active_energy_kcal::numeric, 0)::text || ' kcal', '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 9, 'Total Energy', COALESCE(ROUND(w.total_energy_kcal::numeric, 0)::text || ' kcal', '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 10, 'Avg HR', COALESCE(ROUND(w.avg_hr::numeric, 0)::text || ' bpm', '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 11, 'Max HR', COALESCE(ROUND(w.max_hr::numeric, 0)::text || ' bpm', '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 12, 'HR Recovery', COALESCE(ROUND(w.hr_recovery::numeric, 0)::text || ' bpm', '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 13, 'Elevation Gain', COALESCE(ROUND(w.elevation_up_m::numeric, 0)::text || ' m', '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 14, 'Temperature', COALESCE(ROUND(w.temperature_c::numeric, 1)::text || ' °C', '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 15, 'Humidity', COALESCE(ROUND(w.humidity_pct::numeric, 0)::text || ' %', '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 16, 'HR Samples', COALESCE((SELECT COUNT(*) FROM workout_hr_samples s WHERE s.workout_hae_id = w.hae_id)::text, '0') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 17, 'Source', COALESCE(w.source, '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid ) t ORDER BY t.ord",
+          "rawSql": "SELECT t.\"Field\", t.\"Value\" FROM ( SELECT 1 AS ord, 'Type' AS \"Field\", COALESCE(w.name, '—') AS \"Value\" FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 2, 'Group', COALESCE(g.group_name, '—') FROM workouts w LEFT JOIN workout_type_groups g ON g.canonical_type = w.canonical_type WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 3, 'Location', COALESCE(CASE WHEN w.is_indoor THEN 'Indoor' ELSE w.location END, '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 4, 'Start', COALESCE(TO_CHAR(w.start_time AT TIME ZONE '$tz', 'YYYY-MM-DD HH24:MI'), '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 5, 'End', COALESCE(TO_CHAR(w.end_time AT TIME ZONE '$tz', 'YYYY-MM-DD HH24:MI'), '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 6, 'Duration', COALESCE(ROUND(w.duration_s/60.0)::int::text || ' min', '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 7, 'Distance', COALESCE(ROUND(w.distance_km::numeric, 2)::text || ' km', '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 8, 'Active Energy', COALESCE(ROUND(w.active_energy_kcal::numeric, 0)::text || ' kcal', '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 9, 'Total Energy', COALESCE(ROUND(w.total_energy_kcal::numeric, 0)::text || ' kcal', '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 10, 'Avg HR', COALESCE(ROUND(w.avg_hr::numeric, 0)::text || ' bpm', '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 11, 'Max HR', COALESCE(ROUND(w.max_hr::numeric, 0)::text || ' bpm', '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 12, 'HR Recovery', COALESCE(ROUND(w.hr_recovery::numeric, 0)::text || ' bpm', '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 13, 'Elevation Gain', COALESCE(ROUND(w.elevation_up_m::numeric, 0)::text || ' m', '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 14, 'Temperature', COALESCE(ROUND(w.temperature_c::numeric, 1)::text || ' °C', '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 15, 'Humidity', COALESCE(ROUND(w.humidity_pct::numeric, 0)::text || ' %', '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 16, 'HR Samples', COALESCE((SELECT COUNT(*) FROM workout_hr_samples s WHERE s.workout_hae_id = w.hae_id)::text, '0') FROM workouts w WHERE w.hae_id = '$workout'::uuid UNION ALL SELECT 17, 'Source', COALESCE(w.source, '—') FROM workouts w WHERE w.hae_id = '$workout'::uuid ) t ORDER BY t.ord",
           "format": "table"
         }
       ]
