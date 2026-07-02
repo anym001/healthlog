@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 class HealthResponse(BaseModel):
     status: str = "ok"
+    version: str = "dev"  # release tag baked into the image; "dev" from source
 
 
 class IngestResponse(BaseModel):

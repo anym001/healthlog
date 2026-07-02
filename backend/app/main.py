@@ -28,10 +28,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="HealthLog", version="0.1.0")
+    # The version is stamped into the image from the release tag (APP_VERSION
+    # build arg); a source checkout runs as "dev".
+    app = FastAPI(title="HealthLog", version=_settings.app_version)
     app.add_middleware(SecurityHeadersMiddleware)
     app.include_router(routers.health.router)
     app.include_router(routers.ingest.router)
+    app.include_router(routers.metrics.router)
     return app
 
 

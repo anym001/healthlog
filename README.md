@@ -37,6 +37,7 @@ in front of the ingest endpoint. Everything else ships in the image.
 - [Operations](#operations)
 - [Reverse proxy](#reverse-proxy)
 - [Logging](#logging)
+- [Metrics](#metrics-optional)
 - [Development](#development)
 - [License](#license)
 
@@ -163,12 +164,13 @@ decide who owns `/config` on the host (Unraid: `99` / `100`). See
 ### Check health
 
 ```bash
-curl -fsS http://localhost:8000/api/health     # → {"status":"ok"}
+curl -fsS http://localhost:8000/api/health     # → {"status":"ok","version":"X.Y.Z"}
 ```
 
 The endpoint verifies database connectivity, so an `ok` means the whole stack
 is up — the image also ships a Docker `HEALTHCHECK` probing it, so
-`docker ps` shows `(healthy)` once ingest is actually ready.
+`docker ps` shows `(healthy)` once ingest is actually ready. `version` is the
+release the image was built from (`dev` when running from source).
 
 The database has no published port — it's reachable only by the app over the
 Docker network. Put a TLS reverse proxy in front of the `healthlog` container
@@ -419,6 +421,7 @@ optional narration step talks to the Mac.
 | `PUID` / `PGID` | `1000` | host user/group that owns `/config` (Unraid: `99` / `100`) |
 | `LOG_LEVEL` | `INFO` | log verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 | `LOG_FORMAT` | `text` | `text` (human-readable) or `json` (one object per line, for Loki/ELK) |
+| `METRICS_ENABLED` | `false` | expose the Prometheus `/metrics` endpoint (see [Metrics](#metrics-optional)) |
 | `CONFIG_FILE` | `/config/config.yaml` | path to the optional structured config (see [config.yaml](#tunables-profile--notifications-configyaml)) |
 | `NOTIFY_TOKEN` | *(empty)* | Gotify/PushBits application token — **secret**; the only notify setting kept in the environment (never logged) |
 
@@ -553,7 +556,20 @@ By default the app logs to `stdout`/`stderr` (`docker logs`). Set `LOG_FORMAT=js
 for structured output suitable for aggregators (Loki, ELK). Persistence is an
 operations concern: use a Docker log driver, or mount `/config` and rely on your
 platform's log retention. Each ingest and the nightly analysis run are logged at
-`INFO`.
+`INFO`; failed ingest authentication is audit-logged at `WARNING` with the client
+IP (never the token), ready for fail2ban & co.
+
+## Metrics (optional)
+
+Set `METRICS_ENABLED=true` to expose a Prometheus scrape endpoint at `/metrics`
+with ingest counters: requests by outcome (`stored`, `duplicate`, `invalid`,
+`too_large`, `unauthorized`, `unconfigured`), rows by kind, and the unix time of
+the last stored sync — alert on that going stale to catch a silently broken HAE
+automation. Values are counters and timestamps only; raw health data is never
+exported. The endpoint is unauthenticated (Prometheus convention): enable it
+only on a trusted network and do **not** forward `/metrics` through the public
+reverse proxy. The nightly analysis runs in a separate process and reports
+through notifications and logs instead.
 
 ## Development
 

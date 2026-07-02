@@ -5,8 +5,12 @@
 FROM python:3.14-slim
 
 ARG S6_OVERLAY_VERSION=3.2.0.2
+# Release version stamped by the build workflow (from the vX.Y.Z tag);
+# local builds run as "dev". Surfaced via /api/health.
+ARG APP_VERSION=dev
 
-ENV S6_KEEP_ENV=1 \
+ENV APP_VERSION=${APP_VERSION} \
+    S6_KEEP_ENV=1 \
     S6_BEHAVIOUR_IF_STAGE2_FAILS=2 \
     S6_CMD_WAIT_FOR_SERVICES_MAXTIME=0 \
     PYTHONUNBUFFERED=1 \

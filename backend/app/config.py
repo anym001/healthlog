@@ -50,6 +50,18 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     log_format: str = Field(default="text", alias="LOG_FORMAT")  # text | json
 
+    # --- Observability -----------------------------------------------------
+    # Opt-in Prometheus scrape endpoint (/metrics). Unauthenticated by
+    # convention, so enable it only on a trusted network and never forward
+    # /metrics through the public reverse proxy.
+    metrics_enabled: bool = Field(default=False, alias="METRICS_ENABLED")
+
+    # --- Build metadata ----------------------------------------------------
+    # Stamped into the image from the release tag (Dockerfile APP_VERSION
+    # build arg); "dev" for source checkouts. Surfaced via /api/health and
+    # the OpenAPI metadata.
+    app_version: str = Field(default="dev", alias="APP_VERSION")
+
     # --- Structured config (config.yaml) -----------------------------------
     # Path to the YAML file holding behaviour/profile/tunables (see
     # app/appconfig.py). Optional — a missing file means all-default behaviour.

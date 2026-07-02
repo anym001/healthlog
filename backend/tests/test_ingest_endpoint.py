@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from sqlalchemy import text
 
 
@@ -9,6 +11,7 @@ def test_health(client):
     r = client.get("/api/health")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
+    assert r.json()["version"] == "dev"  # release builds stamp the tag here
 
 
 def test_health_reports_503_when_db_unreachable(client):
@@ -46,6 +49,79 @@ def test_health_reports_503_when_db_unreachable(client):
 def test_ingest_requires_token(client, sample_payload):
     r = client.post("/api/ingest", json=sample_payload)
     assert r.status_code == 401
+
+
+def test_failed_auth_is_audit_logged(client):
+    # Capture directly off the audit logger (the healthlog tree doesn't
+    # propagate to root, so caplog would miss it).
+    records: list[logging.LogRecord] = []
+    handler = logging.Handler()
+    handler.emit = records.append  # type: ignore[method-assign]
+    audit_logger = logging.getLogger("healthlog.audit")
+    audit_logger.addHandler(handler)
+    try:
+        r = client.post("/api/ingest", json={}, headers={"X-Ingest-Token": "wrong-token"})
+    finally:
+        audit_logger.removeHandler(handler)
+    assert r.status_code == 401
+    messages = [rec.getMessage() for rec in records]
+    assert any(m.startswith("ingest.auth_failed ip=") for m in messages)
+    assert not any("wrong-token" in m for m in messages)  # never log the token
+
+
+def test_oversized_content_length_rejected_early(client, monkeypatch):
+    from app import config
+
+    monkeypatch.setenv("MAX_PAYLOAD_BYTES", "64")
+    config.get_settings.cache_clear()
+    try:
+        r = client.post(
+            "/api/ingest",
+            content=b"x" * 200,  # Content-Length: 200 > 64
+            headers={"X-Ingest-Token": "test-secret", "Content-Type": "application/json"},
+        )
+    finally:
+        config.get_settings.cache_clear()
+    assert r.status_code == 413
+
+
+def test_oversized_chunked_body_cut_off_while_streaming(client, monkeypatch):
+    from app import config
+
+    monkeypatch.setenv("MAX_PAYLOAD_BYTES", "64")
+    config.get_settings.cache_clear()
+
+    def chunks():
+        for _ in range(10):  # 200 bytes total, no Content-Length header
+            yield b"y" * 20
+
+    try:
+        r = client.post(
+            "/api/ingest",
+            content=chunks(),
+            headers={"X-Ingest-Token": "test-secret", "Content-Type": "application/json"},
+        )
+    finally:
+        config.get_settings.cache_clear()
+    assert r.status_code == 413
+
+
+def test_metrics_endpoint_disabled_by_default(client):
+    assert client.get("/metrics").status_code == 404
+
+
+def test_metrics_endpoint_when_enabled(client, monkeypatch):
+    from app import config
+
+    monkeypatch.setenv("METRICS_ENABLED", "1")
+    config.get_settings.cache_clear()
+    try:
+        r = client.get("/metrics")
+    finally:
+        config.get_settings.cache_clear()
+    assert r.status_code == 200
+    assert "healthlog_ingest_requests_total" in r.text
+    assert "healthlog_last_ingest_timestamp_seconds" in r.text
 
 
 def test_ingest_happy_path(client, sample_payload):

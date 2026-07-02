@@ -14,6 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
+from ..config import get_settings
 from ..database import get_db
 from ..schemas import HealthResponse
 
@@ -34,4 +35,4 @@ async def health(db: Session = Depends(get_db)) -> HealthResponse:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Database unreachable.",
         ) from exc
-    return HealthResponse(status="ok")
+    return HealthResponse(status="ok", version=get_settings().app_version)
