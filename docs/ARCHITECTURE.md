@@ -55,7 +55,12 @@ process — through the GIL/CPU load it would block the event loop and delay HAE
 Separate processes = OS-level isolation. The scheduler additionally launches the
 analysis as a **short-lived subprocess** (`python -m app.analysis`), so that even a
 hard crash in a C extension only kills that subprocess — the scheduler **and** uvicorn
-survive, and data intake is structurally shielded.
+survive, and data intake is structurally shielded. The subprocess runs under a hard
+timeout (a wedged run is killed and alerted like a crash), and a missed slot is
+caught up at the next start: the scheduler records each successful run in a marker
+file under `/config/state/` and, when the most recent cron slot passed without a
+run (container down at 03:30), runs the analysis immediately on startup — the
+snapshot-replace write makes the extra run idempotent.
 
 | Component | Where | Why |
 |---|---|---|
@@ -76,7 +81,7 @@ survive, and data intake is structurally shielded.
 | Scheduler | **APScheduler** (own process under s6) | schedule in code (versioned), logs→stdout (Docker-native), env/TZ clean — vs. cron-in-container friction. |
 | Analysis | **Python: pandas + statsmodels + scipy + scikit-learn** | mature, reproducible standard for correlation/trend/anomaly. |
 | Dashboards | **Grafana** | minimal effort, straight onto Timescale. |
-| Container base | **`python:3.12-slim` + s6-overlay v3** | slim image (relevant for public use), full control, PUID/PGID + `/config`. |
+| Container base | **`python:3.14-slim` + s6-overlay v3** | slim image (relevant for public use), full control, PUID/PGID + `/config`. |
 | LLM (optional) | **Ollama**, 8–14B (e.g. Qwen 2.5 14B) | local on the 32 GB Mac; receives only finished findings, not the raw data. |
 
 ## 4. Data model
