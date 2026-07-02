@@ -178,3 +178,70 @@ def test_analysis_defaults_are_stable():
     assert d.seasonality_reproducibility_min == 0.30
     assert (d.recovery_recent_days, d.recovery_z, d.recovery_sleep_z) == (14, 1.5, -1.0)
     assert (d.consistency_window, d.consistency_duration_std, d.consistency_bedtime_std) == (28, 1.0, 1.0)
+
+
+# --- Hot reload (get_app_config) --------------------------------------------
+
+
+@pytest.fixture
+def _fresh_config_cache(monkeypatch, tmp_path):
+    """Point CONFIG_FILE at a tmp config.yaml with empty caches; yields its path."""
+    from app import appconfig, config
+
+    path = tmp_path / "config.yaml"
+    monkeypatch.setenv("CONFIG_FILE", str(path))
+    config.get_settings.cache_clear()
+    appconfig.reset_app_config_cache()
+    yield path
+    appconfig.reset_app_config_cache()
+    config.get_settings.cache_clear()
+
+
+def _bump_mtime(path):
+    import os
+
+    st = path.stat()
+    os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000))
+
+
+def test_get_app_config_hot_reloads_on_change(_fresh_config_cache):
+    from app.appconfig import get_app_config
+
+    path = _fresh_config_cache
+    path.write_text("narrate:\n  language: en\n")
+    assert get_app_config().narrate.language == "en"
+
+    path.write_text("narrate:\n  language: de\n")
+    _bump_mtime(path)
+    assert get_app_config().narrate.language == "de"
+
+
+def test_get_app_config_missing_file_then_created(_fresh_config_cache):
+    from app.appconfig import get_app_config
+
+    path = _fresh_config_cache
+    assert get_app_config().narrate.language == "en"  # defaults, no file
+
+    path.write_text("narrate:\n  language: de\n")
+    assert get_app_config().narrate.language == "de"
+
+
+def test_get_app_config_bad_edit_keeps_previous(_fresh_config_cache):
+    from app.appconfig import get_app_config
+
+    path = _fresh_config_cache
+    path.write_text("narrate:\n  language: de\n")
+    assert get_app_config().narrate.language == "de"
+
+    path.write_text("narrate:\n  language: [broken\n")  # invalid YAML
+    _bump_mtime(path)
+    assert get_app_config().narrate.language == "de"  # last good config survives
+
+
+def test_get_app_config_broken_first_load_raises(_fresh_config_cache):
+    from app.appconfig import get_app_config
+
+    path = _fresh_config_cache
+    path.write_text("narrate:\n  language: [broken\n")
+    with pytest.raises(ValueError):
+        get_app_config()

@@ -11,6 +11,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
 from . import routers
+from .appconfig import get_app_config
 from .config import get_settings
 from .logging_config import configure_logging
 
@@ -29,6 +30,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    # Load config.yaml once at boot so a broken file fails startup with a
+    # clean message; afterwards edits hot-reload (bad edits keep the last
+    # good config — see appconfig.get_app_config).
+    get_app_config()
     # The interactive docs are runtime-generated routes, not files in the
     # image; passing None unregisters them (404) — the only lever there is.
     docs_enabled = settings.api_docs_enabled
