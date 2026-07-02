@@ -100,9 +100,26 @@ for a Mac. The full method list and tuning live in [`docs/ARCHITECTURE.md`](docs
 
 ## Quick start
 
-HealthLog needs a TimescaleDB/Postgres database and the app container, joined on
-a private Docker network so the app can reach the database by name. No files to
-create — just run the containers.
+HealthLog needs a TimescaleDB/Postgres database and the app container. The
+fastest way is the Compose file shipped in this repo; plain `docker run` works
+too (e.g. on Unraid, where each container is a template).
+
+### Option A — Docker Compose (recommended)
+
+Grab [`docker-compose.yml`](docker-compose.yml) and
+[`.env.example`](.env.example) from this repo (or clone it), then:
+
+```bash
+cp .env.example .env
+# edit .env: set POSTGRES_PASSWORD and INGEST_SECRET (openssl rand -hex 32)
+docker compose up -d
+```
+
+That starts TimescaleDB (with a healthcheck the app waits for) and HealthLog,
+with `./config` mounted at `/config`. Every optional knob (`TZ`, `PUID`/`PGID`,
+a pinned image version, …) is a commented line in `.env.example`.
+
+### Option B — plain `docker run`
 
 **1. Create the network and start TimescaleDB:**
 
@@ -143,22 +160,28 @@ password in `DATABASE_URL` must match `POSTGRES_PASSWORD` above, and `PUID`/`PGI
 decide who owns `/config` on the host (Unraid: `99` / `100`). See
 [Configuration](#configuration) for every variable.
 
-**3. Check health:**
+### Check health
 
 ```bash
 curl -fsS http://localhost:8000/api/health     # → {"status":"ok"}
 ```
 
+The endpoint verifies database connectivity, so an `ok` means the whole stack
+is up — the image also ships a Docker `HEALTHCHECK` probing it, so
+`docker ps` shows `(healthy)` once ingest is actually ready.
+
 The database has no published port — it's reachable only by the app over the
-`health` network. Put a TLS reverse proxy in front of the `healthlog` container
+Docker network. Put a TLS reverse proxy in front of the `healthlog` container
 before pointing HAE at it (see [Reverse proxy](#reverse-proxy)).
 
-**4. (Optional) Visualise with Grafana:**
+### Visualise with Grafana (optional)
 
 The analysis writes its results to the database, so chart them with whatever you
 prefer — Grafana, Metabase, a notebook, plain SQL. Attach that tool to the same
-`health` network and point it at `healthlog-db`. The repo ships ready-made
-**Grafana dashboards** — see [`grafana/README.md`](grafana/README.md) for details.
+Docker network as the database and point it at the DB container (`db` in the
+Compose setup, `healthlog-db` in the `docker run` example). The repo ships
+ready-made **Grafana dashboards** — see [`grafana/README.md`](grafana/README.md)
+for details.
 
 ## Image
 
@@ -224,7 +247,7 @@ URL, header and timeout, changing only the workout-specific settings:
 | Timeout | `60` | |
 | Data type | **Workouts** | this is what makes it a workout export |
 | Include Workout Metrics | **on** | delivers the intra-workout heart-rate series — required for zone-based Edwards TRIMP |
-| Include Route Data | **off** | GPS routes are never parsed or stored; leaving them out keeps payloads small and location data off the server |
+| Include Route Data | **on** for the route map | stores the GPS track of outdoor workouts and feeds the Workout Detail dashboard's route map. Leave **off** to keep payloads smaller and location data out of the database — everything except that map works without it |
 | Time grouping | **minutes** | per-minute HR buckets are the shape the Edwards parser expects |
 | Export format | **JSON** | CSV is **not** parsed |
 | Export version | **v2** | the parser targets HAE v2 payloads |
@@ -235,7 +258,10 @@ The nightly analysis folds workouts in as daily training-load series (TRIMP /
 active-energy) for correlation and ACWR findings — set a `profile` in
 `config.yaml` to sharpen the HR-based load. When **Include Workout Metrics** is
 on, a zone-based **Edwards TRIMP** series (`workout_edwards`) runs in parallel;
-it self-gates off when no HR series is present.
+it self-gates off when no HR series is present. With **Include Route Data** on,
+the GPS track of outdoor workouts is stored alongside (display only — the
+analysis never uses location) and drawn on the Workout Detail dashboard's
+route map.
 
 To confirm data is arriving, trigger a **Manual Export** and check the logs for
 an `ingest.stored …` audit line. For a push confirmation, temporarily set
@@ -265,8 +291,10 @@ hash. Afterwards the nightly HAE automation takes over with deltas.
 ## Analysis schedule
 
 The scheduler runs the statistical analysis nightly — `ANALYSIS_CRON`, a 5-field
-cron expression interpreted in `TZ`, default `30 3 * * *` (03:30 local time). To
-recompute the findings on demand:
+cron expression interpreted in `TZ`, default `30 3 * * *` (03:30 local time). A
+missed slot is caught up automatically: if the container was down when the slot
+passed (host reboot, update), the analysis runs once at the next start instead
+of silently skipping a day. To recompute the findings on demand:
 
 ```bash
 docker exec healthlog healthlog analyze
