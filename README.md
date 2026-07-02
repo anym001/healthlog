@@ -422,6 +422,7 @@ optional narration step talks to the Mac.
 | `LOG_LEVEL` | `INFO` | log verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 | `LOG_FORMAT` | `text` | `text` (human-readable) or `json` (one object per line, for Loki/ELK) |
 | `METRICS_ENABLED` | `false` | expose the Prometheus `/metrics` endpoint (see [Metrics](#metrics-optional)) |
+| `API_DOCS_ENABLED` | `false` | serve the interactive API docs (`/docs`, `/redoc`, `/openapi.json`); off they answer 404. Keep off on an internet-facing instance — the docs map the whole API surface |
 | `CONFIG_FILE` | `/config/config.yaml` | path to the optional structured config (see [config.yaml](#tunables-profile--notifications-configyaml)) |
 | `NOTIFY_TOKEN` | *(empty)* | Gotify/PushBits application token — **secret**; the only notify setting kept in the environment (never logged) |
 
