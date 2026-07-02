@@ -204,17 +204,11 @@ class MetricRegistry(Base):
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
-class Finding(Base):
-    """A statistical finding from the nightly pipeline (ARCHITECTURE.md §4.8).
+class _FindingColumns:
+    """Columns shared by the current snapshot (``findings``) and the
+    append-only archive (``findings_history``); declared once so the two
+    tables cannot drift."""
 
-    Written as a fresh snapshot each run (the analysis deletes the previous
-    batch). ``kind`` is one of: correlation, anomaly, trend, seasonality,
-    recovery_alert, consistency. Fields not relevant to a kind stay NULL.
-    """
-
-    __tablename__ = "findings"
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     computed_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     kind: Mapped[str] = mapped_column(String(16))
     metric_a: Mapped[str] = mapped_column(Text)
@@ -229,3 +223,49 @@ class Finding(Base):
     severity: Mapped[float | None] = mapped_column(Float, nullable=True)
     details: Mapped[dict | None] = mapped_column(JSONB, nullable=True)  # kind-specific extras
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+# Shared column names, in order, for the snapshot -> history INSERT..SELECT.
+FINDING_FIELDS: tuple[str, ...] = (
+    "computed_at",
+    "kind",
+    "metric_a",
+    "metric_b",
+    "lag_days",
+    "coefficient",
+    "p_value",
+    "p_value_adj",
+    "ref_date",
+    "window_start",
+    "window_end",
+    "severity",
+    "details",
+    "note",
+)
+
+
+class Finding(_FindingColumns, Base):
+    """A statistical finding from the nightly pipeline (ARCHITECTURE.md §4.8).
+
+    Written as a fresh snapshot each run (the analysis deletes the previous
+    batch). ``kind`` is one of: correlation, anomaly, trend, seasonality,
+    recovery_alert, consistency. Fields not relevant to a kind stay NULL.
+    """
+
+    __tablename__ = "findings"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+
+
+class FindingHistory(_FindingColumns, Base):
+    """Append-only archive of every findings snapshot (ARCHITECTURE.md §4.8).
+
+    The nightly run copies its fresh snapshot here before the next run
+    replaces ``findings``, so questions over time ("since when has the ACWR
+    been warning?", "how many recovery alerts this month?") stay answerable.
+    Rows share one ``computed_at`` per run — that timestamp is the run key.
+    """
+
+    __tablename__ = "findings_history"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)

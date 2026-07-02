@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import datetime as dt
 
-from sqlalchemy import delete
+from sqlalchemy import delete, insert, select
 from sqlalchemy.orm import Session
 
 from ..appconfig import AppConfig, load_config
 from ..cli_support import bootstrap, db_session
 from ..config import get_settings
-from ..models import Finding
+from ..models import FINDING_FIELDS, Finding, FindingHistory
 from .constants import _DEFAULT_APP_CONFIG, log
 from .findings import (
     AnalysisResult,
@@ -58,6 +58,14 @@ def run(db: Session, tz: str | None = None, config: AppConfig | None = None) -> 
     db.execute(delete(Finding))  # snapshot: replace the previous run
     db.add_all([*correlations, *anomalies, *trends, *seasons, *recovery, *consistency, *training_load])
     db.flush()
+    # Archive this snapshot (append-only) before the next run replaces it, so
+    # findings stay queryable over time; computed_at is the per-run key.
+    db.execute(
+        insert(FindingHistory).from_select(
+            list(FINDING_FIELDS),
+            select(*(Finding.__table__.c[field] for field in FINDING_FIELDS)),
+        )
+    )
 
     return AnalysisResult(
         correlations=len(correlations),

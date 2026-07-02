@@ -318,6 +318,14 @@ findings (id, computed_at, kind TEXT,            -- correlation|anomaly|trend|se
 `ref_date`/`window_*` make a finding **markable** in Grafana (annotation on the day of
 the anomaly). Non-applicable fields stay NULL.
 
+`findings` is the **current snapshot** — each run deletes and rewrites it, so every
+consumer (Grafana, narration, audit) always sees exactly one coherent result set.
+Each run additionally **appends** its snapshot to `findings_history` (same columns,
+one shared `computed_at` per run as the run key), so findings stay queryable over
+time — "since when has the ACWR been warning?", "how many recovery alerts this
+month?". The archive is query-only: the pipeline never reads it, and at a few
+hundred rows per day it needs no retention policy.
+
 **Finding types** (snapshot per run, `app/analysis/findings.py`):
 - **correlation** — Spearman on the **residual** series (STL trend *and* seasonal
   components subtracted), so the coefficient measures pure day-to-day co-movement, lags
