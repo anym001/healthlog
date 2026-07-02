@@ -56,6 +56,13 @@ class Settings(BaseSettings):
     # /metrics through the public reverse proxy.
     metrics_enabled: bool = Field(default=False, alias="METRICS_ENABLED")
 
+    # Serve FastAPI's interactive API docs (/docs, /redoc, /openapi.json).
+    # Off by default: the ingest endpoint faces the internet and its only
+    # client is a machine (HAE), so the docs would just hand strangers a map
+    # of the API surface. Disabled paths answer 404, indistinguishable from
+    # unknown routes. Flip on temporarily when exploring the API.
+    api_docs_enabled: bool = Field(default=False, alias="API_DOCS_ENABLED")
+
     # --- Build metadata ----------------------------------------------------
     # Stamped into the image from the release tag (Dockerfile APP_VERSION
     # build arg); "dev" for source checkouts. Surfaced via /api/health and

@@ -106,6 +106,29 @@ def test_oversized_chunked_body_cut_off_while_streaming(client, monkeypatch):
     assert r.status_code == 413
 
 
+def test_api_docs_disabled_by_default(client):
+    assert client.get("/docs").status_code == 404
+    assert client.get("/redoc").status_code == 404
+    assert client.get("/openapi.json").status_code == 404
+
+
+def test_api_docs_when_enabled(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app import config
+    from app.main import create_app
+
+    monkeypatch.setenv("API_DOCS_ENABLED", "1")
+    config.get_settings.cache_clear()
+    try:
+        # The docs routes are fixed at app construction, so build a fresh app.
+        with TestClient(create_app()) as c:
+            assert c.get("/openapi.json").status_code == 200
+            assert c.get("/docs").status_code == 200
+    finally:
+        config.get_settings.cache_clear()
+
+
 def test_metrics_endpoint_disabled_by_default(client):
     assert client.get("/metrics").status_code == 404
 
