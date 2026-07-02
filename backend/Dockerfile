@@ -1,12 +1,16 @@
 # HealthLog application image.
-# python:3.12-slim + s6-overlay v3 (PID 1: clean signal handling + supervision).
+# python:3.14-slim + s6-overlay v3 (PID 1: clean signal handling + supervision).
 # Two long-run services (uvicorn ingest, APScheduler) plus oneshot init/migrate.
 # PUID/PGID + /config follow the LinuxServer/Unraid convention.
 FROM python:3.14-slim
 
 ARG S6_OVERLAY_VERSION=3.2.0.2
+# Release version stamped by the build workflow (from the vX.Y.Z tag);
+# local builds run as "dev". Surfaced via /api/health.
+ARG APP_VERSION=dev
 
-ENV S6_KEEP_ENV=1 \
+ENV APP_VERSION=${APP_VERSION} \
+    S6_KEEP_ENV=1 \
     S6_BEHAVIOUR_IF_STAGE2_FAILS=2 \
     S6_CMD_WAIT_FOR_SERVICES_MAXTIME=0 \
     PYTHONUNBUFFERED=1 \
@@ -17,7 +21,7 @@ ENV S6_KEEP_ENV=1 \
     TZ=Europe/Vienna
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        bash ca-certificates xz-utils tzdata \
+        bash ca-certificates curl xz-utils tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 # --- s6-overlay (noarch + x86_64) ----------------------------------------
@@ -47,4 +51,11 @@ RUN chmod -R +x /etc/s6-overlay/scripts \
 
 VOLUME /config
 EXPOSE 8000
+
+# /api/health verifies DB connectivity, so "unhealthy" means the stack is
+# actually broken (API down or database unreachable), not just slow. The
+# start period covers init-config + alembic migrations on first boot.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:8000/api/health || exit 1
+
 ENTRYPOINT ["/init"]

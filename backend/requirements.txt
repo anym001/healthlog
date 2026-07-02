@@ -10,6 +10,8 @@ apscheduler==3.11.3
 pyyaml==6.0.3
 # Push notifications (run outcomes / health alerts) to a Gotify-compatible API.
 httpx==0.28.1
+# Opt-in Prometheus /metrics endpoint (METRICS_ENABLED): ingest counters.
+prometheus-client==0.25.0
 
 # Analysis pipeline (Phase 3): nightly statistical findings.
 numpy==2.5.0

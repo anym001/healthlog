@@ -7,7 +7,6 @@ content hash, then parses + idempotently upserts. Audit events are logged here
 
 from __future__ import annotations
 
-import ipaddress
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
@@ -19,7 +18,8 @@ from .. import notify
 from ..appconfig import get_app_config
 from ..config import get_settings
 from ..database import get_db
-from ..deps import ingest_auth
+from ..deps import client_ip, ingest_auth
+from ..metrics import INGEST_REQUESTS, INGEST_ROWS, LAST_INGEST
 from ..schemas import IngestResponse
 
 router = APIRouter()
@@ -42,17 +42,29 @@ def _ingest(db: Session, body: bytes, ip: str | None, type_map: dict[str, str] |
     return outcome, result
 
 
-def _client_ip(request: Request) -> str | None:
-    """Return the client host only if it's a valid IP (column type is INET);
-    proxy/test placeholders like 'testclient' map to NULL rather than erroring."""
-    host = request.client.host if request.client else None
-    if not host:
-        return None
-    try:
-        ipaddress.ip_address(host)
-    except ValueError:
-        return None
-    return host
+def _payload_too_large(limit: int) -> HTTPException:
+    INGEST_REQUESTS.labels(outcome="too_large").inc()
+    return HTTPException(
+        status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+        detail=f"Payload exceeds {limit} bytes.",
+    )
+
+
+async def _read_body_capped(request: Request, limit: int) -> bytes:
+    """Read the request body while enforcing ``limit`` *before* buffering.
+
+    A truthful Content-Length is rejected up front; without one (or with a
+    lying one) the body is streamed and cut off as soon as it crosses the
+    limit, so an oversized POST can never balloon memory to its full size."""
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > limit:
+        raise _payload_too_large(limit)
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > limit:
+            raise _payload_too_large(limit)
+    return bytes(body)
 
 
 @router.post("/api/ingest", response_model=IngestResponse, dependencies=[Depends(ingest_auth)])
@@ -62,24 +74,26 @@ async def ingest_payload(
     db: Session = Depends(get_db),
 ) -> IngestResponse:
     settings = get_settings()
-    body = await request.body()
+    body = await _read_body_capped(request, settings.max_payload_bytes)
 
-    if len(body) > settings.max_payload_bytes:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"Payload exceeds {settings.max_payload_bytes} bytes.",
-        )
-
-    ip = _client_ip(request)
+    ip = client_ip(request)
     type_map = get_app_config().workouts.type_map
     try:
         outcome, result = await run_in_threadpool(_ingest, db, body, ip, type_map)
     except ValueError as exc:
+        INGEST_REQUESTS.labels(outcome="invalid").inc()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     if outcome == "duplicate":
+        INGEST_REQUESTS.labels(outcome="duplicate").inc()
         audit.info("ingest.duplicate ip=%s", ip)
         return IngestResponse(status="duplicate")
+
+    INGEST_REQUESTS.labels(outcome="stored").inc()
+    INGEST_ROWS.labels(kind="metric").inc(result.metric_rows)
+    INGEST_ROWS.labels(kind="sleep").inc(result.sleep_rows)
+    INGEST_ROWS.labels(kind="workout").inc(result.workout_rows)
+    LAST_INGEST.set_to_current_time()
 
     audit.info(
         "ingest.stored ip=%s metrics=%d(%d new) sleep=%d(%d new) workouts=%d(%d new) "

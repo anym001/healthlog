@@ -18,7 +18,10 @@ from app.models import Base  # noqa: E402
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # Never disable already-created loggers: when alembic runs in-process
+    # (tests, embedded upgrades) the default True would silently mute the
+    # entire healthlog.* tree, including the ingest audit log.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 _db_url = os.environ.get("DATABASE_URL")
 if _db_url:
