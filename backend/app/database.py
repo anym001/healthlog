@@ -15,6 +15,10 @@ engine = create_engine(
     _settings.database_url,
     pool_pre_ping=True,
     future=True,
+    # Bound the TCP connect so a request (and the container healthcheck)
+    # fails fast when the database host is unreachable, instead of hanging
+    # for the kernel's connect timeout.
+    connect_args={"connect_timeout": 5},
 )
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, class_=Session)

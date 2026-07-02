@@ -11,6 +11,38 @@ def test_health(client):
     assert r.json()["status"] == "ok"
 
 
+def test_health_reports_503_when_db_unreachable(client):
+    # Point the request's session at a database that cannot be reached (a
+    # closed local port) so the readiness probe's SELECT 1 fails.
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    from app.database import get_db
+    from app.main import app
+
+    broken_engine = create_engine(
+        "postgresql+psycopg://none:none@127.0.0.1:1/none",
+        connect_args={"connect_timeout": 1},
+    )
+
+    def broken_get_db():
+        session = Session(bind=broken_engine)
+        try:
+            yield session
+        finally:
+            session.close()
+
+    previous_override = app.dependency_overrides.get(get_db)
+    app.dependency_overrides[get_db] = broken_get_db
+    try:
+        r = client.get("/api/health")
+    finally:
+        app.dependency_overrides[get_db] = previous_override
+        broken_engine.dispose()
+    assert r.status_code == 503
+    assert r.json()["detail"] == "Database unreachable."
+
+
 def test_ingest_requires_token(client, sample_payload):
     r = client.post("/api/ingest", json=sample_payload)
     assert r.status_code == 401
