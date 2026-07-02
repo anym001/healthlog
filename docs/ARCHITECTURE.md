@@ -117,12 +117,21 @@ structure (sleep §4.3, workouts §4.4) remain the only tables with a dedicated 
 
 ```sql
 -- Every incoming HAE payload verbatim, before parsing.
-raw_ingest (id BIGSERIAL, received_at TIMESTAMPTZ DEFAULT now(),
-            payload JSONB, source_ip INET, content_hash BYTEA)
-            -- content_hash UNIQUE → identical re-posts are discarded.
+raw_ingest (id BIGSERIAL, received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            payload JSONB, source_ip INET, content_hash BYTEA,
+            PRIMARY KEY (id, received_at))   -- hypertable on received_at
+            -- content_hash indexed → identical re-posts are discarded.
 ```
 Full fidelity: on parser/schema bugs the history can be **re-parsed** without data
-loss. Volume locally negligible.
+loss. The table is a TimescaleDB hypertable with a **native compression policy**
+(chunks older than 7 days; migration 0016) — repetitive JSON compresses by an
+order of magnitude, so the permanent-retention archive stays cheap while
+remaining fully queryable and re-derivable. Two constraint consequences (a
+hypertable requires the partition column in every unique index): the PK is the
+composite `(id, received_at)` with `id` still sequence-generated, and dedup uses
+an indexed SELECT-then-INSERT instead of `ON CONFLICT` — the race this admits
+(two *concurrent* identical posts) is harmless because all downstream upserts
+are idempotent, and HAE posts sequentially.
 
 ### 4.2 Parsed measurements (hypertable)
 
@@ -403,7 +412,10 @@ lag/anomaly/trend/yearly-season) with a fixed seed (§7); plus a DB end-to-end t
 - **Idempotency/upsert:** on nightly exports HAE sends **overlapping windows**.
   Without dedup, duplicates grow and distort daily aggregates. Hence
   `INSERT … ON CONFLICT (UNIQUE key) DO UPDATE` on all target tables.
-  `raw_ingest.content_hash` discards identical re-posts early.
+  `raw_ingest.content_hash` discards identical re-posts early (indexed
+  SELECT-then-INSERT, see §4.1). Upserts keep working against **compressed**
+  `metric_samples` chunks (TimescaleDB decompresses the affected segments) —
+  a full-history re-backfill stays a no-op, just slower on old chunks.
 - **Backfill vs. delta:** on the first manual HAE export, load the **entire Apple
   Health history** (years) once as a bulk backfill → then **nightly deltas**. That way
   correlations are sound from day 1 (≥6–8 weeks). The full export blows past the HTTP
@@ -508,12 +520,15 @@ Dependabot PRs pass the same `test.yml` gate as any other PR.
 - **Single-tenant** (no `user_id`/`subject_id`). The analysis is per person; a later
   multi-user/subject extension is a clean migration (column nullable + default 1 +
   backfill), since the idempotency keys are already stable.
-- **Raw payload archived verbatim** (`raw_ingest`, JSONB), retention permanent (tiny
-  volume); a CA can replace the daily-aggregate view later without a schema break.
-- **ECG/GPX deliberately off** (raw waveforms/location data, no analytical value,
-  payload/privacy burden). The generic model (§4.0) tolerates further health categories
-  (medications, symptoms as event markers) at any time without a schema change, should
-  they become relevant.
+- **Raw payload archived verbatim** (`raw_ingest`, JSONB), retention permanent —
+  kept cheap by the native compression policy (§4.1); a CA can replace the
+  daily-aggregate view later without a schema break.
+- **ECG deliberately off** (raw waveforms, no analytical value, payload burden).
+  GPS routes are stored **only** when the operator enables route export in HAE
+  (`workout_route_points`, display-only — the analysis never uses location).
+  The generic model (§4.0) tolerates further health categories (medications,
+  symptoms as event markers) at any time without a schema change, should they
+  become relevant.
 - **Optional / on the server, not built in:** interactive Jupyter exploration only
   covers the ad-hoc case that pipeline + Grafana already cover.
 - **Out of scope (addable on demand):** a Docker Hub mirror of the images (currently

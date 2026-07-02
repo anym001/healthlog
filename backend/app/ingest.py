@@ -562,15 +562,19 @@ def store(db: Session, parsed: ParsedPayload) -> StoreResult:
 
 def archive_raw(db: Session, payload: dict, content_hash: bytes, source_ip: str | None) -> bool:
     """Insert the verbatim payload. Returns False if it's a duplicate
-    (content_hash already present), in which case parsing should be skipped."""
-    stmt = (
-        pg_insert(RawIngest)
-        .values(payload=payload, content_hash=content_hash, source_ip=source_ip)
-        .on_conflict_do_nothing(index_elements=["content_hash"])
-        .returning(RawIngest.id)
-    )
-    result = db.execute(stmt).first()
-    return result is not None
+    (content_hash already present), in which case parsing should be skipped.
+
+    Dedup is SELECT-then-INSERT rather than ON CONFLICT: ``raw_ingest`` is a
+    hypertable partitioned on ``received_at`` (for native compression, see
+    migration 0016), and a hypertable cannot carry a global unique index on
+    ``content_hash`` alone. The race this opens — two *concurrent* identical
+    posts both archived — is harmless: the downstream upserts are idempotent,
+    and HAE posts sequentially anyway."""
+    exists = db.execute(sa.select(RawIngest.id).where(RawIngest.content_hash == content_hash).limit(1)).first()
+    if exists is not None:
+        return False
+    db.execute(sa.insert(RawIngest).values(payload=payload, content_hash=content_hash, source_ip=source_ip))
+    return True
 
 
 def ingest_bytes(

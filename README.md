@@ -461,9 +461,13 @@ It holds:
   used only when you run `healthlog narrate` (see [LLM narration](#llm-narration)).
 - **`notify`** — push notifications (see below).
 
-Malformed YAML or an out-of-range value fails fast with a clear message. See the
-seeded `/config/config.yaml` (or `backend/config.example.yaml`) for every option
-with its default.
+Changes to `config.yaml` are **picked up automatically** — no container restart
+needed; the file's modification time is checked on each access. Malformed YAML
+or an out-of-range value fails fast with a clear message at startup; a bad
+*edit* while the service is running never takes it down — the previous
+configuration stays active and a warning is logged. See the seeded
+`/config/config.yaml` (or `backend/config.example.yaml`) for every option with
+its default.
 
 #### Notifications
 
@@ -508,6 +512,15 @@ cat healthlog-2026-06-16.dump | docker exec -i healthlog-db pg_restore -U health
 The database volume (`/var/lib/postgresql/data`) and the `/config` mount (logs,
 the import drop folder) are the only state worth keeping; everything else is
 rebuilt from the image.
+
+### Disk usage
+
+The raw payload archive and the sample table are TimescaleDB hypertables with
+automatic **compression policies** (raw payloads after 7 days, samples after
+30): repetitive JSON compresses by an order of magnitude, so keeping the full
+verbatim archive stays cheap. No action needed — the policies run as background
+jobs inside the database. Re-importing overlapping history remains safe;
+writes into already-compressed chunks just take a little longer.
 
 ### Updating the database image
 

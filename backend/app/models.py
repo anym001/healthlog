@@ -33,7 +33,13 @@ class Base(DeclarativeBase):
 
 
 class RawIngest(Base):
-    """Every incoming HAE payload, verbatim, before parsing (replayable)."""
+    """Every incoming HAE payload, verbatim, before parsing (replayable).
+
+    A TimescaleDB hypertable on ``received_at`` with a compression policy
+    (migration 0016). The database PK is the composite (id, received_at) —
+    hypertables need the partition column in every unique index — while the
+    ORM keeps ``id`` as the logical key (it stays sequence-generated, hence
+    unique in practice)."""
 
     __tablename__ = "raw_ingest"
 
@@ -41,8 +47,9 @@ class RawIngest(Base):
     received_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     payload: Mapped[dict] = mapped_column(JSONB)
     source_ip: Mapped[str | None] = mapped_column(INET, nullable=True)
-    # SHA-256 of the raw body; UNIQUE so identical re-posts are deduped.
-    content_hash: Mapped[bytes] = mapped_column(LargeBinary, unique=True)
+    # SHA-256 of the raw body; indexed (not unique — hypertable) for the
+    # SELECT-then-INSERT dedup in archive_raw.
+    content_hash: Mapped[bytes] = mapped_column(LargeBinary, index=True)
 
 
 class MetricSample(Base):
