@@ -1,6 +1,6 @@
 version: 2
 updates:
-  # GitHub Actions: keep the pinned SHAs in the three workflows fresh.
+  # GitHub Actions: keep the pinned SHAs in the four workflows fresh.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

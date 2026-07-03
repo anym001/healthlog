@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Maskable variant - background fills edge to edge (Android applies its own
+       mask); the bars + growth arrow are scaled to 0.82 so they stay inside the
+       inner-80% safe zone. -->
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="60%" y2="100%">
+      <stop offset="0%"   stop-color="#FF6383"/>
+      <stop offset="100%" stop-color="#E11D48"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <g transform="translate(256 256) scale(0.82) translate(-256 -256)">
+    <g fill="#ffffff">
+      <rect x="96"  y="320" width="56" height="72"  rx="14"/>
+      <rect x="178" y="288" width="56" height="104" rx="14"/>
+      <rect x="260" y="252" width="56" height="140" rx="14"/>
+      <rect x="342" y="208" width="56" height="184" rx="14"/>
+    </g>
+    <path d="M102,292 C196,274 335,209 372,150" fill="none" stroke="#ffffff"
+          stroke-width="18" stroke-linecap="round"/>
+    <path d="M400,106 353,138 391,162 Z" fill="#ffffff"/>
+  </g>
+</svg>

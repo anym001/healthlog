@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 class HealthResponse(BaseModel):
     status: str = "ok"
+    version: str = "dev"  # release tag baked into the image; "dev" from source
 
 
 class IngestResponse(BaseModel):
@@ -16,6 +17,8 @@ class IngestResponse(BaseModel):
     sleep_rows: int = 0
     workout_rows: int = 0
     unknown_metrics: int = 0
+    flagged_units: int = 0  # values whose unit deviated with no known conversion
+    implausible_values: int = 0  # values dropped for failing the plausibility envelope
     metric_new: int = 0
     sleep_new: int = 0
     workout_new: int = 0

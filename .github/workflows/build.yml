@@ -4,8 +4,7 @@ name: Build and publish image
 #   git tag v0.1.0 && git push origin v0.1.0
 # Merging to main does NOT create a release — push a tag when you are ready.
 #
-# TODO (deferred): mirror to Docker Hub once DOCKERHUB_* secrets are set —
-# add a docker/login-action step and docker.io images in the metadata below.
+# Images are mirrored to GHCR + Docker Hub (needs the DOCKERHUB_* secrets).
 on:
   push:
     tags: ["v*"]
@@ -45,11 +44,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Log in to Docker Hub
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Extract image metadata
         id: meta
         uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
         with:
-          images: ghcr.io/${{ github.repository_owner }}/healthlog
+          images: |
+            ghcr.io/${{ github.repository_owner }}/healthlog
+            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/healthlog
           tags: |
             type=raw,value=latest
             type=raw,value=${{ steps.version.outputs.version }}
@@ -61,6 +68,8 @@ jobs:
           file: backend/Dockerfile
           push: true
           platforms: linux/amd64
+          build-args: |
+            APP_VERSION=${{ steps.version.outputs.version }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

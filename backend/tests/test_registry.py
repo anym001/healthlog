@@ -11,7 +11,7 @@ from __future__ import annotations
 from sqlalchemy import select
 
 from app.models import MetricRegistry
-from app.registry import METRIC_REGISTRY, SLEEP_METRIC
+from app.registry import METRIC_REGISTRY, SLEEP_METRIC, value_in_bounds
 
 VALID_AGG = {"sum", "min", "max", "avg"}
 VALID_CATEGORY = {"activity", "sleep", "vital", "mobility", "environment", "mindfulness", "nutrition"}
@@ -46,6 +46,31 @@ def test_summing_metrics_use_sum_aggregate():
 
 def test_resting_heart_rate_uses_min_aggregate():
     assert METRIC_REGISTRY["resting_heart_rate"]["agg_default"] == "min"
+
+
+def test_plausibility_bounds_are_well_ordered():
+    # Where both bounds are set, the envelope must be non-empty (min <= max).
+    for metric, spec in METRIC_REGISTRY.items():
+        low, high = spec.get("value_min"), spec.get("value_max")
+        if low is not None and high is not None:
+            assert low <= high, f"{metric}: value_min {low} > value_max {high}"
+
+
+def test_value_in_bounds_rejects_out_of_range_values():
+    # heart_rate is bounded 20..250: a 0 reading and a 9999 spike are implausible.
+    assert value_in_bounds("heart_rate", 60) is True
+    assert value_in_bounds("heart_rate", 0) is False
+    assert value_in_bounds("heart_rate", 9999) is False
+    # step_count is non-negative (value_min only): a negative is implausible.
+    assert value_in_bounds("step_count", 0) is True
+    assert value_in_bounds("step_count", -5) is False
+    assert value_in_bounds("step_count", 1_000_000) is True  # no upper bound
+
+
+def test_value_in_bounds_is_permissive_when_nothing_to_check():
+    # None, unknown metrics and metrics without bounds are all "plausible".
+    assert value_in_bounds("heart_rate", None) is True
+    assert value_in_bounds("not_a_real_metric", -999) is True
 
 
 def test_cardio_recovery_promoted_to_core():

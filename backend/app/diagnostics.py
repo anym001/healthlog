@@ -25,8 +25,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from statistics import median
 
-from .config import get_settings
-from .logging_config import configure_logging
+from .cli_support import bootstrap, db_session, module_main
 
 log = logging.getLogger("healthlog.diagnostics")
 
@@ -113,36 +112,32 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def run(args: argparse.Namespace) -> int:
-    settings = get_settings()
-    configure_logging(settings.log_level, settings.log_format)
+    bootstrap()
 
     # Lazy import so --help works without a configured DATABASE_URL.
     from sqlalchemy import select
 
-    from .database import SessionLocal
     from .models import RawIngest
 
-    db = SessionLocal()
-    try:
+    with db_session() as db:
         stmt = select(RawIngest.payload).order_by(RawIngest.received_at.desc())
         if args.limit is not None:
             stmt = stmt.limit(args.limit)
         payloads = db.execute(stmt).scalars()
         report = scan_workout_hr(payloads)
-    finally:
-        db.close()
 
     _log_report(report)
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
+    return module_main(
+        add_arguments,
+        run,
         prog="python -m app.diagnostics",
         description="Check whether the raw HAE archive carries intra-workout HR series.",
+        argv=argv,
     )
-    add_arguments(parser)
-    return run(parser.parse_args(argv))
 
 
 if __name__ == "__main__":

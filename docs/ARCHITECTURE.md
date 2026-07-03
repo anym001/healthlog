@@ -55,7 +55,12 @@ process — through the GIL/CPU load it would block the event loop and delay HAE
 Separate processes = OS-level isolation. The scheduler additionally launches the
 analysis as a **short-lived subprocess** (`python -m app.analysis`), so that even a
 hard crash in a C extension only kills that subprocess — the scheduler **and** uvicorn
-survive, and data intake is structurally shielded.
+survive, and data intake is structurally shielded. The subprocess runs under a hard
+timeout (a wedged run is killed and alerted like a crash), and a missed slot is
+caught up at the next start: the scheduler records each successful run in a marker
+file under `/config/state/` and, when the most recent cron slot passed without a
+run (container down at 03:30), runs the analysis immediately on startup — the
+snapshot-replace write makes the extra run idempotent.
 
 | Component | Where | Why |
 |---|---|---|
@@ -76,7 +81,7 @@ survive, and data intake is structurally shielded.
 | Scheduler | **APScheduler** (own process under s6) | schedule in code (versioned), logs→stdout (Docker-native), env/TZ clean — vs. cron-in-container friction. |
 | Analysis | **Python: pandas + statsmodels + scipy + scikit-learn** | mature, reproducible standard for correlation/trend/anomaly. |
 | Dashboards | **Grafana** | minimal effort, straight onto Timescale. |
-| Container base | **`python:3.12-slim` + s6-overlay v3** | slim image (relevant for public use), full control, PUID/PGID + `/config`. |
+| Container base | **`python:3.14-slim` + s6-overlay v3** | slim image (relevant for public use), full control, PUID/PGID + `/config`. |
 | LLM (optional) | **Ollama**, 8–14B (e.g. Qwen 2.5 14B) | local on the 32 GB Mac; receives only finished findings, not the raw data. |
 
 ## 4. Data model
@@ -112,12 +117,21 @@ structure (sleep §4.3, workouts §4.4) remain the only tables with a dedicated 
 
 ```sql
 -- Every incoming HAE payload verbatim, before parsing.
-raw_ingest (id BIGSERIAL, received_at TIMESTAMPTZ DEFAULT now(),
-            payload JSONB, source_ip INET, content_hash BYTEA)
-            -- content_hash UNIQUE → identical re-posts are discarded.
+raw_ingest (id BIGSERIAL, received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            payload JSONB, source_ip INET, content_hash BYTEA,
+            PRIMARY KEY (id, received_at))   -- hypertable on received_at
+            -- content_hash indexed → identical re-posts are discarded.
 ```
 Full fidelity: on parser/schema bugs the history can be **re-parsed** without data
-loss. Volume locally negligible.
+loss. The table is a TimescaleDB hypertable with a **native compression policy**
+(chunks older than 7 days; migration 0016) — repetitive JSON compresses by an
+order of magnitude, so the permanent-retention archive stays cheap while
+remaining fully queryable and re-derivable. Two constraint consequences (a
+hypertable requires the partition column in every unique index): the PK is the
+composite `(id, received_at)` with `id` still sequence-generated, and dedup uses
+an indexed SELECT-then-INSERT instead of `ON CONFLICT` — the race this admits
+(two *concurrent* identical posts) is harmless because all downstream upserts
+are idempotent, and HAE posts sequentially.
 
 ### 4.2 Parsed measurements (hypertable)
 
@@ -184,8 +198,12 @@ HAE delivers, per workout, a **stable `id` (UUID)** — a better idempotency key
 summary `{min, avg, max}` and intra-workout time series (`heartRateData`,
 `stepCount`, `heartRateRecovery`, …). The HR time series is parsed into
 `workout_hr_samples` (for zone-based Edwards TRIMP, see
-[`workout-analysis.md`](workout-analysis.md)); the other time series stay in the raw
-archive.
+[`workout-analysis.md`](workout-analysis.md)). When the operator enables route
+export in HAE, an outdoor GPS workout also carries a `route` array; those points are
+parsed into `workout_route_points` (the data behind the Workout Detail dashboard's
+geomap — display only, not used by the analysis). HAE ships two route schema versions:
+v2 (`latitude`/`longitude` + `speed`/accuracy) and v1 (abbreviated `lat`/`lon`); the
+parser accepts both. The other intra-workout time series stay in the raw archive.
 
 ```sql
 workouts (hae_id UUID PRIMARY KEY,        -- HAE `id`, stable → idempotency
@@ -197,6 +215,15 @@ workouts (hae_id UUID PRIMARY KEY,        -- HAE `id`, stable → idempotency
           intensity, elevation_up_m,
           temperature_c, humidity_pct DOUBLE PRECISION,  -- environment context
           source TEXT)
+
+workout_hr_samples (workout_hae_id UUID REFERENCES workouts ON DELETE CASCADE,
+                    ts TIMESTAMPTZ, bpm DOUBLE PRECISION,
+                    PRIMARY KEY (workout_hae_id, ts))   -- intra-workout HR series
+
+workout_route_points (workout_hae_id UUID REFERENCES workouts ON DELETE CASCADE,
+                      ts TIMESTAMPTZ, lat, lon DOUBLE PRECISION NOT NULL,
+                      altitude_m, speed_mps DOUBLE PRECISION,  -- optional
+                      PRIMARY KEY (workout_hae_id, ts))   -- intra-workout GPS route
 ```
 **Watch out — localisation:** `name` is language-dependent (`'Outdoor Walk'`) — like
 units, workout types need normalisation (mapping localised→canonical), otherwise
@@ -226,6 +253,20 @@ reality:** energy arrives as **`kJ`** (not kcal), plus `kcal/hr·kg`, `km/hr`, `
 the incoming `unit` is checked against it → on mismatch **convert** (known factor,
 kJ→kcal ×0.239006) **or flag**, never silently accept. Exactly this case occurred in
 the real export — the guard is no theoretical construct. A test pins it.
+
+**Plausibility envelope:** beyond units, a metric may carry optional `value_min`/
+`value_max` bounds (in the canonical unit) in the registry seed (`app/registry.py`).
+After unit normalisation the ingest parser drops any value outside the envelope —
+a spurious `heart_rate = 0` or a negative `step_count` never reaches
+`metric_samples`, so it can't corrupt the median/MAD baselines or correlations the
+nightly analysis runs on. The bounds are generous sanity rails (non-negativity for
+cumulative/count metrics, wide physiological ranges for vitals), not tight clinical
+limits, because bucket granularity varies. Dropped values are **counted** (surfaced
+in the ingest response as `implausible_values`, alongside `flagged_units`, and
+logged) but never lost: the verbatim payload still lands in the raw archive (§4.1),
+so a future re-derive can recover them once the envelope is widened. A
+flagged-but-unconverted value is exempt — its unit isn't canonical, so the bounds
+would compare against the wrong scale.
 
 ### 4.6 Metric inventory & tiering
 
@@ -286,7 +327,15 @@ findings (id, computed_at, kind TEXT,            -- correlation|anomaly|trend|se
 `ref_date`/`window_*` make a finding **markable** in Grafana (annotation on the day of
 the anomaly). Non-applicable fields stay NULL.
 
-**Finding types** (snapshot per run, `app/analysis.py`):
+`findings` is the **current snapshot** — each run deletes and rewrites it, so every
+consumer (Grafana, narration, audit) always sees exactly one coherent result set.
+Each run additionally **appends** its snapshot to `findings_history` (same columns,
+one shared `computed_at` per run as the run key), so findings stay queryable over
+time — "since when has the ACWR been warning?", "how many recovery alerts this
+month?". The archive is query-only: the pipeline never reads it, and at a few
+hundred rows per day it needs no retention policy.
+
+**Finding types** (snapshot per run, `app/analysis/findings.py`):
 - **correlation** — Spearman on the **residual** series (STL trend *and* seasonal
   components subtracted), so the coefficient measures pure day-to-day co-movement, lags
   0–3 days (both directions), FDR `p_value_adj`; per metric pair only the **strongest**
@@ -314,7 +363,7 @@ the anomaly). Non-applicable fields stay NULL.
   de-trended ones) drops significant-but-negligible pairs, and
   **activity-volume suppression** drops a pair when *both* series measure how much you
   moved/trained (workout-derived metrics — load/duration/count/intensity — or Apple
-  activity-ring metrics — see `_is_activity_volume` in `app/analysis.py`); an activity
+  activity-ring metrics — see `_is_activity_volume` in `app/analysis/findings.py`); an activity
   series vs a body-state metric (recovery/sleep/vital) is kept. Each surviving
   correlation is stamped with a **priority tier** (`details.priority_tier`, via
   `_pair_tier`): cross-subsystem links rank above expected within-subsystem pairs, so
@@ -363,7 +412,10 @@ lag/anomaly/trend/yearly-season) with a fixed seed (§7); plus a DB end-to-end t
 - **Idempotency/upsert:** on nightly exports HAE sends **overlapping windows**.
   Without dedup, duplicates grow and distort daily aggregates. Hence
   `INSERT … ON CONFLICT (UNIQUE key) DO UPDATE` on all target tables.
-  `raw_ingest.content_hash` discards identical re-posts early.
+  `raw_ingest.content_hash` discards identical re-posts early (indexed
+  SELECT-then-INSERT, see §4.1). Upserts keep working against **compressed**
+  `metric_samples` chunks (TimescaleDB decompresses the affected segments) —
+  a full-history re-backfill stays a no-op, just slower on old chunks.
 - **Backfill vs. delta:** on the first manual HAE export, load the **entire Apple
   Health history** (years) once as a bulk backfill → then **nightly deltas**. That way
   correlations are sound from day 1 (≥6–8 weeks). The full export blows past the HTTP
@@ -427,16 +479,19 @@ where the test focus sits.
 
 ## 8. CI/CD – GitHub workflows
 
-Three workflows with pinned action SHAs:
+Four workflows with pinned action SHAs:
 
 | Workflow | Trigger | Does |
 |---|---|---|
 | `test.yml` | `pull_request` **+** `workflow_call` | lint, pytest (incl. migrations against the Timescale service), smoke. Reusable so build workflows can gate on it. |
-| `dev.yml` | push to `dev` | `uses: test.yml` → only when green: build + push `:dev` and `:dev-<sha>` to **GHCR**. |
-| `build.yml` | push tag `v*` (+ `workflow_dispatch`) | `uses: test.yml` → when green: build + push `:vX.Y.Z` and `:latest` to **GHCR** + GitHub release (`generate_release_notes`). |
+| `dev.yml` | push to `dev` | `uses: test.yml` → only when green: build + push `:dev` and `:dev-<sha>` to **GHCR + Docker Hub**. |
+| `build.yml` | push tag `v*` (+ `workflow_dispatch`) | `uses: test.yml` → when green: build + push `:vX.Y.Z` and `:latest` to **GHCR + Docker Hub** + GitHub release (`generate_release_notes`). |
+| `dockerhub-readme.yml` | push to `main` touching `README.md` (+ `workflow_dispatch`) | syncs `README.md` to the Docker Hub repository description (`peter-evans/dockerhub-description`). Independent of the image build so a docs-only edit refreshes the Docker Hub page without a release. |
 
-- **Registry: GHCR** (`ghcr.io/<owner>/healthlog`). A Docker Hub mirror is deliberately
-  out of scope (see §10).
+- **Registries: GHCR + Docker Hub** (`ghcr.io/<owner>/healthlog`,
+  `docker.io/<DOCKERHUB_USERNAME>/healthlog`). The build pushes both in one step via
+  `docker/metadata-action`; the mirror needs the `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN`
+  secrets (the token also needs write access for the README sync).
 - Least privilege: `test.yml` has `contents: read`; only `dev.yml`/`build.yml` request
   `packages: write` (resp. `contents: write` for the release) on their own jobs.
 - Platform `linux/amd64` (Unraid target); arm64 can be added on demand (§10).
@@ -468,16 +523,19 @@ Dependabot PRs pass the same `test.yml` gate as any other PR.
 - **Single-tenant** (no `user_id`/`subject_id`). The analysis is per person; a later
   multi-user/subject extension is a clean migration (column nullable + default 1 +
   backfill), since the idempotency keys are already stable.
-- **Raw payload archived verbatim** (`raw_ingest`, JSONB), retention permanent (tiny
-  volume); a CA can replace the daily-aggregate view later without a schema break.
-- **ECG/GPX deliberately off** (raw waveforms/location data, no analytical value,
-  payload/privacy burden). The generic model (§4.0) tolerates further health categories
-  (medications, symptoms as event markers) at any time without a schema change, should
-  they become relevant.
+- **Raw payload archived verbatim** (`raw_ingest`, JSONB), retention permanent —
+  kept cheap by the native compression policy (§4.1); a CA can replace the
+  daily-aggregate view later without a schema break.
+- **ECG deliberately off** (raw waveforms, no analytical value, payload burden).
+  GPS routes are stored **only** when the operator enables route export in HAE
+  (`workout_route_points`, display-only — the analysis never uses location).
+  The generic model (§4.0) tolerates further health categories (medications,
+  symptoms as event markers) at any time without a schema change, should they
+  become relevant.
 - **Optional / on the server, not built in:** interactive Jupyter exploration only
   covers the ad-hoc case that pipeline + Grafana already cover.
-- **Out of scope (addable on demand):** a Docker Hub mirror of the images (currently
-  GHCR only), an arm64 image (currently `linux/amd64` only), a dedicated web app.
+- **Out of scope (addable on demand):** an arm64 image (currently `linux/amd64` only),
+  a dedicated web app.
 
 ## 11. Methodological pitfalls
 

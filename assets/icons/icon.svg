@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- HealthLog app icon - "Analytics": rising bars with an upward-curving
+       growth arrow on an Apple-Health-inspired pink-to-red gradient tile.
+       Reflects HealthLog's core job - statistical findings, trends and charts. -->
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="60%" y2="100%">
+      <stop offset="0%"   stop-color="#FF6383"/>
+      <stop offset="100%" stop-color="#E11D48"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="114" fill="url(#bg)"/>
+  <g fill="#ffffff">
+    <rect x="96"  y="320" width="56" height="72"  rx="14"/>
+    <rect x="178" y="288" width="56" height="104" rx="14"/>
+    <rect x="260" y="252" width="56" height="140" rx="14"/>
+    <rect x="342" y="208" width="56" height="184" rx="14"/>
+  </g>
+  <!-- Growth curve: gentle on the left, steeper toward the right, kept well
+       clear of the bar tops and tipped with a filled arrowhead. -->
+  <path d="M102,292 C196,274 335,209 372,150" fill="none" stroke="#ffffff"
+        stroke-width="18" stroke-linecap="round"/>
+  <path d="M400,106 353,138 391,162 Z" fill="#ffffff"/>
+</svg>

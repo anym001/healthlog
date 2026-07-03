@@ -33,7 +33,13 @@ class Base(DeclarativeBase):
 
 
 class RawIngest(Base):
-    """Every incoming HAE payload, verbatim, before parsing (replayable)."""
+    """Every incoming HAE payload, verbatim, before parsing (replayable).
+
+    A TimescaleDB hypertable on ``received_at`` with a compression policy
+    (migration 0016). The database PK is the composite (id, received_at) —
+    hypertables need the partition column in every unique index — while the
+    ORM keeps ``id`` as the logical key (it stays sequence-generated, hence
+    unique in practice)."""
 
     __tablename__ = "raw_ingest"
 
@@ -41,8 +47,9 @@ class RawIngest(Base):
     received_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     payload: Mapped[dict] = mapped_column(JSONB)
     source_ip: Mapped[str | None] = mapped_column(INET, nullable=True)
-    # SHA-256 of the raw body; UNIQUE so identical re-posts are deduped.
-    content_hash: Mapped[bytes] = mapped_column(LargeBinary, unique=True)
+    # SHA-256 of the raw body; indexed (not unique — hypertable) for the
+    # SELECT-then-INSERT dedup in archive_raw.
+    content_hash: Mapped[bytes] = mapped_column(LargeBinary, index=True)
 
 
 class MetricSample(Base):
@@ -165,6 +172,29 @@ class WorkoutHrSample(Base):
     bpm: Mapped[float] = mapped_column(Float, nullable=False)
 
 
+class WorkoutRoutePoint(Base):
+    """One intra-workout GPS location (HAE ``route``).
+
+    HAE attaches this only for outdoor GPS workouts when "Include Route Data"
+    is enabled, so the table is sparse. (workout_hae_id, ts) is the natural
+    idempotency key so a replayed payload upserts rather than duplicates.
+    Cascades with its workout. Read directly by the Workout Detail dashboard's
+    geomap; not used by the analysis."""
+
+    __tablename__ = "workout_route_points"
+
+    workout_hae_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workouts.hae_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    ts: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    lat: Mapped[float] = mapped_column(Float, nullable=False)
+    lon: Mapped[float] = mapped_column(Float, nullable=False)
+    altitude_m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    speed_mps: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
 class MetricRegistry(Base):
     """Per-metric behaviour as data: canonical unit, daily aggregate, tier."""
 
@@ -181,17 +211,11 @@ class MetricRegistry(Base):
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
-class Finding(Base):
-    """A statistical finding from the nightly pipeline (ARCHITECTURE.md §4.8).
+class _FindingColumns:
+    """Columns shared by the current snapshot (``findings``) and the
+    append-only archive (``findings_history``); declared once so the two
+    tables cannot drift."""
 
-    Written as a fresh snapshot each run (the analysis deletes the previous
-    batch). ``kind`` is one of: correlation, anomaly, trend, seasonality,
-    recovery_alert, consistency. Fields not relevant to a kind stay NULL.
-    """
-
-    __tablename__ = "findings"
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     computed_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     kind: Mapped[str] = mapped_column(String(16))
     metric_a: Mapped[str] = mapped_column(Text)
@@ -206,3 +230,49 @@ class Finding(Base):
     severity: Mapped[float | None] = mapped_column(Float, nullable=True)
     details: Mapped[dict | None] = mapped_column(JSONB, nullable=True)  # kind-specific extras
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+# Shared column names, in order, for the snapshot -> history INSERT..SELECT.
+FINDING_FIELDS: tuple[str, ...] = (
+    "computed_at",
+    "kind",
+    "metric_a",
+    "metric_b",
+    "lag_days",
+    "coefficient",
+    "p_value",
+    "p_value_adj",
+    "ref_date",
+    "window_start",
+    "window_end",
+    "severity",
+    "details",
+    "note",
+)
+
+
+class Finding(_FindingColumns, Base):
+    """A statistical finding from the nightly pipeline (ARCHITECTURE.md §4.8).
+
+    Written as a fresh snapshot each run (the analysis deletes the previous
+    batch). ``kind`` is one of: correlation, anomaly, trend, seasonality,
+    recovery_alert, consistency. Fields not relevant to a kind stay NULL.
+    """
+
+    __tablename__ = "findings"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+
+
+class FindingHistory(_FindingColumns, Base):
+    """Append-only archive of every findings snapshot (ARCHITECTURE.md §4.8).
+
+    The nightly run copies its fresh snapshot here before the next run
+    replaces ``findings``, so questions over time ("since when has the ACWR
+    been warning?", "how many recovery alerts this month?") stay answerable.
+    Rows share one ``computed_at`` per run — that timestamp is the run key.
+    """
+
+    __tablename__ = "findings_history"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)

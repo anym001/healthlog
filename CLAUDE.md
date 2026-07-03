@@ -17,14 +17,23 @@ local LLM. Everything runs on the user's own hardware — no external calls.
 - `backend/app/` — the application (one Python package):
   - `routers/` — FastAPI endpoints (`/api/ingest`, `/api/health`)
   - `ingest.py` — HAE payload parser (pure function) + idempotent upsert
-  - `analysis.py` — nightly statistics; pure-math helpers (DB-free, top of file) +
-    DB orchestration. Run as an isolated subprocess by the scheduler.
+  - `analysis/` — nightly statistics, split by role: `pure.py` (DB-free math,
+    unit-tested), `load.py` (DB loaders), `findings.py` (series assembly + finding
+    builders), `run.py` (orchestration), `constants.py` (tunables). `__init__.py`
+    re-exports the flat public API; `python -m app.analysis` runs it as an isolated
+    subprocess via the scheduler.
+  - `narrate/` — LLM narration, split by role: `prompts.py` (per-language system
+    prompts), `context.py` (privacy scrub + findings → model context, one
+    `_section_*` builder per finding kind), `loader.py` (findings query),
+    `client.py` (Ollama HTTP client), `cli.py` (the `narrate` command).
+    `__init__.py` re-exports the flat public API.
   - `cli.py` — the `healthlog` operator CLI (`backfill`, `analyze`, `audit`,
-    `narrate`, `check-workout-hr`, `rederive-workout-hr`)
+    `narrate`, `check-workout-hr`, `rederive-workout-hr`); `cli_support.py` —
+    shared command scaffolding (`bootstrap`, `db_session`, `module_main`)
   - `registry.py`, `units.py`, `workout_types.py` — normalisation (metric registry,
     unit guard, localised-workout-name → canonical-slug map)
   - `appconfig.py` — `config.yaml` model; `config.py` — env-var `Settings`
-  - `narrate.py`, `notify.py`, `audit.py`, `diagnostics.py`, `rederive.py`,
+  - `notify.py`, `audit.py`, `diagnostics.py`, `rederive.py`,
     `backfill.py`, `scheduler.py`
 - `backend/migrations/versions/` — Alembic migrations (the schema is migrations-only)
 - `backend/tests/` — pytest (parser, idempotency, analysis math, registry, …)
@@ -52,9 +61,9 @@ local LLM. Everything runs on the user's own hardware — no external calls.
 
 - **English everywhere** — code, comments, YAML, docs, commits, PRs. The one
   exception is intentional user-facing content: the German narration prompt and
-  localised report strings in `narrate.py`.
+  localised report strings in the `narrate/` package (`prompts.py`, `context.py`).
 - **Branching:** short-lived `feature/*` branch → PR against `dev`, never `main`.
-  Release = a `vX.Y.Z` tag on `main` (builds + publishes the image to GHCR).
+  Release = a `vX.Y.Z` tag on `main` (builds + publishes the image to GHCR + Docker Hub).
 - **Schema = migrations**, never a manual `ALTER TABLE`. Keep Timescale-specific DDL
   guarded.
 - **Ingest is idempotent and metric-agnostic:** unknown metrics are accepted and

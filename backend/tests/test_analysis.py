@@ -29,7 +29,7 @@ from app.analysis import (
     trend_slope,
 )
 from app.appconfig import AnalysisConfig, AppConfig, ProfileConfig, WorkoutConfig
-from app.models import Finding, MetricSample, SleepSession, Workout, WorkoutHrSample
+from app.models import Finding, FindingHistory, MetricSample, SleepSession, Workout, WorkoutHrSample
 from app.workout_types import canonical_workout_type
 
 UTC = dt.UTC
@@ -620,6 +620,12 @@ def test_run_writes_correlation_findings_as_snapshot(db):
     analysis.run(db)
     count_after_second = db.execute(select(func.count()).select_from(Finding)).scalar_one()
     assert count_after_second == count_after_first
+
+    # History: every run appends its full snapshot; computed_at is the run key.
+    history_count = db.execute(select(func.count()).select_from(FindingHistory)).scalar_one()
+    assert history_count == count_after_first + count_after_second
+    distinct_runs = db.execute(select(func.count(func.distinct(FindingHistory.computed_at)))).scalar_one()
+    assert distinct_runs == 2
 
 
 def test_build_series_includes_sleep_efficiency_and_consistency(db):

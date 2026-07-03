@@ -117,7 +117,7 @@ workouts:
 analysis:                 # nightly-pipeline tunables (lags, anomaly window, ACWR
   max_lag: 3              #   bands, …). The full set with defaults lives in
   # …                     #   backend/config.example.yaml — the single source;
-                          #   analysis.py module constants are the fallback.
+                          #   analysis/constants.py is the fallback.
 
 notify:                   # token stays in ENV (NOTIFY_TOKEN)
   url:
@@ -133,7 +133,7 @@ notify:                   # token stays in ENV (NOTIFY_TOKEN)
 - `AppConfig` (pydantic `BaseModel`), loaded from `config.yaml` via `load_config()` +
   `validate_config()` — exactly the importer pattern. ENV only overrides secrets
   (`NOTIFY_TOKEN`). If the file is missing, valid defaults apply (behaviour as before).
-- The analysis (`app/analysis.py`, subprocess) loads `AppConfig` and pulls tunables +
+- The analysis (`app/analysis/`, subprocess) loads `AppConfig` and pulls tunables +
   profile from it instead of from module constants. Ingest/uvicorn still primarily need
   ENV.
 - `config.example.yaml` ships with the repo; the real `config.yaml` is mounted and
@@ -177,9 +177,9 @@ Once the series are in the dict, among others these fall out:
 
 ## 7. Where it lives in the code
 
-1. `app/analysis.py`: `load_workout_frame()` + ~6 lines in `build_series()` (append
-   series, 0-fill), TRIMP/HR_max as pure helpers.
-2. `app/analysis.py`: `_training_load_findings()` (ACWR).
+1. `app/analysis/`: `load_workout_frame()` (`load.py`) + ~6 lines in `build_series()`
+   (`findings.py`; append series, 0-fill), TRIMP/HR_max as pure helpers (`pure.py`).
+2. `app/analysis/findings.py`: `_training_load_findings()` (ACWR).
 3. `AnalysisResult`: a `training_load` counter (otherwise workout correlations land in
    the `correlations` counter).
 4. Config: `AppConfig` + `config.yaml` (section 4).

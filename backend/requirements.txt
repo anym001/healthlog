@@ -1,15 +1,17 @@
-fastapi==0.138.0
+fastapi==0.138.2
 uvicorn[standard]==0.49.0
 sqlalchemy==2.0.51
-alembic==1.18.4
+alembic==1.18.5
 psycopg[binary]==3.3.4
 pydantic==2.13.4
 pydantic-settings==2.14.2
-apscheduler==3.11.2
+apscheduler==3.11.3
 # Structured config.yaml (behaviour/profile/tunables).
 pyyaml==6.0.3
 # Push notifications (run outcomes / health alerts) to a Gotify-compatible API.
 httpx==0.28.1
+# Opt-in Prometheus /metrics endpoint (METRICS_ENABLED): ingest counters.
+prometheus-client==0.25.0
 
 # Analysis pipeline (Phase 3): nightly statistical findings.
 numpy==2.5.0

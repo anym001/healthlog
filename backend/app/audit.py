@@ -7,7 +7,7 @@ those tests cannot see is the real database: whether enough clean history has
 actually accumulated, whether stored units drifted from their canonical form,
 and whether the last pipeline run produced anything.
 
-The scan is **read-only** and reports three things:
+The scan is **read-only** and reports four things:
 
 1. **Findings snapshot** — total and per-kind counts of the latest ``findings``
    batch, with the run timestamp. Zero findings is surfaced loudly: a silent
@@ -19,6 +19,10 @@ The scan is **read-only** and reports three things:
 3. **Unit anomalies** — any stored unit in ``metric_samples`` that differs from
    the metric's ``metric_registry.unit_canonical`` (the real-world case the
    ingest unit-guard exists for, e.g. energy arriving as kJ instead of kcal).
+4. **Unmapped workouts** — workout ``name`` values that resolve to no canonical
+   type under the current built-in map + ``workouts.type_map``. These group as
+   "Other" in Grafana and get no per-sport findings; the report is how a newly
+   appearing HAE workout name gets noticed so it can be mapped.
 
 Usage (one-shot, typically via ``docker exec``)::
 
@@ -27,8 +31,8 @@ Usage (one-shot, typically via ``docker exec``)::
 (equivalently ``python -m app.audit``.)
 
 The pure builders (``build_coverage``, ``detect_unit_anomalies``,
-``summarize_findings``) take plain rows and no DB, so they are unit-tested in
-the default suite; ``run`` does the SQL and logging.
+``summarize_findings``, ``detect_unmapped_workouts``) take plain rows and no DB,
+so they are unit-tested in the default suite; ``run`` does the SQL and logging.
 """
 
 from __future__ import annotations
@@ -40,8 +44,8 @@ import sys
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
-from .config import get_settings
-from .logging_config import configure_logging
+from .cli_support import bootstrap, db_session, module_main
+from .workout_types import canonical_workout_type
 
 log = logging.getLogger("healthlog.audit")
 
@@ -80,11 +84,18 @@ class UnitAnomaly:
 
 
 @dataclass
+class UnmappedWorkout:
+    name: str
+    count: int
+
+
+@dataclass
 class AuditReport:
     min_overlap: int
     coverage: list[MetricCoverage] = field(default_factory=list)
     findings_by_kind: dict[str, int] = field(default_factory=dict)
     unit_anomalies: list[UnitAnomaly] = field(default_factory=list)
+    unmapped_workouts: list[UnmappedWorkout] = field(default_factory=list)
     findings_last_run: dt.datetime | None = None
 
     @property
@@ -159,6 +170,27 @@ def summarize_findings(rows: Iterable[tuple[str, int]]) -> dict[str, int]:
     return {kind: int(count) for kind, count in rows}
 
 
+def detect_unmapped_workouts(
+    rows: Iterable[tuple[str | None, int]],
+    type_map: dict[str, str] | None = None,
+) -> list[UnmappedWorkout]:
+    """Workout ``name`` values that resolve to no canonical type.
+
+    Recomputes canonicalisation from the *current* built-in map plus the config
+    ``type_map`` (not the stored ``workouts.canonical_type``), so the report
+    reflects what today's mapping would still miss — surfacing a name the moment
+    a new HAE workout type appears, before anyone notices it grouped as "Other"
+    in Grafana. Map stragglers via ``workouts.type_map``. Rows are ``(name,
+    count)``; NULL names are ignored. Sorted by descending count (biggest gap
+    first), then name.
+    """
+    unmapped: list[UnmappedWorkout] = []
+    for name, count in rows:
+        if name and canonical_workout_type(name, type_map) is None:
+            unmapped.append(UnmappedWorkout(name=name, count=int(count)))
+    return sorted(unmapped, key=lambda w: (-w.count, w.name))
+
+
 # ===========================================================================
 # Reporting
 # ===========================================================================
@@ -216,6 +248,20 @@ def _log_report(report: AuditReport) -> None:
     else:
         log.info("unit: all stored units match their canonical unit")
 
+    # --- 4. Unmapped workouts ---------------------------------------------
+    if report.unmapped_workouts:
+        sessions = sum(w.count for w in report.unmapped_workouts)
+        log.warning(
+            'workout: %d name(s) resolve to no canonical type (%d session(s)) - grouped as "Other" '
+            "in Grafana and given no per-sport findings; map via workouts.type_map",
+            len(report.unmapped_workouts),
+            sessions,
+        )
+        for w in report.unmapped_workouts:
+            log.warning("workout:   %r (%d×)", w.name, w.count)
+    else:
+        log.info("workout: all workout names resolve to a canonical type")
+
 
 # ===========================================================================
 # CLI entry point (DB work lives here, kept out of the pure builders above).
@@ -227,21 +273,20 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:  # noqa: ARG001 - no
 
 
 def run(_args: argparse.Namespace) -> int:
-    settings = get_settings()
-    configure_logging(settings.log_level, settings.log_format)
+    settings = bootstrap()
 
     # Lazy imports so --help works without a configured DATABASE_URL, and the
     # heavy appconfig/yaml load only happens on a real run.
     from sqlalchemy import func, select, text
 
     from .appconfig import load_config
-    from .database import SessionLocal
-    from .models import Finding, MetricRegistry, MetricSample
+    from .models import Finding, MetricRegistry, MetricSample, Workout
 
-    min_overlap = load_config(settings.config_file).analysis.min_overlap
+    cfg = load_config(settings.config_file)
+    min_overlap = cfg.analysis.min_overlap
+    type_map = cfg.workouts.type_map
 
-    db = SessionLocal()
-    try:
+    with db_session() as db:
         registry: dict[str, dict] = {
             metric: {"tier": tier, "unit_canonical": unit}
             for metric, tier, unit in db.execute(
@@ -260,14 +305,15 @@ def run(_args: argparse.Namespace) -> int:
 
         finding_rows = db.execute(select(Finding.kind, func.count()).group_by(Finding.kind)).all()
         last_run = db.execute(select(func.max(Finding.computed_at))).scalar_one_or_none()
-    finally:
-        db.close()
+
+        workout_rows = db.execute(select(Workout.name, func.count()).group_by(Workout.name)).all()
 
     report = AuditReport(
         min_overlap=min_overlap,
         coverage=build_coverage(coverage_rows, registry),
         findings_by_kind=summarize_findings(finding_rows),
         unit_anomalies=detect_unit_anomalies(unit_rows, registry),
+        unmapped_workouts=detect_unmapped_workouts(workout_rows, type_map),
         findings_last_run=last_run,
     )
     _log_report(report)
@@ -275,12 +321,13 @@ def run(_args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
+    return module_main(
+        add_arguments,
+        run,
         prog="python -m app.audit",
         description="Read-only data-quality audit: findings snapshot, coverage, unit anomalies.",
+        argv=argv,
     )
-    add_arguments(parser)
-    return run(parser.parse_args(argv))
 
 
 if __name__ == "__main__":

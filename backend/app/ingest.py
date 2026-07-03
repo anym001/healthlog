@@ -21,8 +21,16 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql.expression import literal_column
 
 from . import units
-from .models import MetricRegistry, MetricSample, RawIngest, SleepSession, Workout, WorkoutHrSample
-from .registry import METRIC_REGISTRY, SLEEP_METRIC
+from .models import (
+    MetricRegistry,
+    MetricSample,
+    RawIngest,
+    SleepSession,
+    Workout,
+    WorkoutHrSample,
+    WorkoutRoutePoint,
+)
+from .registry import METRIC_REGISTRY, SLEEP_METRIC, value_in_bounds
 from .timeutil import parse_hae_datetime
 from .workout_types import canonical_workout_type
 
@@ -36,9 +44,14 @@ class ParsedPayload:
     workout_rows: list[dict] = field(default_factory=list)
     # Intra-workout HR samples (heartRateData) -> workout_hr_samples.
     workout_hr_rows: list[dict] = field(default_factory=list)
+    # Intra-workout GPS route (route) -> workout_route_points.
+    workout_route_rows: list[dict] = field(default_factory=list)
     # Metrics seen in the payload that are absent from the registry seed.
     unknown_metrics: dict[str, str] = field(default_factory=dict)  # metric -> unit
     flagged_units: list[tuple[str, str]] = field(default_factory=list)  # (metric, unit)
+    # Values dropped for falling outside the registry plausibility envelope; the
+    # raw payload is still archived verbatim, so a re-derive can recover them.
+    implausible: list[tuple[str, float]] = field(default_factory=list)  # (metric, value)
 
 
 def _num(value) -> float | None:
@@ -48,6 +61,17 @@ def _num(value) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _keep_value(metric: str, value: float | None, out: ParsedPayload) -> bool:
+    """False if ``value`` falls outside the metric's plausibility envelope (and
+    records it on ``out.implausible`` so the count surfaces); True when it should
+    be stored. The value must already be in the canonical unit, so a flagged
+    (unconverted, foreign-unit) value is never routed through here."""
+    if value_in_bounds(metric, value):
+        return True
+    out.implausible.append((metric, value))
+    return False
 
 
 def _parse_metric(name: str, payload_unit: str | None, point: dict, out: ParsedPayload) -> None:
@@ -65,6 +89,8 @@ def _parse_metric(name: str, payload_unit: str | None, point: dict, out: ParsedP
         norm_avg = units.normalise(name, raw_unit, _num(point.get("Avg")))
         if norm_avg.flagged:
             out.flagged_units.append((name, raw_unit or ""))
+        elif not _keep_value(name, norm_avg.value, out):
+            return  # representative value implausible -> drop (raw archive keeps it)
         out.metric_rows.append(
             {
                 "time": ts,
@@ -82,6 +108,8 @@ def _parse_metric(name: str, payload_unit: str | None, point: dict, out: ParsedP
         norm = units.normalise(name, raw_unit, _num(point.get("qty")))
         if norm.flagged:
             out.flagged_units.append((name, raw_unit or ""))
+        elif not _keep_value(name, norm.value, out):
+            return  # value implausible -> drop (raw archive keeps it)
         out.metric_rows.append(
             {
                 "time": ts,
@@ -156,6 +184,22 @@ def _hr_sample_bpm(point: dict) -> float | None:
     return _num(point.get("Avg")) if point.get("Avg") is not None else _num(point.get("qty"))
 
 
+def _route_coords(point: dict) -> tuple[float, float, float | None, float | None] | None:
+    """Lat/lon (+ optional altitude in m, speed in m/s) of one ``route`` point.
+
+    Spans both HAE schema versions: v2 ships ``latitude``/``longitude`` (plus
+    speed and accuracy fields), v1 ships abbreviated ``lat``/``lon``. A point
+    without a usable coordinate pair is skipped.
+    """
+    if not isinstance(point, dict):
+        return None
+    lat = _num(point.get("latitude")) if point.get("latitude") is not None else _num(point.get("lat"))
+    lon = _num(point.get("longitude")) if point.get("longitude") is not None else _num(point.get("lon"))
+    if lat is None or lon is None:
+        return None
+    return lat, lon, _num(point.get("altitude")), _num(point.get("speed"))
+
+
 def _parse_workout(w: dict, out: ParsedPayload, type_map: dict[str, str] | None = None) -> None:
     raw_id = w.get("id")
     if not raw_id:
@@ -180,6 +224,33 @@ def _parse_workout(w: dict, out: ParsedPayload, type_map: dict[str, str] | None 
             bpm = _hr_sample_bpm(point)
             if ts is not None and bpm is not None:
                 out.workout_hr_rows.append({"workout_hae_id": hae_id, "ts": ts, "bpm": bpm})
+
+    # Intra-workout GPS route (only present for outdoor GPS workouts when the
+    # operator enables route export). Each (timestamp + coordinate) becomes one
+    # workout_route_points row; (hae_id, ts) keeps it idempotent across replays.
+    route = w.get("route")
+    if isinstance(route, list):
+        for point in route:
+            coords = _route_coords(point)
+            if coords is None:
+                continue
+            try:
+                ts = parse_hae_datetime(point.get("timestamp"))
+            except ValueError:
+                ts = None  # a single malformed sample must not abort the payload
+            if ts is None:
+                continue
+            lat, lon, altitude_m, speed_mps = coords
+            out.workout_route_rows.append(
+                {
+                    "workout_hae_id": hae_id,
+                    "ts": ts,
+                    "lat": lat,
+                    "lon": lon,
+                    "altitude_m": altitude_m,
+                    "speed_mps": speed_mps,
+                }
+            )
 
     hr = w.get("heartRate") if isinstance(w.get("heartRate"), dict) else {}
     name = w.get("name")
@@ -266,7 +337,13 @@ class StoreResult:
     sleep_rows: int = 0
     workout_rows: int = 0
     workout_hr_rows: int = 0
+    workout_route_rows: int = 0
     unknown_metrics: int = 0
+    # Data-quality counters: metric values whose incoming unit deviated with no
+    # known conversion (kept as-is), and values dropped for failing the registry
+    # plausibility envelope. Both are surfaced so a silent drift is visible.
+    flagged_units: int = 0
+    implausible_values: int = 0
     # New vs. updated counts from the Postgres xmax trick: xmax=0 means the
     # row was freshly inserted; xmax!=0 means an existing row was updated (i.e.
     # the payload contained data that was already in the DB).
@@ -388,6 +465,26 @@ def store_workout_hr_samples(db: Session, rows: list[dict]) -> int:
     return len(deduped)
 
 
+def store_workout_route_points(db: Session, rows: list[dict]) -> int:
+    """Idempotent upsert of intra-workout GPS route points. The owning workout
+    must already be persisted (FK); within ``store`` this runs after the workout
+    upsert. Returns the number of rows submitted (deduped)."""
+    deduped = _dedupe(rows, ("workout_hae_id", "ts"))
+    for chunk in _chunked(deduped, _batch_size(6)):
+        stmt = pg_insert(WorkoutRoutePoint).values(chunk)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["workout_hae_id", "ts"],
+            set_={
+                "lat": stmt.excluded.lat,
+                "lon": stmt.excluded.lon,
+                "altitude_m": stmt.excluded.altitude_m,
+                "speed_mps": stmt.excluded.speed_mps,
+            },
+        )
+        db.execute(stmt)
+    return len(deduped)
+
+
 def store(db: Session, parsed: ParsedPayload) -> StoreResult:
     """Idempotent upsert of parsed rows. Safe to replay overlapping windows.
 
@@ -437,16 +534,26 @@ def store(db: Session, parsed: ParsedPayload) -> StoreResult:
 
     # After the workouts (FK target) exist in this transaction.
     workout_hr_rows = store_workout_hr_samples(db, parsed.workout_hr_rows)
+    workout_route_rows = store_workout_route_points(db, parsed.workout_route_rows)
 
     for metric, unit in parsed.flagged_units:
         log.warning("unit mismatch for %s: incoming '%s' kept as-is (no known conversion)", metric, unit)
+    for metric, value in parsed.implausible:
+        log.warning(
+            "implausible value for %s: %r outside registry bounds, dropped (raw archive keeps it)",
+            metric,
+            value,
+        )
 
     return StoreResult(
         metric_rows=len(parsed.metric_rows),
         sleep_rows=len(parsed.sleep_rows),
         workout_rows=len(parsed.workout_rows),
         workout_hr_rows=workout_hr_rows,
+        workout_route_rows=workout_route_rows,
         unknown_metrics=len(parsed.unknown_metrics),
+        flagged_units=len(parsed.flagged_units),
+        implausible_values=len(parsed.implausible),
         metric_new=metric_new,
         sleep_new=sleep_new,
         workout_new=workout_new,
@@ -455,15 +562,19 @@ def store(db: Session, parsed: ParsedPayload) -> StoreResult:
 
 def archive_raw(db: Session, payload: dict, content_hash: bytes, source_ip: str | None) -> bool:
     """Insert the verbatim payload. Returns False if it's a duplicate
-    (content_hash already present), in which case parsing should be skipped."""
-    stmt = (
-        pg_insert(RawIngest)
-        .values(payload=payload, content_hash=content_hash, source_ip=source_ip)
-        .on_conflict_do_nothing(index_elements=["content_hash"])
-        .returning(RawIngest.id)
-    )
-    result = db.execute(stmt).first()
-    return result is not None
+    (content_hash already present), in which case parsing should be skipped.
+
+    Dedup is SELECT-then-INSERT rather than ON CONFLICT: ``raw_ingest`` is a
+    hypertable partitioned on ``received_at`` (for native compression, see
+    migration 0016), and a hypertable cannot carry a global unique index on
+    ``content_hash`` alone. The race this opens — two *concurrent* identical
+    posts both archived — is harmless: the downstream upserts are idempotent,
+    and HAE posts sequentially anyway."""
+    exists = db.execute(sa.select(RawIngest.id).where(RawIngest.content_hash == content_hash).limit(1)).first()
+    if exists is not None:
+        return False
+    db.execute(sa.insert(RawIngest).values(payload=payload, content_hash=content_hash, source_ip=source_ip))
+    return True
 
 
 def ingest_bytes(

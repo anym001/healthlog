@@ -1,0 +1,56 @@
+# HealthLog — TimescaleDB + app container.
+#
+#   cp .env.example .env   # set POSTGRES_PASSWORD and INGEST_SECRET
+#   docker compose up -d
+#
+# The database is not published on the host: it is reachable only by the app
+# over the compose network. Put a TLS reverse proxy in front of port 8000
+# before pointing Health Auto Export at it (see README "Reverse proxy").
+name: healthlog
+
+services:
+  db:
+    # Pin the exact TimescaleDB tag — never a floating one — so recreating
+    # the container can't silently change the engine under your data
+    # (see README "Updating the database image").
+    image: timescale/timescaledb:2.17.2-pg16
+    environment:
+      POSTGRES_USER: healthlog
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: healthlog
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U healthlog"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  healthlog:
+    # Pin production to a fixed release (HEALTHLOG_VERSION=X.Y.Z in .env) so
+    # a new release never silently updates your instance.
+    image: ghcr.io/anym001/healthlog:${HEALTHLOG_VERSION:-latest}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg://healthlog:${POSTGRES_PASSWORD}@db:5432/healthlog
+      INGEST_SECRET: ${INGEST_SECRET:?set INGEST_SECRET in .env}
+      TZ: ${TZ:-Europe/Vienna}
+      ANALYSIS_CRON: ${ANALYSIS_CRON:-30 3 * * *}
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      NOTIFY_TOKEN: ${NOTIFY_TOKEN:-}
+      METRICS_ENABLED: ${METRICS_ENABLED:-false}
+      API_DOCS_ENABLED: ${API_DOCS_ENABLED:-false}
+    volumes:
+      # Bind mount so config.yaml, the import/ drop folder and narration
+      # reports are directly accessible on the host.
+      - ${CONFIG_DIR:-./config}:/config
+    restart: unless-stopped
+
+volumes:
+  db-data:

@@ -11,20 +11,22 @@ Two configuration homes, deliberately split (mirrors pocketlog-importer):
 
 The file is optional: a missing ``config.yaml`` yields all-default values, so a
 fresh container behaves exactly as before this module existed. Defaults here are
-the single source of truth for the analysis tunables — ``app/analysis.py``
+the single source of truth for the analysis tunables — ``app/analysis/constants.py``
 derives its module constants from :class:`AnalysisConfig`.
 """
 
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import os
-from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+log = logging.getLogger("healthlog.config")
 
 
 class ProfileConfig(BaseModel):
@@ -72,7 +74,7 @@ class WorkoutConfig(BaseModel):
 class AnalysisConfig(BaseModel):
     """Tunables for the nightly statistical pipeline.
 
-    Defaults equal the values previously hard-coded in ``analysis.py``; changing
+    Defaults equal the values previously hard-coded in the analysis package; changing
     them in ``config.yaml`` lets an operator retune without rebuilding the image.
     Structural periods (weekly=7, annual=365) are NOT exposed — they are domain
     constants, not knobs.
@@ -217,6 +219,10 @@ class NarrateConfig(BaseModel):
     # are summarised as a count so the report leads with the informative links
     # rather than expected/structural ones. 0 = no cap (pass them all).
     max_correlations: int = Field(default=15, ge=0, le=200)
+    # Enable qwen3 extended-thinking mode (passes "think": true in the Ollama
+    # /api/chat request). Only has an effect with qwen3-family models; ignored
+    # by others. Substantially improves analysis depth at the cost of latency.
+    thinking: bool = False
 
 
 class AppConfig(BaseModel):
@@ -258,9 +264,48 @@ def load_config(path: str | Path) -> AppConfig:
     return config
 
 
-@lru_cache
+# (path, mtime_ns) -> parsed config. One entry; the stamp is the cache key, so
+# an edited config.yaml takes effect on the next access without a restart.
+_cache: tuple[str, int, AppConfig] | None = None
+
+
+def _stamp(path: Path) -> int:
+    """Change stamp of the config file; -1 while it doesn't exist (a file
+    appearing later therefore changes the stamp and triggers a load)."""
+    try:
+        return path.stat().st_mtime_ns
+    except OSError:
+        return -1
+
+
 def get_app_config() -> AppConfig:
-    """Cached config from the path in ``Settings.config_file``."""
+    """Config from the path in ``Settings.config_file``, hot-reloaded.
+
+    The file's mtime is the cache key: edits are picked up on the next
+    request/run without a container restart. A reload that fails validation
+    keeps the previous config (one warning per broken edit) so a bad edit
+    never takes down a running service; the *first* load still raises, so a
+    broken file is caught at startup rather than silently defaulted.
+    """
+    global _cache
     from .config import get_settings
 
-    return load_config(get_settings().config_file)
+    path = Path(get_settings().config_file)
+    stamp = _stamp(path)
+    if _cache is not None and _cache[0] == str(path) and _cache[1] == stamp:
+        return _cache[2]
+    try:
+        config = load_config(path)
+    except ValueError as exc:
+        if _cache is None:
+            raise
+        log.warning("config.yaml reload failed (%s); keeping the previous configuration", exc)
+        config = _cache[2]  # remember the stamp so the warning fires once per edit
+    _cache = (str(path), stamp, config)
+    return config
+
+
+def reset_app_config_cache() -> None:
+    """Forget the cached config (tests; not needed in production)."""
+    global _cache
+    _cache = None

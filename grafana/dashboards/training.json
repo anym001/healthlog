@@ -1,9 +1,9 @@
 {
   "uid": "healthlog-training",
   "title": "HealthLog – Training",
-  "description": "30-day training load, recovery metrics, and workout history. Adjust HR Base and HR Reserve to match your physiology for accurate TRIMP values. Adjust Timezone if you are not in Europe/Vienna.",
+  "description": "30-day training load, recovery metrics, and workout history. TRIMP is a relative estimate: the resting-HR baseline is auto-derived from your measured resting_heart_rate, so only HR Max needs setting to match your physiology. Display times use the dashboard timezone (Settings → Timezone, default Europe/Vienna); the TRIMP daily grouping is bucketed via the hidden 'tz' constant (default Europe/Vienna).",
   "schemaVersion": 39,
-  "version": 3,
+  "version": 9,
   "timezone": "Europe/Vienna",
   "time": {
     "from": "now-30d",
@@ -43,48 +43,51 @@
       "targetBlank": false,
       "includeVars": false,
       "tooltip": "Open Metrics Explorer"
+    },
+    {
+      "title": "Workout Detail",
+      "url": "/d/healthlog-workout-detail",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": true,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Workout Detail dashboard"
     }
   ],
   "templating": {
     "list": [
       {
         "name": "tz",
-        "type": "custom",
+        "type": "constant",
         "label": "Timezone",
-        "description": "Timezone used to group workouts by local date and to display workout timestamps. Must match a valid PostgreSQL timezone name.",
-        "query": "Europe/Vienna,Europe/Berlin,Europe/London,America/New_York,America/Los_Angeles,UTC",
-        "current": {
-          "value": "Europe/Vienna",
-          "text": "Europe/Vienna"
-        },
-        "options": [
-          {"text": "Europe/Vienna", "value": "Europe/Vienna", "selected": true},
-          {"text": "Europe/Berlin", "value": "Europe/Berlin", "selected": false},
-          {"text": "Europe/London", "value": "Europe/London", "selected": false},
-          {"text": "America/New_York", "value": "America/New_York", "selected": false},
-          {"text": "America/Los_Angeles", "value": "America/Los_Angeles", "selected": false},
-          {"text": "UTC", "value": "UTC", "selected": false}
-        ],
-        "hide": 0,
-        "multi": false,
-        "includeAll": false,
-        "sort": 0,
-        "refresh": 0
+        "description": "Hidden constant. Timezone name used only for the SQL-side local-date bucketing of the TRIMP-by-day panels (DATE(start_time AT TIME ZONE ...)), which Grafana's dashboard timezone cannot reach. Change the value here to re-localise the daily grouping.",
+        "query": "Europe/Vienna",
+        "current": {"value": "Europe/Vienna", "text": "Europe/Vienna", "selected": false},
+        "options": [{"text": "Europe/Vienna", "value": "Europe/Vienna", "selected": false}],
+        "hide": 2
       },
       {
         "name": "hr_rest",
-        "type": "textbox",
+        "type": "query",
         "label": "HR Base (bpm)",
-        "description": "Resting heart rate baseline for the TRIMP formula (typically your morning resting HR).",
-        "query": "60",
-        "hide": 0
+        "description": "Hidden, auto-derived. Resting-HR baseline for the TRIMP estimate, taken from your measured resting_heart_rate over the last 90 days (median of the daily values), so you don't have to type a value that is already in the database. Falls back to 60 if no resting-HR data exists. The measured value is also charted in the Resting HR panel.",
+        "datasource": {"uid": "healthlog-db"},
+        "query": "SELECT COALESCE(ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY vmin))::int, 60) AS hr_rest FROM daily_metrics WHERE metric = 'resting_heart_rate' AND day >= (NOW() - INTERVAL '90 days')::date",
+        "refresh": 1,
+        "sort": 0,
+        "multi": false,
+        "includeAll": false,
+        "hide": 2,
+        "current": {},
+        "options": []
       },
       {
-        "name": "hr_reserve",
+        "name": "hr_max",
         "type": "textbox",
-        "label": "HR Reserve (bpm)",
-        "description": "Heart rate reserve = MaxHR − RestingHR. Example: if MaxHR = 190 and resting = 60, enter 130.",
-        "query": "130",
+        "label": "HR Max (bpm)",
+        "description": "Your maximum heart rate — the one value the TRIMP estimate needs that is NOT measured (Apple Health has no HR_max). Set it from a max-HR test, or use an age estimate (Tanaka: 208 − 0.7 × age). HR reserve is computed as HR Max − HR Base.",
+        "query": "190",
         "hide": 0
       }
     ]
@@ -107,7 +110,7 @@
       "id": 1,
       "type": "stat",
       "title": "TRIMP (last 7d)",
-      "description": "Training Impulse accumulated over the last 7 days. TRIMP = Σ (duration_min × HR-intensity × 0.64·e^(1.92·intensity)). Blue < 100 (light week), green 100–299, yellow 300–499, red ≥ 500 (very high load). Adjust HR Base and HR Reserve variables for accurate results.",
+      "description": "Training Impulse accumulated over the last 7 days (relative estimate). TRIMP = Σ (duration_min × HR-intensity × 0.64·e^(1.92·intensity)). Blue < 100 (light week), green 100–299, yellow 300–499, red ≥ 500 (very high load). HR Base is auto-derived from your measured resting HR; set HR Max above to match your physiology.",
       "gridPos": {
         "x": 0,
         "y": 1,
@@ -165,7 +168,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT ROUND(SUM(CASE WHEN avg_hr IS NOT NULL AND duration_s IS NOT NULL AND duration_s > 0 THEN (duration_s/60.0) * LEAST(1.0,GREATEST(0.0,(avg_hr-${hr_rest}::numeric)/${hr_reserve}::numeric)) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,(avg_hr-${hr_rest}::numeric)/${hr_reserve}::numeric)))) ELSE 0 END)::numeric, 0) AS \"TRIMP (7d)\" FROM workouts WHERE start_time >= NOW() - INTERVAL '7 days'",
+          "rawSql": "SELECT ROUND(SUM(CASE WHEN avg_hr IS NOT NULL AND duration_s IS NOT NULL AND duration_s > 0 THEN (duration_s/60.0) * LEAST(1.0,GREATEST(0.0,(avg_hr-${hr_rest}::numeric)/(${hr_max}::numeric - ${hr_rest}::numeric))) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,(avg_hr-${hr_rest}::numeric)/(${hr_max}::numeric - ${hr_rest}::numeric))))) ELSE 0 END)::numeric, 0) AS \"TRIMP (7d)\" FROM workouts WHERE start_time >= NOW() - INTERVAL '7 days'",
           "format": "table"
         }
       ]
@@ -376,7 +379,7 @@
       "id": 5,
       "type": "barchart",
       "title": "Training Load (TRIMP)",
-      "description": "Daily total TRIMP. Formula: Σ (duration_min × intensity × 0.64·e^(1.92·intensity)) where intensity = LEAST(1, MAX(0, (AvgHR − HR Base) / HR Reserve)). Adjust the HR Base and HR Reserve variables above to match your physiology.",
+      "description": "Daily total TRIMP (relative estimate). Formula: Σ (duration_min × intensity × 0.64·e^(1.92·intensity)) where intensity = LEAST(1, MAX(0, (AvgHR − HR Base) / (HR Max − HR Base))). HR Base is auto-derived from your measured resting_heart_rate (90-day median); set HR Max above to match your physiology.",
       "gridPos": {
         "x": 0,
         "y": 6,
@@ -414,7 +417,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT DATE(start_time AT TIME ZONE '$tz') AS time, ROUND(SUM(CASE WHEN avg_hr IS NOT NULL AND duration_s IS NOT NULL AND duration_s > 0 THEN (duration_s/60.0) * LEAST(1.0,GREATEST(0.0,(avg_hr-${hr_rest}::numeric)/${hr_reserve}::numeric)) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,(avg_hr-${hr_rest}::numeric)/${hr_reserve}::numeric)))) ELSE 0 END)::numeric, 1) AS \"TRIMP\" FROM workouts WHERE $__timeFilter(start_time) GROUP BY DATE(start_time AT TIME ZONE '$tz') ORDER BY time",
+          "rawSql": "SELECT DATE(start_time AT TIME ZONE '$tz') AS time, ROUND(SUM(CASE WHEN avg_hr IS NOT NULL AND duration_s IS NOT NULL AND duration_s > 0 THEN (duration_s/60.0) * LEAST(1.0,GREATEST(0.0,(avg_hr-${hr_rest}::numeric)/(${hr_max}::numeric - ${hr_rest}::numeric))) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,(avg_hr-${hr_rest}::numeric)/(${hr_max}::numeric - ${hr_rest}::numeric))))) ELSE 0 END)::numeric, 1) AS \"TRIMP\" FROM workouts WHERE $__timeFilter(start_time) GROUP BY DATE(start_time AT TIME ZONE '$tz') ORDER BY time",
           "format": "time_series"
         }
       ]
@@ -470,7 +473,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT DATE(w.start_time AT TIME ZONE '$tz') AS time, COALESCE(g.group_name, 'Other') AS sport_group, ROUND(SUM(CASE WHEN w.avg_hr IS NOT NULL AND w.duration_s IS NOT NULL AND w.duration_s > 0 THEN (w.duration_s/60.0) * LEAST(1.0,GREATEST(0.0,(w.avg_hr-${hr_rest}::numeric)/${hr_reserve}::numeric)) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,(w.avg_hr-${hr_rest}::numeric)/${hr_reserve}::numeric)))) ELSE 0 END)::numeric, 1) AS trimp FROM workouts w LEFT JOIN workout_type_groups g ON g.canonical_type = w.canonical_type WHERE $__timeFilter(w.start_time) GROUP BY DATE(w.start_time AT TIME ZONE '$tz'), COALESCE(g.group_name, 'Other'), COALESCE(g.sort_order, 99) ORDER BY time, COALESCE(g.sort_order, 99), sport_group",
+          "rawSql": "SELECT DATE(w.start_time AT TIME ZONE '$tz') AS time, COALESCE(g.group_name, 'Other') AS sport_group, ROUND(SUM(CASE WHEN w.avg_hr IS NOT NULL AND w.duration_s IS NOT NULL AND w.duration_s > 0 THEN (w.duration_s/60.0) * LEAST(1.0,GREATEST(0.0,(w.avg_hr-${hr_rest}::numeric)/(${hr_max}::numeric - ${hr_rest}::numeric))) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,(w.avg_hr-${hr_rest}::numeric)/(${hr_max}::numeric - ${hr_rest}::numeric))))) ELSE 0 END)::numeric, 1) AS trimp FROM workouts w LEFT JOIN workout_type_groups g ON g.canonical_type = w.canonical_type WHERE $__timeFilter(w.start_time) GROUP BY DATE(w.start_time AT TIME ZONE '$tz'), COALESCE(g.group_name, 'Other'), COALESCE(g.sort_order, 99) ORDER BY time, COALESCE(g.sort_order, 99), sport_group",
           "format": "table"
         }
       ]
@@ -927,7 +930,7 @@
       "id": 11,
       "type": "table",
       "title": "Workouts",
-      "description": "Individual workout sessions in the selected time range (newest first). Times are shown in the selected Timezone. Group comes from the workout_type_groups table; '—' means the workout type is not yet mapped to a group.",
+      "description": "Individual workout sessions in the selected time range (newest first). Times are shown in the selected Timezone. Group comes from the workout_type_groups table; '—' means the workout type is not yet mapped to a group. Click a Date cell to open the Workout Detail dashboard for that session (intra-workout HR curve), zoomed to the workout.",
       "gridPos": {
         "x": 0,
         "y": 33,
@@ -940,6 +943,64 @@
       "fieldConfig": {
         "defaults": {},
         "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "hae_id"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "from_ms"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "to_ms"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Date"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "time:YYYY-MM-DD HH:mm"
+              },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open Workout Detail for this session",
+                    "url": "/d/healthlog-workout-detail/healthlog-workout-detail?var-workout=${__data.fields.hae_id}&from=${__data.fields.from_ms}&to=${__data.fields.to_ms}",
+                    "targetBlank": false
+                  }
+                ]
+              }
+            ]
+          },
           {
             "matcher": {
               "id": "byName",
@@ -992,7 +1053,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT TO_CHAR(w.start_time AT TIME ZONE '$tz', 'YYYY-MM-DD HH24:MI') AS \"Date\", w.name AS \"Type\", COALESCE(g.group_name, '—') AS \"Group\", ROUND(w.duration_s/60.0)::int AS \"Duration (min)\", ROUND(w.active_energy_kcal::numeric, 0) AS \"Energy (kcal)\", ROUND(w.avg_hr::numeric, 0) AS \"Avg HR (bpm)\", ROUND(w.max_hr::numeric, 0) AS \"Max HR (bpm)\", ROUND(w.distance_km::numeric, 2) AS \"Distance (km)\" FROM workouts w LEFT JOIN workout_type_groups g ON g.canonical_type = w.canonical_type WHERE $__timeFilter(w.start_time) ORDER BY w.start_time DESC",
+          "rawSql": "SELECT w.hae_id::text AS hae_id, (EXTRACT(EPOCH FROM (w.start_time - INTERVAL '2 min')) * 1000)::bigint AS from_ms, (EXTRACT(EPOCH FROM (COALESCE(w.end_time, w.start_time + INTERVAL '1 hour') + INTERVAL '2 min')) * 1000)::bigint AS to_ms, w.start_time AS \"Date\", w.name AS \"Type\", COALESCE(g.group_name, '—') AS \"Group\", ROUND(w.duration_s/60.0)::int AS \"Duration (min)\", ROUND(w.active_energy_kcal::numeric, 0) AS \"Energy (kcal)\", ROUND(w.avg_hr::numeric, 0) AS \"Avg HR (bpm)\", ROUND(w.max_hr::numeric, 0) AS \"Max HR (bpm)\", ROUND(w.distance_km::numeric, 2) AS \"Distance (km)\" FROM workouts w LEFT JOIN workout_type_groups g ON g.canonical_type = w.canonical_type WHERE $__timeFilter(w.start_time) ORDER BY w.start_time DESC",
           "format": "table"
         }
       ]
