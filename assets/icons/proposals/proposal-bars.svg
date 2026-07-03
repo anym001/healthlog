@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Proposal 2 - "Analytics": rising bars plus a trend line with an arrow.
+       Reflects HealthLog's core job - statistical findings, trends, charts. -->
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="60%" y2="100%">
+      <stop offset="0%"   stop-color="#FF6383"/>
+      <stop offset="100%" stop-color="#E11D48"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="114" fill="url(#bg)"/>
+  <g fill="#ffffff">
+    <rect x="96"  y="292" width="56" height="94"  rx="14"/>
+    <rect x="178" y="244" width="56" height="142" rx="14"/>
+    <rect x="260" y="184" width="56" height="202" rx="14"/>
+    <rect x="342" y="120" width="56" height="266" rx="14"/>
+  </g>
+  <g fill="none" stroke="#ffffff" stroke-width="16" stroke-linejoin="round" stroke-linecap="round" opacity="0.92">
+    <polyline points="124,262 206,214 288,154 356,102"/>
+    <polyline points="316,104 356,102 356,142"/>
+  </g>
+</svg>

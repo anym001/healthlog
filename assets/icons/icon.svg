@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- HealthLog app icon - "HL" monogram, Apple-Health-inspired pink-to-red gradient.
+       Letterforms are drawn as rectangles so rendering is font-independent. -->
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="60%" y2="100%">
+      <stop offset="0%"   stop-color="#FF6383"/>
+      <stop offset="100%" stop-color="#E11D48"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="114" fill="url(#bg)"/>
+  <g fill="#ffffff">
+    <!-- H -->
+    <rect x="66"  y="131" width="54"  height="250" rx="6"/>
+    <rect x="212" y="131" width="54"  height="250" rx="6"/>
+    <rect x="66"  y="229" width="200" height="54"  rx="6"/>
+    <!-- L -->
+    <rect x="296" y="131" width="54"  height="250" rx="6"/>
+    <rect x="296" y="327" width="150" height="54"  rx="6"/>
+  </g>
+</svg>
