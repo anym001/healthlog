@@ -11,14 +11,14 @@
   <rect width="512" height="512" fill="url(#bg)"/>
   <g transform="translate(256 256) scale(0.82) translate(-256 -256)">
     <g fill="#ffffff">
-      <rect x="96"  y="292" width="56" height="94"  rx="14"/>
-      <rect x="178" y="244" width="56" height="142" rx="14"/>
-      <rect x="260" y="184" width="56" height="202" rx="14"/>
-      <rect x="342" y="120" width="56" height="266" rx="14"/>
+      <rect x="96"  y="300" width="56" height="92"  rx="14"/>
+      <rect x="178" y="264" width="56" height="128" rx="14"/>
+      <rect x="260" y="224" width="56" height="168" rx="14"/>
+      <rect x="342" y="180" width="56" height="212" rx="14"/>
     </g>
-    <g fill="none" stroke="#ffffff" stroke-width="16" stroke-linejoin="round" stroke-linecap="round" opacity="0.92">
-      <polyline points="124,262 206,214 288,154 356,102"/>
-      <polyline points="316,104 356,102 356,142"/>
+    <g fill="none" stroke="#ffffff" stroke-width="18" stroke-linejoin="round" stroke-linecap="round">
+      <polyline points="110,252 202,206 296,160 408,116"/>
+      <polyline points="368,116 408,116 408,156"/>
     </g>
   </g>
 </svg>
