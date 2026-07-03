@@ -63,7 +63,7 @@ local LLM. Everything runs on the user's own hardware — no external calls.
   exception is intentional user-facing content: the German narration prompt and
   localised report strings in the `narrate/` package (`prompts.py`, `context.py`).
 - **Branching:** short-lived `feature/*` branch → PR against `dev`, never `main`.
-  Release = a `vX.Y.Z` tag on `main` (builds + publishes the image to GHCR).
+  Release = a `vX.Y.Z` tag on `main` (builds + publishes the image to GHCR + Docker Hub).
 - **Schema = migrations**, never a manual `ALTER TABLE`. Keep Timescale-specific DDL
   guarded.
 - **Ingest is idempotent and metric-agnostic:** unknown metrics are accepted and

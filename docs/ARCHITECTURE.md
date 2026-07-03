@@ -479,16 +479,19 @@ where the test focus sits.
 
 ## 8. CI/CD – GitHub workflows
 
-Three workflows with pinned action SHAs:
+Four workflows with pinned action SHAs:
 
 | Workflow | Trigger | Does |
 |---|---|---|
 | `test.yml` | `pull_request` **+** `workflow_call` | lint, pytest (incl. migrations against the Timescale service), smoke. Reusable so build workflows can gate on it. |
-| `dev.yml` | push to `dev` | `uses: test.yml` → only when green: build + push `:dev` and `:dev-<sha>` to **GHCR**. |
-| `build.yml` | push tag `v*` (+ `workflow_dispatch`) | `uses: test.yml` → when green: build + push `:vX.Y.Z` and `:latest` to **GHCR** + GitHub release (`generate_release_notes`). |
+| `dev.yml` | push to `dev` | `uses: test.yml` → only when green: build + push `:dev` and `:dev-<sha>` to **GHCR + Docker Hub**. |
+| `build.yml` | push tag `v*` (+ `workflow_dispatch`) | `uses: test.yml` → when green: build + push `:vX.Y.Z` and `:latest` to **GHCR + Docker Hub** + GitHub release (`generate_release_notes`). |
+| `dockerhub-readme.yml` | push to `main` touching `README.md` (+ `workflow_dispatch`) | syncs `README.md` to the Docker Hub repository description (`peter-evans/dockerhub-description`). Independent of the image build so a docs-only edit refreshes the Docker Hub page without a release. |
 
-- **Registry: GHCR** (`ghcr.io/<owner>/healthlog`). A Docker Hub mirror is deliberately
-  out of scope (see §10).
+- **Registries: GHCR + Docker Hub** (`ghcr.io/<owner>/healthlog`,
+  `docker.io/<DOCKERHUB_USERNAME>/healthlog`). The build pushes both in one step via
+  `docker/metadata-action`; the mirror needs the `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN`
+  secrets (the token also needs write access for the README sync).
 - Least privilege: `test.yml` has `contents: read`; only `dev.yml`/`build.yml` request
   `packages: write` (resp. `contents: write` for the release) on their own jobs.
 - Platform `linux/amd64` (Unraid target); arm64 can be added on demand (§10).
@@ -531,8 +534,8 @@ Dependabot PRs pass the same `test.yml` gate as any other PR.
   become relevant.
 - **Optional / on the server, not built in:** interactive Jupyter exploration only
   covers the ad-hoc case that pipeline + Grafana already cover.
-- **Out of scope (addable on demand):** a Docker Hub mirror of the images (currently
-  GHCR only), an arm64 image (currently `linux/amd64` only), a dedicated web app.
+- **Out of scope (addable on demand):** an arm64 image (currently `linux/amd64` only),
+  a dedicated web app.
 
 ## 11. Methodological pitfalls
 

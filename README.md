@@ -190,10 +190,12 @@ for details.
 
 ## Image
 
-Published to the **GitHub Container Registry (GHCR)**:
+Published to the **GitHub Container Registry (GHCR)** and mirrored to
+**Docker Hub** — pull from whichever you prefer, the images are identical:
 
 ```bash
 docker pull ghcr.io/anym001/healthlog:<tag>
+docker pull anym001/healthlog:<tag>          # Docker Hub mirror
 ```
 
 | Tag | Source | Purpose |
