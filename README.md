@@ -1,4 +1,7 @@
-# HealthLog
+<h1>
+  <img src="assets/icons/icon-192.png" alt="" width="42" height="42" align="top">
+  HealthLog
+</h1>
 
 [![Tests](https://img.shields.io/github/actions/workflow/status/anym001/healthlog/test.yml?label=Tests)](https://github.com/anym001/healthlog/actions/workflows/test.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://github.com/anym001/healthlog/blob/HEAD/LICENSE)
