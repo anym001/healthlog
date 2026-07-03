@@ -1,0 +1,62 @@
+name: Bug report
+description: Report a problem with HealthLog
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a report. Please fill out the
+        sections below. Never include real health data — redact personal
+        metrics and secrets (INGEST_SECRET, database passwords, tokens)
+        before pasting logs or payloads.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Reported by `GET /api/health`, or the image tag you run.
+      placeholder: "e.g. v0.1.0 / :latest / :dev"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of HealthLog does this affect?
+      options:
+        - Ingest (HAE → /api/ingest)
+        - Analysis (nightly findings)
+        - Narration (LLM)
+        - CLI (backfill / analyze / audit / …)
+        - Grafana dashboards
+        - Deployment / other
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Deployment (Compose / Unraid / …), reverse proxy, TimescaleDB version, and — for narration — the Ollama model.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste relevant backend/container log output. Redact secrets and health data.
+      render: shell
