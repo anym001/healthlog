@@ -1,5 +1,5 @@
 <h1>
-  <img src="assets/icons/icon-192.png" alt="" width="42" height="42" align="top">
+  <img src="https://raw.githubusercontent.com/anym001/healthlog/HEAD/assets/icons/icon-192.png" alt="" width="42" height="42" align="top">
   HealthLog
 </h1>
 
