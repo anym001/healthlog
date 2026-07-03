@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <!-- HealthLog app icon - "Analytics": rising bars with a trend arrow on an
-       Apple-Health-inspired pink-to-red gradient tile. Reflects HealthLog's
-       core job - statistical findings, trends and charts. -->
+  <!-- HealthLog app icon - "Analytics": rising bars with an upward-curving
+       growth arrow on an Apple-Health-inspired pink-to-red gradient tile.
+       Reflects HealthLog's core job - statistical findings, trends and charts. -->
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="60%" y2="100%">
       <stop offset="0%"   stop-color="#FF6383"/>
@@ -10,15 +10,15 @@
   </defs>
   <rect width="512" height="512" rx="114" fill="url(#bg)"/>
   <g fill="#ffffff">
-    <rect x="96"  y="300" width="56" height="92"  rx="14"/>
-    <rect x="178" y="264" width="56" height="128" rx="14"/>
-    <rect x="260" y="224" width="56" height="168" rx="14"/>
-    <rect x="342" y="180" width="56" height="212" rx="14"/>
+    <rect x="96"  y="320" width="56" height="72"  rx="14"/>
+    <rect x="178" y="288" width="56" height="104" rx="14"/>
+    <rect x="260" y="252" width="56" height="140" rx="14"/>
+    <rect x="342" y="208" width="56" height="184" rx="14"/>
   </g>
-  <!-- Trend line floats clearly above the bars; the arrow points into open
-       space at the upper right so the head is never clipped or hidden. -->
+  <!-- Growth curve: gentle on the left, steeper toward the right, sweeping up
+       above the bars into open space so the arrowhead is never clipped. -->
   <g fill="none" stroke="#ffffff" stroke-width="18" stroke-linejoin="round" stroke-linecap="round">
-    <polyline points="110,252 202,206 296,160 408,116"/>
-    <polyline points="368,116 408,116 408,156"/>
+    <path d="M104,304 C200,292 384,200 400,120"/>
+    <polyline points="372,154 400,120 412,162"/>
   </g>
 </svg>

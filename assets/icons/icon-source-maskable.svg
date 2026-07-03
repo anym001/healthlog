@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <!-- Maskable variant - background fills edge to edge (Android applies its own
-       mask); the bars + trend arrow are scaled to 0.82 so they stay inside the
+       mask); the bars + growth arrow are scaled to 0.82 so they stay inside the
        inner-80% safe zone. -->
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="60%" y2="100%">
@@ -11,14 +11,14 @@
   <rect width="512" height="512" fill="url(#bg)"/>
   <g transform="translate(256 256) scale(0.82) translate(-256 -256)">
     <g fill="#ffffff">
-      <rect x="96"  y="300" width="56" height="92"  rx="14"/>
-      <rect x="178" y="264" width="56" height="128" rx="14"/>
-      <rect x="260" y="224" width="56" height="168" rx="14"/>
-      <rect x="342" y="180" width="56" height="212" rx="14"/>
+      <rect x="96"  y="320" width="56" height="72"  rx="14"/>
+      <rect x="178" y="288" width="56" height="104" rx="14"/>
+      <rect x="260" y="252" width="56" height="140" rx="14"/>
+      <rect x="342" y="208" width="56" height="184" rx="14"/>
     </g>
     <g fill="none" stroke="#ffffff" stroke-width="18" stroke-linejoin="round" stroke-linecap="round">
-      <polyline points="110,252 202,206 296,160 408,116"/>
-      <polyline points="368,116 408,116 408,156"/>
+      <path d="M104,304 C200,292 384,200 400,120"/>
+      <polyline points="372,154 400,120 412,162"/>
     </g>
   </g>
 </svg>
