@@ -16,9 +16,8 @@
       <rect x="260" y="252" width="56" height="140" rx="14"/>
       <rect x="342" y="208" width="56" height="184" rx="14"/>
     </g>
-    <g fill="none" stroke="#ffffff" stroke-width="18" stroke-linejoin="round" stroke-linecap="round">
-      <path d="M104,304 C200,292 384,200 400,120"/>
-      <polyline points="372,154 400,120 412,162"/>
-    </g>
+    <path d="M102,292 C196,274 335,209 372,150" fill="none" stroke="#ffffff"
+          stroke-width="18" stroke-linecap="round"/>
+    <path d="M400,106 353,138 391,162 Z" fill="#ffffff"/>
   </g>
 </svg>
