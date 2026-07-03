@@ -1,0 +1,33 @@
+name: Sync README to Docker Hub
+
+# Mirrors README.md to the Docker Hub repository description. Kept separate
+# from the image build on purpose: the description should track the docs, not
+# a release, so a docs-only edit refreshes the Docker Hub page immediately
+# instead of waiting for the next image push. Runs on a README change on the
+# release branch, or on demand.
+#
+# Uses the same DOCKERHUB_* secrets as the image build; the token needs write
+# access to the Docker Hub repository. The Docker Hub repository must already
+# exist (i.e. at least one image has been pushed) or the sync fails.
+on:
+  push:
+    branches: [main]
+    paths: [README.md]
+  workflow_dispatch:
+
+jobs:
+  dockerhub-description:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Update Docker Hub description
+        uses: peter-evans/dockerhub-description@432a30c9e07499fd01da9f8a49f0faf9e0ca5b77 # v4.0.2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ secrets.DOCKERHUB_USERNAME }}/healthlog
+          readme-filepath: ./README.md

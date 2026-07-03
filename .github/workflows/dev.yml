@@ -1,10 +1,8 @@
 name: Build dev image
 
 # Maintainer pre-prod channel. Every push to `dev` runs the full test suite
-# and, only if green, builds and publishes the mutable `:dev` image to GHCR.
-#
-# TODO (deferred): mirror to Docker Hub once DOCKERHUB_* secrets are set —
-# add a docker/login-action step and docker.io tags below.
+# and, only if green, builds and publishes the mutable `:dev` image to
+# GHCR + Docker Hub (needs the DOCKERHUB_* secrets).
 on:
   push:
     branches: [dev]
@@ -38,6 +36,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Log in to Docker Hub
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Build and push :dev
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
@@ -45,8 +49,11 @@ jobs:
           file: backend/Dockerfile
           push: true
           platforms: linux/amd64
+          # Mirrored to GHCR + Docker Hub so both registries stay in sync.
           tags: |
             ghcr.io/${{ github.repository_owner }}/healthlog:dev
             ghcr.io/${{ github.repository_owner }}/healthlog:dev-${{ steps.sha.outputs.short }}
+            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/healthlog:dev
+            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/healthlog:dev-${{ steps.sha.outputs.short }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
