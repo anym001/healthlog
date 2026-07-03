@@ -12,8 +12,10 @@ from app.audit import (
     AuditReport,
     MetricCoverage,
     UnitAnomaly,
+    UnmappedWorkout,
     build_coverage,
     detect_unit_anomalies,
+    detect_unmapped_workouts,
     summarize_findings,
 )
 
@@ -88,6 +90,27 @@ def test_detect_unit_anomalies_ignores_null_empty_and_unknown_metrics():
 def test_detect_unit_anomalies_skips_metric_without_canonical():
     registry = {"foo": {"tier": "secondary", "unit_canonical": None}}
     assert detect_unit_anomalies([("foo", "bar")], registry) == []
+
+
+# --- Unmapped workouts ------------------------------------------------------
+
+
+def test_detect_unmapped_workouts_flags_names_with_no_canonical_type():
+    rows = [("Outdoor Run", 10), ("Kitesurfen", 3), ("Yoga", 5), (None, 2)]
+    # Only "Kitesurfen" resolves to no canonical type; NULL name is ignored.
+    assert detect_unmapped_workouts(rows) == [UnmappedWorkout(name="Kitesurfen", count=3)]
+
+
+def test_detect_unmapped_workouts_respects_config_type_map():
+    rows = [("Kitesurfen", 3)]
+    # A config override makes the previously-unmapped name resolve -> no longer flagged.
+    assert detect_unmapped_workouts(rows, {"Kitesurfen": "kitesurfing"}) == []
+
+
+def test_detect_unmapped_workouts_sorts_by_count_desc_then_name():
+    rows = [("Zumba", 2), ("Aikido", 2), ("Kitesurfen", 9)]
+    order = [w.name for w in detect_unmapped_workouts(rows)]
+    assert order == ["Kitesurfen", "Aikido", "Zumba"]
 
 
 # --- Findings summary -------------------------------------------------------

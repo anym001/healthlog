@@ -19,6 +19,30 @@ def test_builtin_map_is_language_stable():
     assert canonical_workout_type("Wandern") == canonical_workout_type("Hiking") == "hiking"
 
 
+def test_german_hae_export_names_resolve():
+    # HAE emits its own German spellings, which differ from the Apple Fitness
+    # picker (e.g. "Outdoor Radfahren" vs. the app's "Rad outdoor"). These are
+    # the forms observed in a real ``workouts`` table that previously fell
+    # through to NULL and grouped as "Other" in Grafana.
+    assert canonical_workout_type("Outdoor Spaziergang") == "walking"
+    assert canonical_workout_type("Outdoor Radfahren") == "cycling"
+    assert canonical_workout_type("Innenräume Radfahren") == "cycling"
+    assert canonical_workout_type("Traditionelles Krafttraining") == "strength"
+    assert canonical_workout_type("Freiwasser Schwimmen") == "swimming"
+    assert canonical_workout_type("Schwimmbad Schwimmen") == "swimming"
+    assert canonical_workout_type("Elliptisch") == "elliptical"
+
+
+def test_apple_fitness_picker_names_resolve():
+    # The other spelling of the same sports, as shown in the German app picker.
+    assert canonical_workout_type("Rad outdoor") == "cycling"
+    assert canonical_workout_type("Gehen outdoor") == "walking"
+    assert canonical_workout_type("Laufen outdoor") == "running"
+    assert canonical_workout_type("Rudern indoor") == "rowing"
+    assert canonical_workout_type("Beckenschwimmen") == "swimming"
+    assert canonical_workout_type("Crosstrainer") == "elliptical"
+
+
 def test_matching_is_case_and_whitespace_insensitive():
     assert canonical_workout_type("  OUTDOOR   run ") == "running"
     # No-break space (U+00A0), as seen in HAE source strings, must still match.

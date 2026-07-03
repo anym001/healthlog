@@ -21,33 +21,52 @@ import unicodedata
 # whitespace/case normalisation (see ``_normalize_key``), so only the spelling
 # needs to be listed, not every casing. Covers the common Apple Watch workout
 # types in English and German; extend via ``workouts.type_map`` for the rest.
+#
+# Note on German names: the string HAE exports is not always the one the Apple
+# Fitness picker shows. HAE has been observed to emit "Outdoor Radfahren",
+# "Innenräume Radfahren", "Freiwasser Schwimmen" or "Elliptisch" where the app
+# lists "Rad outdoor", "Freiwasserschwimmen" or "Crosstrainer". Both spellings
+# are therefore listed so a name resolves regardless of which the source
+# produced. Ground truth for a given install is the ``workouts`` table, not the
+# picker; add stragglers via ``workouts.type_map``.
 BUILTIN_WORKOUT_TYPES: dict[str, str] = {
-    # Running
+    # Running (app: "Laufen outdoor/indoor")
     "running": "running",
     "outdoor run": "running",
     "indoor run": "running",
     "trail running": "running",
     "laufen": "running",
+    "laufen outdoor": "running",
+    "laufen indoor": "running",
     "outdoor-lauf": "running",
     "indoor-lauf": "running",
     "lauf": "running",
-    # Walking
+    # Walking (app: "Gehen outdoor/indoor"; HAE seen: "Outdoor Spaziergang")
     "walking": "walking",
     "outdoor walk": "walking",
     "indoor walk": "walking",
     "gehen": "walking",
+    "gehen outdoor": "walking",
+    "gehen indoor": "walking",
     "spazieren": "walking",
     "spaziergang": "walking",
+    "outdoor spaziergang": "walking",
+    "indoor spaziergang": "walking",
     "outdoor-spaziergang": "walking",
     "indoor-spaziergang": "walking",
     # Hiking
     "hiking": "hiking",
     "wandern": "hiking",
-    # Cycling
+    # Cycling (app: "Rad outdoor/indoor"; HAE seen: "Outdoor/Innenräume Radfahren")
     "cycling": "cycling",
     "outdoor cycle": "cycling",
     "indoor cycle": "cycling",
+    "rad outdoor": "cycling",
+    "rad indoor": "cycling",
     "radfahren": "cycling",
+    "outdoor radfahren": "cycling",
+    "indoor radfahren": "cycling",
+    "innenräume radfahren": "cycling",
     "outdoor-radfahren": "cycling",
     "indoor-radfahren": "cycling",
     # Strength
@@ -55,37 +74,48 @@ BUILTIN_WORKOUT_TYPES: dict[str, str] = {
     "functional strength training": "strength",
     "strength training": "strength",
     "krafttraining": "strength",
+    "traditionelles krafttraining": "strength",
     "klassisches krafttraining": "strength",
     "funktionelles krafttraining": "strength",
     "core training": "core",
     "core-training": "core",
-    # Swimming
+    # Swimming (app: "Becken-/Freiwasserschwimmen"; HAE seen: "… Schwimmen" split)
     "swimming": "swimming",
     "pool swim": "swimming",
     "open water swim": "swimming",
     "schwimmen": "swimming",
     "beckenschwimmen": "swimming",
     "freiwasserschwimmen": "swimming",
-    # Cardio machines / classes
+    "schwimmbad schwimmen": "swimming",
+    "freiwasser schwimmen": "swimming",
+    # Cardio machines / classes (app: "Crosstrainer", "Stepper"; HAE seen: "Elliptisch")
     "elliptical": "elliptical",
     "crosstrainer": "elliptical",
+    "elliptisch": "elliptical",
     "rowing": "rowing",
     "rudern": "rowing",
+    "rudern outdoor": "rowing",
+    "rudern indoor": "rowing",
     "stair stepper": "stair_stepper",
+    "stepper": "stair_stepper",
+    "steppertraining": "stair_stepper",
     "treppensteigen": "stair_stepper",
     "high intensity interval training": "hiit",
     "hiit": "hiit",
     "hochintensives intervalltraining": "hiit",
     "mixed cardio": "mixed_cardio",
     "gemischtes cardio": "mixed_cardio",
+    "gem. cardiotraining": "mixed_cardio",
     # Mind & body
     "yoga": "yoga",
     "pilates": "pilates",
     "dance": "dance",
     "cardio dance": "dance",
     "tanzen": "dance",
+    "gesellschaftstanz": "dance",
     "cooldown": "cooldown",
     "cool down": "cooldown",
+    "cool-down": "cooldown",
     "abkühlen": "cooldown",
 }
 

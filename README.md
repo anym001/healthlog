@@ -305,7 +305,9 @@ docker exec healthlog healthlog analyze
 Before trusting the findings, run a read-only data-quality audit. It reports the
 latest findings snapshot (per kind), per-metric coverage — flagging core metrics
 that have no data or fewer than the ~6-week correlation floor (`analysis.min_overlap`)
-— and any stored unit that diverges from its canonical unit:
+— any stored unit that diverges from its canonical unit, and any workout `name`
+that maps to no canonical sport (those group as "Other" in Grafana; map them via
+`workouts.type_map`):
 
 ```bash
 docker exec healthlog healthlog audit
