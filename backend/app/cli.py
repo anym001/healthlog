@@ -45,7 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     ana = sub.add_parser("analyze", help="run the nightly analysis once now")
     ana.set_defaults(func=_run_analyze)
 
-    aud = sub.add_parser("audit", help="read-only data-quality audit (coverage, findings, units)")
+    aud = sub.add_parser("audit", help="read-only data-quality audit (coverage, findings, units, workouts)")
     audit.add_arguments(aud)
     aud.set_defaults(func=audit.run)
 
