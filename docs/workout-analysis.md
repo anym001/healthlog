@@ -88,8 +88,7 @@ refinement**, not a precondition.
 ## 4. Configuration: `config.yaml`
 
 Infrastructure config is ENV-based (`app/config.py:Settings`). For structured values
-(profile, type mapping, tunables) we use a `config.yaml` — like the
-`pocketlog-importer`. Clear split:
+(profile, type mapping, tunables) HealthLog uses a `config.yaml`. Clear split:
 
 ```
 ENV   = secrets + infrastructure  (INGEST_SECRET, DATABASE_URL, TZ, PUID/PGID,

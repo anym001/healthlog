@@ -10,7 +10,7 @@
 
 ## 1. Core decisions
 
-- **Data export:** Health Auto Export (iPhone) → REST automation to our own endpoint
+- **Data export:** Health Auto Export (iPhone) → REST automation to a self-hosted endpoint
 - **Topology:** the always-on server carries **everything statistical** (ingestion + DB + automatic analysis + Grafana, optionally interactive exploration) ⟷ a separate machine is used **only** for the LLM narration; the extra memory (e.g. an Apple Silicon Mac's unified memory, or a box with a capable GPU) only pays off there
 - **Analysis core:** classic statistics/ML (correlations, anomalies, trends) — **no** LLM in the critical path
 - **LLM:** Ollama on a separate machine with enough memory (≈16–32 GB) as an **optional add-on** for plain-text reports; target class 8–14B (e.g. Qwen 2.5 14B)
@@ -141,7 +141,7 @@ HAE delivers, per metric, a `data` array of buckets in exactly **two shapes**:
 
 So **one row per metric bucket** with nullable aggregate columns (fill what HAE
 delivers), **not** a single `value`. The model is **generic**: every metric lands
-here without a schema change (see inventory §4.6) — we ingest **all** metrics, the
+here without a schema change (see inventory §4.6) — the ingest accepts **all** metrics, the
 registry classifies them:
 
 ```sql
@@ -188,7 +188,7 @@ wins), while genuinely separate periods (e.g. a nap with a different end) are ke
 `0` in this payload (phases broken out separately) → tolerate nullable/0.
 **Day assignment is already HAE's behaviour:** the `date` field is set to
 **midnight of the wake-up day** (e.g. `date=06-09`, `sleepStart=06-08 20:56`,
-`sleepEnd=06-09 05:56`) → `sleep_date` adoptable 1:1, exactly matching our
+`sleepEnd=06-09 05:56`) → `sleep_date` adoptable 1:1, exactly matching the
 correlation convention. Sleep crossing midnight stays one row.
 
 ### 4.4 Workouts
@@ -243,7 +243,7 @@ metric_registry (metric TEXT PRIMARY KEY, display_name TEXT,
 Prevents the same physiological quantity from fragmenting under multiple names/units
 (kcal vs. kJ, `count/min`), and tells the analysis **which** daily aggregate makes
 sense per metric (steps→sum, resting HR→min, HRV→avg). The **`tier`** separates
-analysis focus (`core`) from "carried along, but secondary" (`secondary`): we ingest
+analysis focus (`core`) from "carried along, but secondary" (`secondary`): the ingest stores
 **everything**, the correlation/anomaly pipeline runs by default over `core` only
 (bounding the multiple-testing load, §11), `secondary` stays queryable at any time.
 

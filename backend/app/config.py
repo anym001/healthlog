@@ -1,7 +1,7 @@
 """Environment-driven configuration.
 
-Mirrors PocketLog's operator conventions: everything is set via environment
-variables, with sensible defaults so a fresh container boots without ceremony.
+Everything is set via environment variables, with sensible defaults so a fresh
+container boots without ceremony.
 Persistent state lives under ``/config`` (LinuxServer/Unraid standard).
 """
 
