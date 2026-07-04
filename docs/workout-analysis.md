@@ -3,11 +3,10 @@
 > Design and methodology of the training-load analysis — extends
 > [`ARCHITECTURE.md`](ARCHITECTURE.md) with the workout part of the pipeline.
 > Workouts are condensed into **daily series** and run through the same machinery
-> (lag correlations, anomalies, trends). Core building blocks: type-agnostic daily
-> load (`workout_trimp` + `workout_load`, ACWR, profile via `config.yaml`),
-> type-separated load per sport via `workouts.type_map` (`workout_trimp_running`
-> …), and zone-based Edwards TRIMP (`workout_edwards`, parallel to Banister) from
-> the intra-workout HR time series (see §9).
+> (lag correlations, anomalies, trends): a type-agnostic daily load
+> (`workout_trimp` + `workout_load`, ACWR), an optional per-sport load via
+> `workouts.type_map`, and zone-based Edwards TRIMP (`workout_edwards`) from the
+> intra-workout HR series (§9).
 
 ## 1. Motivation
 
@@ -26,10 +25,11 @@ Once a workout quantity sits as a daily series in the `series` dict,
 bulk of the work is therefore a loader + a few lines in `build_series()`, not a new
 analysis engine — analogous to today's sleep series.
 
-### 2.1 Daily features (loader `load_workout_frame(db, tz)`)
+### 2.1 Daily features
 
-Grouped by local day (`start_time AT TIME ZONE :tz)::date`), analogous to
-`load_sleep_frame()`:
+`load_workout_frame()` returns one row per session tagged with its local day
+(`start_time AT TIME ZONE :tz)::date`); `build_series()` aggregates them into the
+daily series below (TRIMP via pure helpers):
 
 | Series | Derivation | agg |
 |---|---|---|
@@ -54,9 +54,9 @@ correlation/anomaly.
 ## 3. HR-based TRIMP (Banister)
 
 With only **one** average HR per session (Apple Watch provides `avg_hr`/`max_hr`)
-plus duration and resting/max HR, Banister TRIMP is computable — **without** an
-intra-workout time series. Zone-based variants (Edwards/Lucia) need the per-second
-HR and are out for now (it only lives in the raw archive).
+plus duration and resting/max HR, Banister TRIMP is computable **without** an
+intra-workout time series. The zone-based **Edwards** variant needs the
+per-second HR and runs in parallel when that series is present (§9).
 
 ```
 d     = duration_s / 60                              # minutes
@@ -88,8 +88,7 @@ refinement**, not a precondition.
 ## 4. Configuration: `config.yaml`
 
 Infrastructure config is ENV-based (`app/config.py:Settings`). For structured values
-(profile, type mapping, tunables) we use a `config.yaml` — like the
-`pocketlog-importer`. Clear split:
+(profile, type mapping, tunables) HealthLog uses a `config.yaml`. Clear split:
 
 ```
 ENV   = secrets + infrastructure  (INGEST_SECRET, DATABASE_URL, TZ, PUID/PGID,
@@ -129,26 +128,16 @@ notify:                   # token stays in ENV (NOTIFY_TOKEN)
 ### 4.2 Loading model
 
 - `Settings` (pydantic-settings, ENV) stays for **secrets + infrastructure** and
-  keeps driving the s6 services (uvicorn, scheduler, migrate).
-- `AppConfig` (pydantic `BaseModel`), loaded from `config.yaml` via `load_config()` +
-  `validate_config()` — exactly the importer pattern. ENV only overrides secrets
-  (`NOTIFY_TOKEN`). If the file is missing, valid defaults apply (behaviour as before).
-- The analysis (`app/analysis/`, subprocess) loads `AppConfig` and pulls tunables +
-  profile from it instead of from module constants. Ingest/uvicorn still primarily need
-  ENV.
-- `config.example.yaml` ships with the repo; the real `config.yaml` is mounted and
-  gitignored (as with the importer).
-
-### 4.3 Split in the code
-
-- `AppConfig` + `load_config`/`validate_config` in `app/appconfig.py`,
-  `config.example.yaml` shipped; the real `config.yaml` is mounted and gitignored.
-- Analysis tunables live in the `analysis:` block (module constants as defaults when
-  the file is absent).
-- `profile`/`workouts` drive the TRIMP/HR_max logic as pure helpers (unit-testable,
-  data-in).
-- The notify fields (except the token, which stays in ENV) live in the `notify:`
-  block; the notify logic itself is untouched by this.
+  drives the s6 services (uvicorn, scheduler, migrate).
+- `AppConfig` (pydantic `BaseModel`) loads from `config.yaml` via `load_config()` +
+  `validate_config()` in `app/appconfig.py`; ENV only overrides secrets
+  (`NOTIFY_TOKEN`). A missing file means valid defaults. `config.example.yaml`
+  ships with the repo; the real `config.yaml` is mounted and gitignored.
+- The analysis (`app/analysis/`, subprocess) pulls tunables + profile from
+  `AppConfig` (the `constants.py` module values are the fallback when the file is
+  absent); `profile`/`workouts` drive the TRIMP/HR_max logic as pure, unit-testable
+  helpers. Ingest/uvicorn primarily need ENV.
+- The non-secret `notify` fields live in the `notify:` block; the token stays in ENV.
 
 ## 5. New findings from training load
 

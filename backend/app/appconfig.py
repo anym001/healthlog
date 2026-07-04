@@ -1,6 +1,6 @@
 """Structured configuration from ``config.yaml``.
 
-Two configuration homes, deliberately split (mirrors pocketlog-importer):
+Two configuration homes, deliberately split:
 
 - **ENV** (``app/config.py:Settings``) — secrets and infrastructure:
   ``INGEST_SECRET``, ``DATABASE_URL``, ``TZ``, ``PUID``/``PGID``, ``LOG_*``,
