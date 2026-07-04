@@ -43,7 +43,8 @@ local LLM. Everything runs on the user's own hardware — no external calls.
 
 ## Commands (run in `backend/`)
 
-- **Lint:** `ruff check .` and `ruff format --check .` (ruff 0.15.17, line-length 120).
+- **Lint:** `ruff check .` and `ruff format --check .` (version pinned in
+  `requirements-dev.txt`, line-length 120).
 - **Tests:** `python -m pytest -q`. Needs a reachable Postgres/TimescaleDB via
   `DATABASE_URL` (default
   `postgresql+psycopg://healthlog:healthlog@127.0.0.1:5432/healthlog`). Spin one up:
