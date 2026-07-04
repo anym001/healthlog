@@ -123,15 +123,13 @@ raw_ingest (id BIGSERIAL, received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             -- content_hash indexed → identical re-posts are discarded.
 ```
 Full fidelity: on parser/schema bugs the history can be **re-parsed** without data
-loss. The table is a TimescaleDB hypertable with a **native compression policy**
-(chunks older than 7 days; migration 0016) — repetitive JSON compresses by an
-order of magnitude, so the permanent-retention archive stays cheap while
-remaining fully queryable and re-derivable. Two constraint consequences (a
-hypertable requires the partition column in every unique index): the PK is the
-composite `(id, received_at)` with `id` still sequence-generated, and dedup uses
-an indexed SELECT-then-INSERT instead of `ON CONFLICT` — the race this admits
-(two *concurrent* identical posts) is harmless because all downstream upserts
-are idempotent, and HAE posts sequentially.
+loss. The hypertable has a **native compression policy** (chunks older than 7 days;
+migration 0016) — repetitive JSON compresses by an order of magnitude, so the
+permanent archive stays cheap yet fully queryable. Because a hypertable needs the
+partition column in every unique index, the PK is the composite `(id, received_at)`
+and dedup uses an indexed SELECT-then-INSERT instead of `ON CONFLICT`; the race this
+admits (two *concurrent* identical posts) is harmless — all downstream upserts are
+idempotent and HAE posts sequentially.
 
 ### 4.2 Parsed measurements (hypertable)
 
@@ -182,28 +180,24 @@ wins), while genuinely separate periods (e.g. a nap with a different end) are ke
 `sleep_nightly` (migration 0010) additionally reduces to one row per calendar night
 (`sleep_date`) for dashboards/analysis.
 
-**Confirmed against real payload:** HAE delivers, per night, an object with `sleepStart`/
-`sleepEnd`/`inBedStart`/`inBedEnd`, the phase **hours** (decimal) `deep`/`core`/
-`rem`/`awake` and `totalSleep` (= `deep+core+rem`, verified). `asleep`/`inBed` are
-`0` in this payload (phases broken out separately) → tolerate nullable/0.
-**Day assignment is already HAE's behaviour:** the `date` field is set to
-**midnight of the wake-up day** (e.g. `date=06-09`, `sleepStart=06-08 20:56`,
-`sleepEnd=06-09 05:56`) → `sleep_date` adoptable 1:1, exactly matching the
-correlation convention. Sleep crossing midnight stays one row.
+HAE delivers, per night, `sleepStart`/`sleepEnd`/`inBedStart`/`inBedEnd`, the phase
+**hours** (decimal) `deep`/`core`/`rem`/`awake` and `totalSleep` (= `deep+core+rem`);
+`asleep`/`inBed` come as `0` (phases broken out separately) → tolerate nullable/0.
+**Day assignment is HAE's own:** `date` is midnight of the wake-up day (e.g.
+`date=06-09`, `sleepStart=06-08 20:56`, `sleepEnd=06-09 05:56`) → `sleep_date`
+adoptable 1:1, matching the correlation convention. Sleep crossing midnight stays one row.
 
 ### 4.4 Workouts
 
 HAE delivers, per workout, a **stable `id` (UUID)** — a better idempotency key than
 `(start, type, source)`. Scalars come as `{qty, units}` objects, plus a `heartRate`
 summary `{min, avg, max}` and intra-workout time series (`heartRateData`,
-`stepCount`, `heartRateRecovery`, …). The HR time series is parsed into
-`workout_hr_samples` (for zone-based Edwards TRIMP, see
-[`workout-analysis.md`](workout-analysis.md)). When the operator enables route
-export in HAE, an outdoor GPS workout also carries a `route` array; those points are
-parsed into `workout_route_points` (the data behind the Workout Detail dashboard's
-geomap — display only, not used by the analysis). HAE ships two route schema versions:
-v2 (`latitude`/`longitude` + `speed`/accuracy) and v1 (abbreviated `lat`/`lon`); the
-parser accepts both. The other intra-workout time series stay in the raw archive.
+`stepCount`, …). The HR series is parsed into `workout_hr_samples` (for zone-based
+Edwards TRIMP, see [`workout-analysis.md`](workout-analysis.md)). With route export
+enabled, an outdoor workout also carries a `route` array → `workout_route_points`
+(behind the Workout Detail geomap — display only); the parser accepts both HAE route
+schemas (v2 `latitude`/`longitude`, v1 `lat`/`lon`). Other time series stay in the
+raw archive.
 
 ```sql
 workouts (hae_id UUID PRIMARY KEY,        -- HAE `id`, stable → idempotency
@@ -251,22 +245,20 @@ analysis focus (`core`) from "carried along, but secondary" (`secondary`): the i
 reality:** energy arrives as **`kJ`** (not kcal), plus `kcal/hr·kg`, `km/hr`, `m/s`,
 `degC`, `ml/(kg·min)`. `metric_registry.unit_canonical` is the target unit; on ingest
 the incoming `unit` is checked against it → on mismatch **convert** (known factor,
-kJ→kcal ×0.239006) **or flag**, never silently accept. Exactly this case occurred in
-the real export — the guard is no theoretical construct. A test pins it.
+kJ→kcal ×0.239006) **or flag**, never silently accept (this case occurred in a real
+export; a test pins it).
 
 **Plausibility envelope:** beyond units, a metric may carry optional `value_min`/
-`value_max` bounds (in the canonical unit) in the registry seed (`app/registry.py`).
-After unit normalisation the ingest parser drops any value outside the envelope —
-a spurious `heart_rate = 0` or a negative `step_count` never reaches
-`metric_samples`, so it can't corrupt the median/MAD baselines or correlations the
-nightly analysis runs on. The bounds are generous sanity rails (non-negativity for
-cumulative/count metrics, wide physiological ranges for vitals), not tight clinical
-limits, because bucket granularity varies. Dropped values are **counted** (surfaced
-in the ingest response as `implausible_values`, alongside `flagged_units`, and
-logged) but never lost: the verbatim payload still lands in the raw archive (§4.1),
-so a future re-derive can recover them once the envelope is widened. A
-flagged-but-unconverted value is exempt — its unit isn't canonical, so the bounds
-would compare against the wrong scale.
+`value_max` bounds (canonical unit) in the registry seed (`app/registry.py`). After
+unit normalisation the ingest parser drops any value outside the envelope — a spurious
+`heart_rate = 0` or negative `step_count` never reaches `metric_samples`, so it can't
+corrupt the median/MAD baselines or correlations. The bounds are generous sanity rails
+(non-negativity for counts, wide physiological ranges for vitals), not clinical limits.
+Dropped values are **counted** (`implausible_values` in the ingest response, alongside
+`flagged_units`, and logged) but never lost — the verbatim payload still lands in the
+raw archive (§4.1), so a later re-derive can recover them once the envelope widens. A
+flagged-but-unconverted value is exempt: its unit isn't canonical, so the bounds would
+compare against the wrong scale.
 
 ### 4.6 Metric inventory & tiering
 
@@ -290,9 +282,8 @@ Two axes:
   plus `mindfulness`/`nutrition` (added when the first backfill surfaced
   `mindful_minutes`/`dietary_water`).
 
-Because the model is generic (§4.0), carrying more metrics costs practically
-nothing — new ones land automatically in the raw archive and in `metric_samples`
-and are "adopted" with a single registry row, no schema change.
+Carrying more metrics costs practically nothing (§4.0): new ones land automatically
+in the raw archive and `metric_samples`, "adopted" with a single registry row.
 
 ### 4.7 Daily aggregates (view)
 
@@ -337,65 +328,40 @@ hundred rows per day it needs no retention policy.
 
 **Finding types** (snapshot per run, `app/analysis/findings.py`):
 - **correlation** — Spearman on the **residual** series (STL trend *and* seasonal
-  components subtracted), so the coefficient measures pure day-to-day co-movement, lags
-  0–3 days (both directions), FDR `p_value_adj`; per metric pair only the **strongest**
-  lag/direction (dedup). Removing only the trend (the previous basis) left seasonality
-  in, so two metrics that merely share a weekly/annual rhythm correlated spuriously —
-  validated on live data, ~two thirds of those de-trended findings collapsed to a ~0
-  residual once seasonality was also removed. For transparency each finding stamps two
-  comparison Spearmans at the same lag: the **raw** coefficient (nothing removed,
-  `details.raw_coef`) and the **de-trended** coefficient (trend only, the old basis,
-  `details.detr_coef`); a strong `detr_coef` next to a ~0 reported coefficient marks a
-  number that lived in shared seasonality. The `raw_coef` is also a **guard**, not just a
-  label: a correlation is reported only if the raw series *corroborate* the residual one —
-  same sign and `|raw_coef| ≥ analysis.corr_raw_min_abs` (default 0.15). This is the
-  symmetric counterpart to the residual switch. Each single basis admits one artefact
-  class: the de-trended basis manufactures correlations from shared seasonality (strong
-  de-trended, ~0 residual), and the residual basis manufactures them from decomposition or
-  estimation noise in sparse/derived metrics (strong residual, ~0 or opposite-sign raw). A
-  *genuine* day-to-day link is visible in both representations, so requiring agreement
-  across raw and residual rejects both classes with one rule — and does so
-  **metric-agnostically**: no per-metric coverage threshold or exclusion list separates
-  the artefacts (e.g. `cardio_recovery`, coverage 0.52, is better-covered than legitimate
-  vitals), because the discriminator is a property of the *pair*, not the metric. Two
-  further relevance filters cut structural noise: an **effect-size floor**
-  (`analysis.corr_min_abs`, default 0.25 — residual coefficients run smaller than
-  de-trended ones) drops significant-but-negligible pairs, and
-  **activity-volume suppression** drops a pair when *both* series measure how much you
-  moved/trained (workout-derived metrics — load/duration/count/intensity — or Apple
-  activity-ring metrics — see `_is_activity_volume` in `app/analysis/findings.py`); an activity
-  series vs a body-state metric (recovery/sleep/vital) is kept. Each surviving
-  correlation is stamped with a **priority tier** (`details.priority_tier`, via
-  `_pair_tier`): cross-subsystem links rank above expected within-subsystem pairs, so
-  the narration (`narrate.report_priority`) and the Grafana "Top Correlations" panel
-  lead with the informative ones without re-deriving the rule.
+  components subtracted), so the coefficient measures pure day-to-day co-movement;
+  lags 0–3 days (both directions), FDR `p_value_adj`, per pair only the **strongest**
+  lag/direction. Removing only the trend left shared weekly/annual rhythms in, which
+  correlated spuriously (validated on live data). Each finding stamps two comparison
+  Spearmans at the same lag — the **raw** coefficient (`details.raw_coef`) and the old
+  **de-trended** one (`details.detr_coef`) — and the raw value also **guards**: a pair
+  is reported only if raw and residual agree in sign with `|raw_coef| ≥
+  analysis.corr_raw_min_abs` (default 0.15), which rejects both single-basis artefact
+  classes (seasonality-only and decomposition-noise) metric-agnostically — the
+  discriminator is a property of the *pair*, not per-metric coverage. Two relevance
+  filters then cut structural noise: an **effect-size floor** (`analysis.corr_min_abs`,
+  default 0.25) drops negligible pairs, and **activity-volume suppression** drops a pair
+  when *both* series measure how much you moved/trained (`_is_activity_volume`) —
+  activity vs a body-state metric is kept. Survivors get a **priority tier**
+  (`details.priority_tier`, via `_pair_tier`) so the narration and the Grafana "Top
+  Correlations" panel lead with cross-subsystem links.
 - **anomaly** — 28-day trailing median + MAD (robust z), last 14 days only. The
-  trailing z inflates when the recent window is unusually calm (a hard workout after
-  a taper scores z>20 yet is a normal day vs the athlete's whole history), so a flag
-  is **corroborated against the full history**: keep it only if `|robust z vs the
-  global median+MAD|` clears `anomaly_min_global_z` (stamped as `details.global_z`).
-  This is the same single-view trap the correlation and seasonality guards address.
-  Co-derived workout-load metrics (`workout_{trimp,load,edwards,duration,…}`) that
-  flag the **same day** are alternative measures of one session, so they collapse to
-  the single strongest anomaly instead of reporting the session several times.
-- **trend** — STL trend component (slope + trend strength). Strength (Wang/Hyndman)
-  only certifies the trend is smooth relative to the residual, not that it goes
-  anywhere: a smooth meander that drifts up then back scores high yet has no net
-  direction (high-strength sleep metrics scored 0.9 here with no drift). A finding
-  also requires the trend to move consistently one way — `|Spearman(trend, time)|` ≥
-  `trend_min_monotonicity` (`details.monotonicity`), the same single-view corroboration
-  the correlation, seasonality and anomaly guards apply.
+  trailing z inflates when the recent window is unusually calm (a hard workout after a
+  taper scores z>20 yet is normal vs the whole history), so a flag is **corroborated
+  against the full history**: kept only if `|z vs the global median+MAD|` clears
+  `anomaly_min_global_z` (`details.global_z`). Co-derived workout-load metrics
+  (`workout_{trimp,load,edwards,…}`) flagging the **same day** collapse to the single
+  strongest anomaly rather than reporting one session several times.
+- **trend** — STL trend component (slope + strength). Strength (Wang/Hyndman) only
+  certifies smoothness, not direction — a smooth up-then-back meander scores high with
+  no net drift — so a finding also requires monotonic movement:
+  `|Spearman(trend, time)|` ≥ `trend_min_monotonicity` (`details.monotonicity`).
 - **seasonality** — MSTL(7, 365): yearly pattern (amplitude + peak/trough month), from
-  ≥2 years; if peak and trough are <2 months apart, the phase is flagged as uncertain
-  (`phase_confident`). MSTL fits *some* annual component for every series, so the
-  in-sample strength alone fired on basically every metric — the same single-basis
-  trap as the old correlation logic. The fix mirrors the raw-corroboration guard: a
-  genuine annual cycle also **recurs**, so a finding is kept only if the seasonal
-  *shape* is reproducible year over year (`details.reproducibility` = mean Spearman
-  between calendar years' monthly seasonal profiles, floor `seasonality_reproducibility_min`).
-  This is metric-agnostic — it rejects a strong seasonal MSTL overfit to a one-off
-  cluster (sparse/derived metrics) while keeping a genuinely recurring cycle, so a
-  seasonally-practised sport is kept where a one-off burst of the same kind is dropped.
+  ≥2 years; phase flagged uncertain (`phase_confident`) if peak and trough are <2 months
+  apart. MSTL fits *some* annual component for every series, so a finding is kept only
+  if the seasonal *shape* **recurs** year over year (`details.reproducibility` = mean
+  Spearman between calendar years' monthly profiles, floor
+  `seasonality_reproducibility_min`) — rejecting a one-off overfit while keeping a
+  genuine cycle.
 - **recovery_alert** — combined: HRV notably low **and** resting HR high (+ optionally
   short sleep).
 - **consistency** — rolling spread of sleep duration and bedtime (midnight wrap handled).
@@ -438,7 +404,7 @@ lag/anomaly/trend/yearly-season) with a fixed seed (§7); plus a DB end-to-end t
 
 ## 6. Container topology & deployment
 
-- **One app image** `healthlog` (`python:3.12-slim` + s6-overlay v3), two s6 services
+- **One app image** `healthlog` (`python:3.14-slim` + s6-overlay v3), two s6 services
   (uvicorn, APScheduler), analysis as a subprocess (§2).
 - **PUID/PGID + `/config`:** the entrypoint chowns `/config`, drops privileges.
   `/config` holds persistence that isn't in the DB: ingest secret, `config.yaml`,
@@ -449,9 +415,8 @@ lag/anomaly/trend/yearly-season) with a fixed seed (§7); plus a DB end-to-end t
   [`workout-analysis.md`](workout-analysis.md) §4).
 - **Compose:** `timescaledb` + `healthlog` + `grafana`; DB not publicly exposed,
   Grafana behind auth, reverse proxy/TLS in front of ingest.
-- **Public readiness:** README with an embedded compose example (no separate
-  `docker-compose.yml` or `.env` file in the repo), sensible defaults, no telemetry,
-  documentation of the HAE automation setup.
+- **Public readiness:** shipped `docker-compose.yml` + `.env.example`, sensible
+  defaults, no telemetry, documented HAE automation setup.
 
 ## 7. Tests & quality
 
@@ -503,7 +468,7 @@ ecosystems, **weekly**, PRs against **`dev`** (never `main`, §9), each grouped 
 instead of many, avoiding mutual merge conflicts on the pinned SHA lines):
 - `github-actions` (`/`) — keeps the SHA pins of the three workflows fresh.
 - `pip` (`/backend`) — `requirements.txt` + `requirements-dev.txt`.
-- `docker` (`/backend`) — base-image bumps (`python:3.12-slim`, s6-overlay).
+- `docker` (`/backend`) — base-image bumps (`python:3.14-slim`, s6-overlay).
 
 Dependabot PRs pass the same `test.yml` gate as any other PR.
 
