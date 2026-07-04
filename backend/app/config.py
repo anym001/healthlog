@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     # --- Storage -----------------------------------------------------------
     # SQLAlchemy URL for the TimescaleDB/Postgres backend. The psycopg (v3)
     # driver is used. Example:
-    #   postgresql+psycopg://healthlog:healthlog@db:5432/healthlog
+    #   postgresql+psycopg://healthlog:healthlog@healthlog-db:5432/healthlog
     database_url: str = Field(
         default="postgresql+psycopg://healthlog:healthlog@127.0.0.1:5432/healthlog",
         alias="DATABASE_URL",

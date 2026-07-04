@@ -93,7 +93,7 @@ in any dashboard tool:
   sharpen with an optional `profile` (see below).
 
 All statistics run on the server; only the optional LLM narration is intended
-for a Mac. The full method list and tuning live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+for a separate machine. The full method list and tuning live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Requirements
 
@@ -183,8 +183,8 @@ before pointing HAE at it (see [Reverse proxy](#reverse-proxy)).
 
 The analysis writes its results to the database, so chart them with whatever you
 prefer — Grafana, Metabase, a notebook, plain SQL. Attach that tool to the same
-Docker network as the database and point it at the DB container (`db` in the
-Compose setup, `healthlog-db` in the `docker run` example). The repo ships
+Docker network as the database and point it at the DB container (`healthlog-db`
+in both the Compose and `docker run` setups). The repo ships
 ready-made **Grafana dashboards** — see [`grafana/README.md`](grafana/README.md)
 for details.
 
@@ -368,11 +368,12 @@ above expected within-subsystem pairs like total vs deep sleep); the rest are
 summarised as a count. Tune the cap with `narrate.max_correlations` (default 15,
 `0` = narrate them all).
 
-### Running Ollama on a Mac
+### Running Ollama for narration
 
-A Mac with Apple Silicon (unified memory) is well suited to running an 8–14B
-model locally. The analysis itself runs on your always-on server; only this
-optional narration step talks to the Mac.
+Any machine with enough memory can run an 8–14B model locally — an Apple Silicon
+Mac (unified memory) or a box with a capable GPU both work well. The analysis
+itself runs on your always-on server; only this optional narration step talks to
+the Ollama host. The steps below use macOS as the example.
 
 1. **Install Ollama** — download the app from
    [ollama.com/download](https://ollama.com/download) (or `brew install ollama`).
@@ -385,12 +386,13 @@ optional narration step talks to the Mac.
    ollama pull qwen2.5:14b
    ```
 
-   On a 16 GB Mac, `qwen2.5:7b` is a lighter alternative — set it as
+   On a host with ~16 GB, `qwen2.5:7b` is a lighter alternative — set it as
    `narrate.model` in `config.yaml`.
 
 3. **Expose Ollama on your network.** By default Ollama only listens on
    `127.0.0.1`, so the server can't reach it. Bind it to all interfaces by
-   setting `OLLAMA_HOST` (see the
+   setting `OLLAMA_HOST` (on macOS via `launchctl`, as below; on Linux set it in
+   the service's environment — see the
    [FAQ](https://github.com/ollama/ollama/blob/main/docs/faq.md#how-do-i-configure-ollama-server)):
 
    ```bash
@@ -400,7 +402,7 @@ optional narration step talks to the Mac.
    Keep this on a trusted LAN — Ollama has no authentication. Do **not** expose
    port `11434` to the internet.
 
-4. **Point HealthLog at the Mac** in `config.yaml`, using the Mac's LAN IP:
+4. **Point HealthLog at the Ollama host** in `config.yaml`, using its LAN IP:
 
    ```yaml
    narrate:

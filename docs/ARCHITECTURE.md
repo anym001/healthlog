@@ -11,9 +11,9 @@
 ## 1. Core decisions
 
 - **Data export:** Health Auto Export (iPhone) → REST automation to our own endpoint
-- **Topology:** the always-on server carries **everything statistical** (ingestion + DB + automatic analysis + Grafana, optionally interactive exploration) ⟷ the Mac is used **only** for the LLM narration; Apple Silicon (unified memory) only pays off there
+- **Topology:** the always-on server carries **everything statistical** (ingestion + DB + automatic analysis + Grafana, optionally interactive exploration) ⟷ a separate machine is used **only** for the LLM narration; the extra memory (e.g. an Apple Silicon Mac's unified memory, or a box with a capable GPU) only pays off there
 - **Analysis core:** classic statistics/ML (correlations, anomalies, trends) — **no** LLM in the critical path
-- **LLM:** Ollama on the Mac (32 GB unified memory) as an **optional add-on** for plain-text reports; target class 8–14B (e.g. Qwen 2.5 14B)
+- **LLM:** Ollama on a separate machine with enough memory (≈16–32 GB) as an **optional add-on** for plain-text reports; target class 8–14B (e.g. Qwen 2.5 14B)
 - **Data focus:** activity & training, sleep & recovery, vitals
 - **Privacy:** 100% own hardware, no external calls — the LLM stays local too
 - **Deployment target:** Unraid; the app image should be **public-ready**
@@ -39,9 +39,9 @@
 │  Grafana  → dashboards / trends                          │
 └───────────────────────────┬───────────────────────────┘
                             │  read-only (psql)
-┌─ Mac (Apple Silicon, 32 GB) ───────────────────────────┐
+┌─ LLM host (optional, enough memory) ───────────────────┐
 │  LLM narration ONLY: Ollama → report from `findings`    │
-│  Apple Silicon / unified memory — the only Mac advantage│
+│  e.g. an Apple Silicon Mac or a box with a capable GPU  │
 └────────────────────────────────────────────────────────┘
 (Interactive exploration, if wanted, also runs on the server.)
 ```
@@ -70,7 +70,7 @@ snapshot-replace write makes the extra run idempotent.
 | TimescaleDB | own container | Postgres is separate anyway |
 | Grafana | own container | straight onto Timescale |
 | Interactive exploration (optional, Jupyter) | server | ad-hoc analysis only; pipeline + Grafana cover the normal case, data stays on the server |
-| LLM reports | Mac | the **only** reason for a Mac: Apple Silicon (unified memory) for local 8–14B models |
+| LLM reports | separate host (optional) | the **only** reason for a second machine: enough memory for local 8–14B models (e.g. an Apple Silicon Mac's unified memory, or a GPU box) |
 
 ## 3. Tech stack & rationale
 
@@ -82,7 +82,7 @@ snapshot-replace write makes the extra run idempotent.
 | Analysis | **Python: pandas + statsmodels + scipy + scikit-learn** | mature, reproducible standard for correlation/trend/anomaly. |
 | Dashboards | **Grafana** | minimal effort, straight onto Timescale. |
 | Container base | **`python:3.14-slim` + s6-overlay v3** | slim image (relevant for public use), full control, PUID/PGID + `/config`. |
-| LLM (optional) | **Ollama**, 8–14B (e.g. Qwen 2.5 14B) | local on the 32 GB Mac; receives only finished findings, not the raw data. |
+| LLM (optional) | **Ollama**, 8–14B (e.g. Qwen 2.5 14B) | local on a separate machine with enough memory; receives only finished findings, not the raw data. |
 
 ## 4. Data model
 
