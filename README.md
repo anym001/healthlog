@@ -22,7 +22,7 @@ report.
 server), an iPhone with the **Health Auto Export** app, and a TLS reverse proxy
 in front of the ingest endpoint. Everything else ships in the image.
 
-> The full design and rationale live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+> The full design and rationale live in [`docs/ARCHITECTURE.md`](https://github.com/anym001/healthlog/blob/HEAD/docs/ARCHITECTURE.md).
 
 ## Contents
 
@@ -64,7 +64,7 @@ guarantees matter day to day: unknown Apple Health metrics are accepted
 automatically — you never update anything to start tracking something new — and
 every export is de-duplicated server-side, so re-sending an overlapping sync
 never double-counts. Raw payloads are archived verbatim. The *why* behind all of
-this is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+this is in [`docs/ARCHITECTURE.md`](https://github.com/anym001/healthlog/blob/HEAD/docs/ARCHITECTURE.md).
 
 ## What it computes
 
@@ -92,7 +92,7 @@ in any dashboard tool:
   sharpen with an optional `profile` (see below).
 
 All statistics run on the server; only the optional LLM narration is intended
-for a separate machine. The full method list and tuning live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+for a separate machine. The full method list and tuning live in [`docs/ARCHITECTURE.md`](https://github.com/anym001/healthlog/blob/HEAD/docs/ARCHITECTURE.md).
 
 ## Requirements
 
@@ -109,8 +109,8 @@ too (e.g. on Unraid, where each container is a template).
 
 ### Option A — Docker Compose (recommended)
 
-Grab [`docker-compose.yml`](docker-compose.yml) and
-[`.env.example`](.env.example) from this repo (or clone it), then:
+Grab [`docker-compose.yml`](https://github.com/anym001/healthlog/blob/HEAD/docker-compose.yml) and
+[`.env.example`](https://github.com/anym001/healthlog/blob/HEAD/.env.example) from this repo (or clone it), then:
 
 ```bash
 cp .env.example .env
@@ -179,7 +179,7 @@ The analysis writes its results to the database, so chart them with whatever you
 prefer — Grafana, Metabase, a notebook, plain SQL. Attach that tool to the same
 Docker network as the database and point it at the DB container (`healthlog-db`
 in both the Compose and `docker run` setups). The repo ships
-ready-made **Grafana dashboards** — see [`grafana/README.md`](grafana/README.md)
+ready-made **Grafana dashboards** — see [`grafana/README.md`](https://github.com/anym001/healthlog/blob/HEAD/grafana/README.md)
 for details.
 
 ## Image
@@ -430,7 +430,7 @@ It holds:
   rebuilding the image.
 - **`profile`** — your `birth_year`/`sex` (and optional `hr_max`/`hr_rest`).
   Personal but not secret; sharpens the HR-based training load (see
-  [`docs/workout-analysis.md`](docs/workout-analysis.md)). Without it, HR_max is
+  [`docs/workout-analysis.md`](https://github.com/anym001/healthlog/blob/HEAD/docs/workout-analysis.md)). Without it, HR_max is
   derived from your data.
 - **`workouts`** — `load_metric` (`trimp`/`energy`/`both`), a `type_map`
   (localised HAE workout name → canonical sport) and `edwards` (zone-based TRIMP,
@@ -563,7 +563,7 @@ network and do **not** forward `/metrics` through the public reverse proxy.
 ## Development
 
 Contributing, the test/lint workflow and a map of the codebase live in
-[`CONTRIBUTING.md`](CONTRIBUTING.md) and [`CLAUDE.md`](CLAUDE.md). In short:
+[`CONTRIBUTING.md`](https://github.com/anym001/healthlog/blob/HEAD/CONTRIBUTING.md) and [`CLAUDE.md`](https://github.com/anym001/healthlog/blob/HEAD/CLAUDE.md). In short:
 feature branch → PR against `dev`; release by tagging `vX.Y.Z` on `main`.
 
 ## License
