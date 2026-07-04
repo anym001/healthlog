@@ -81,7 +81,7 @@ snapshot-replace write makes the extra run idempotent.
 | Scheduler | **APScheduler** (own process under s6) | schedule in code (versioned), logs→stdout (Docker-native), env/TZ clean — vs. cron-in-container friction. |
 | Analysis | **Python: pandas + statsmodels + scipy + scikit-learn** | mature, reproducible standard for correlation/trend/anomaly. |
 | Dashboards | **Grafana** | minimal effort, straight onto Timescale. |
-| Container base | **`python:3.14-slim` + s6-overlay v3** | slim image (relevant for public use), full control, PUID/PGID + `/config`. |
+| Container base | **`python:3-slim` + s6-overlay v3** (exact tag: `backend/Dockerfile`) | slim image (relevant for public use), full control, PUID/PGID + `/config`. |
 | LLM (optional) | **Ollama**, 8–14B (e.g. Qwen 2.5 14B) | local on a separate machine with enough memory; receives only finished findings, not the raw data. |
 
 ## 4. Data model
@@ -404,7 +404,7 @@ lag/anomaly/trend/yearly-season) with a fixed seed (§7); plus a DB end-to-end t
 
 ## 6. Container topology & deployment
 
-- **One app image** `healthlog` (`python:3.14-slim` + s6-overlay v3), two s6 services
+- **One app image** `healthlog` (`python:3-slim` + s6-overlay v3), two s6 services
   (uvicorn, APScheduler), analysis as a subprocess (§2).
 - **PUID/PGID + `/config`:** the entrypoint chowns `/config`, drops privileges.
   `/config` holds persistence that isn't in the DB: ingest secret, `config.yaml`,
@@ -468,7 +468,7 @@ ecosystems, **weekly**, PRs against **`dev`** (never `main`, §9), each grouped 
 instead of many, avoiding mutual merge conflicts on the pinned SHA lines):
 - `github-actions` (`/`) — keeps the SHA pins of the three workflows fresh.
 - `pip` (`/backend`) — `requirements.txt` + `requirements-dev.txt`.
-- `docker` (`/backend`) — base-image bumps (`python:3.14-slim`, s6-overlay).
+- `docker` (`/backend`) — base-image bumps (`python:*-slim` tag, s6-overlay).
 
 Dependabot PRs pass the same `test.yml` gate as any other PR.
 
