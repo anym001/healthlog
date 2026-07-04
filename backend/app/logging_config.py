@@ -3,7 +3,7 @@
 Logger namespace ``healthlog`` with its own stderr handler and
 ``propagate=False``; modules use ``healthlog.api`` / ``healthlog.ingest`` /
 ``healthlog.scheduler``. Uniform second-precision format, optional JSON.
-Kept dependency-free and English-only (operator-facing), like PocketLog.
+Kept dependency-free and English-only (operator-facing).
 """
 
 from __future__ import annotations
@@ -55,8 +55,7 @@ def safe(value: object, *, max_len: int = 256) -> str:
     """Sanitise an externally-influenced value for plain-text logging.
 
     Strips CR/LF and other control characters so a crafted error string can't
-    forge extra log lines, and bounds the length. Mirrors PocketLog's logging
-    hardening.
+    forge extra log lines, and bounds the length.
     """
     s = "" if value is None else str(value)
     s = "".join(" " if (c == "\n" or c == "\r" or ord(c) < 32) else c for c in s)
