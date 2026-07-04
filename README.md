@@ -9,21 +9,20 @@
 [![GHCR](https://img.shields.io/badge/GHCR-healthlog-2496ED?logo=docker&logoColor=white)](https://github.com/anym001/healthlog/pkgs/container/healthlog)
 
 Self-hosted, privacy-first analysis of your **Apple Health** data — correlations,
-anomalies, trends and seasonality, computed on your own hardware. No third
-parties, no cloud, no telemetry: your iPhone exports to your server and nothing
-leaves it.
+anomalies, trends and seasonality, all on your own hardware. No cloud, no
+telemetry, nothing leaves your network.
 
 Data flows from **Health Auto Export** (HAE) on your iPhone → a FastAPI ingest
-endpoint → **TimescaleDB**. A nightly job computes statistical findings and
-stores them back in the database, ready to chart in **Grafana** (dashboards
-included) or any tool you like. An optional local LLM (Ollama) can turn the
-findings into a written weekly report — still entirely on your own machines.
+endpoint → **TimescaleDB**. A nightly job writes statistical findings back into
+the database, ready to chart in **Grafana** (dashboards included) or any tool you
+like. An optional local LLM (Ollama) can turn the findings into a written weekly
+report.
 
 **What you'll need:** a machine that runs Docker (a NAS, an Unraid box, a home
 server), an iPhone with the **Health Auto Export** app, and a TLS reverse proxy
 in front of the ingest endpoint. Everything else ships in the image.
 
-> The full design and rationale live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+> The full design and rationale live in [`docs/ARCHITECTURE.md`](https://github.com/anym001/healthlog/blob/HEAD/docs/ARCHITECTURE.md).
 
 ## Contents
 
@@ -65,7 +64,7 @@ guarantees matter day to day: unknown Apple Health metrics are accepted
 automatically — you never update anything to start tracking something new — and
 every export is de-duplicated server-side, so re-sending an overlapping sync
 never double-counts. Raw payloads are archived verbatim. The *why* behind all of
-this is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+this is in [`docs/ARCHITECTURE.md`](https://github.com/anym001/healthlog/blob/HEAD/docs/ARCHITECTURE.md).
 
 ## What it computes
 
@@ -93,7 +92,7 @@ in any dashboard tool:
   sharpen with an optional `profile` (see below).
 
 All statistics run on the server; only the optional LLM narration is intended
-for a Mac. The full method list and tuning live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+for a separate machine. The full method list and tuning live in [`docs/ARCHITECTURE.md`](https://github.com/anym001/healthlog/blob/HEAD/docs/ARCHITECTURE.md).
 
 ## Requirements
 
@@ -110,8 +109,8 @@ too (e.g. on Unraid, where each container is a template).
 
 ### Option A — Docker Compose (recommended)
 
-Grab [`docker-compose.yml`](docker-compose.yml) and
-[`.env.example`](.env.example) from this repo (or clone it), then:
+Grab [`docker-compose.yml`](https://github.com/anym001/healthlog/blob/HEAD/docker-compose.yml) and
+[`.env.example`](https://github.com/anym001/healthlog/blob/HEAD/.env.example) from this repo (or clone it), then:
 
 ```bash
 cp .env.example .env
@@ -158,11 +157,9 @@ docker run -d \
   ghcr.io/anym001/healthlog:latest
 ```
 
-`INGEST_SECRET` is the shared secret HAE sends in the `X-Ingest-Token` header —
-any long random ASCII string (`openssl rand -hex 32` is a good default). The
-password in `DATABASE_URL` must match `POSTGRES_PASSWORD` above, and `PUID`/`PGID`
-decide who owns `/config` on the host (Unraid: `99` / `100`). See
-[Configuration](#configuration) for every variable.
+The password in `DATABASE_URL` must match `POSTGRES_PASSWORD` above; `INGEST_SECRET`
+is any long random string (`openssl rand -hex 32`); `PUID`/`PGID` own `/config` on
+the host (Unraid: `99` / `100`). See [Configuration](#configuration) for every variable.
 
 ### Check health
 
@@ -170,22 +167,19 @@ decide who owns `/config` on the host (Unraid: `99` / `100`). See
 curl -fsS http://localhost:8000/api/health     # → {"status":"ok","version":"X.Y.Z"}
 ```
 
-The endpoint verifies database connectivity, so an `ok` means the whole stack
-is up — the image also ships a Docker `HEALTHCHECK` probing it, so
-`docker ps` shows `(healthy)` once ingest is actually ready. `version` is the
-release the image was built from (`dev` when running from source).
-
-The database has no published port — it's reachable only by the app over the
-Docker network. Put a TLS reverse proxy in front of the `healthlog` container
-before pointing HAE at it (see [Reverse proxy](#reverse-proxy)).
+The endpoint verifies database connectivity, so `ok` means the whole stack is up;
+the image's Docker `HEALTHCHECK` probes it too, so `docker ps` shows `(healthy)`
+once ingest is ready. The database has no published port — put a TLS reverse proxy
+in front of the `healthlog` container before pointing HAE at it (see
+[Reverse proxy](#reverse-proxy)).
 
 ### Visualise with Grafana (optional)
 
 The analysis writes its results to the database, so chart them with whatever you
 prefer — Grafana, Metabase, a notebook, plain SQL. Attach that tool to the same
-Docker network as the database and point it at the DB container (`db` in the
-Compose setup, `healthlog-db` in the `docker run` example). The repo ships
-ready-made **Grafana dashboards** — see [`grafana/README.md`](grafana/README.md)
+Docker network as the database and point it at the DB container (`healthlog-db`
+in both the Compose and `docker run` setups). The repo ships
+ready-made **Grafana dashboards** — see [`grafana/README.md`](https://github.com/anym001/healthlog/blob/HEAD/grafana/README.md)
 for details.
 
 ## Image
@@ -234,7 +228,7 @@ expects.
 | Aggregate Data | **on** | drastically reduces payload size |
 | Time grouping | **hourly** | the analysis runs on a daily grid, so sub-hourly detail isn't needed |
 | Batch Requests | **off** | deltas are small; large one-offs go through the backfill CLI instead |
-| Date range | **Standard** | full previous day + today; re-sends data Apple finalises hours late (sleep stages are written after waking, carrying the prior evening's timestamps, so "Since Last Sync" would miss them). Server-side dedup makes the small overlap safe |
+| Date range | **Standard** | full previous day + today; catches data Apple finalises late (e.g. sleep stages written after waking). Server-side dedup makes the overlap safe |
 | Sync cadence | **every 1 hour** | plenty — the analysis runs nightly (`ANALYSIS_CRON`); 5-minute syncs work but are overkill |
 | *Use Localized Units* | **off** | HealthLog normalises units itself; localized units only get flagged |
 
@@ -242,33 +236,23 @@ Make sure **Sleep Analysis**, **Heart Rate Variability** and **Resting Heart
 Rate** are among the selected metrics — they drive the sleep, consistency and
 recovery-alert findings.
 
-**Workouts (optional):** the Health-Metrics automation does not include
-workouts. To capture them, add a **second** REST API automation with the same
-URL, header and timeout, changing only the workout-specific settings:
+**Workouts (optional):** the Health-Metrics automation does not include workouts.
+To capture them, add a **second** REST API automation with the **same settings as
+above**, changing only these:
 
 | Setting | Value | Why |
 |---|---|---|
-| Automation type | **REST API** | same endpoint as above |
-| URL | `https://<your-host>/api/ingest` | the ingest endpoint |
-| Header | key `X-Ingest-Token`, value `<INGEST_SECRET>` | authentication (the exact `INGEST_SECRET` env value) |
-| Timeout | `60` | |
-| Data type | **Workouts** | this is what makes it a workout export |
-| Include Workout Metrics | **on** | delivers the intra-workout heart-rate series — required for zone-based Edwards TRIMP |
-| Include Route Data | **on** for the route map | stores the GPS track of outdoor workouts and feeds the Workout Detail dashboard's route map. Leave **off** to keep payloads smaller and location data out of the database — everything except that map works without it |
+| Data type | **Workouts** | makes it a workout export |
+| Include Workout Metrics | **on** | delivers the intra-workout HR series — required for zone-based Edwards TRIMP |
+| Include Route Data | **on** for the route map | stores the GPS track of outdoor workouts for the Workout Detail dashboard's route map. Leave **off** to keep payloads smaller and location out of the database — everything except that map works without it |
 | Time grouping | **minutes** | per-minute HR buckets are the shape the Edwards parser expects |
-| Export format | **JSON** | CSV is **not** parsed |
-| Export version | **v2** | the parser targets HAE v2 payloads |
-| Date range | **Standard** | full previous day + today; matches the metrics automation. Server-side dedup makes the overlap safe |
-| Sync cadence | **every 1 hour** | matches the metrics automation; the analysis runs nightly |
 
 The nightly analysis folds workouts in as daily training-load series (TRIMP /
-active-energy) for correlation and ACWR findings — set a `profile` in
-`config.yaml` to sharpen the HR-based load. When **Include Workout Metrics** is
-on, a zone-based **Edwards TRIMP** series (`workout_edwards`) runs in parallel;
-it self-gates off when no HR series is present. With **Include Route Data** on,
-the GPS track of outdoor workouts is stored alongside (display only — the
-analysis never uses location) and drawn on the Workout Detail dashboard's
-route map.
+active-energy) for correlation and ACWR findings; set a `profile` in `config.yaml`
+to sharpen the HR-based load. With **Include Workout Metrics** on, a zone-based
+**Edwards TRIMP** series (`workout_edwards`) runs in parallel (self-gating off
+when no HR series is present). **Include Route Data** stores the GPS track for the
+dashboard's route map only — the analysis never uses location.
 
 To confirm data is arriving, trigger a **Manual Export** and check the logs for
 an `ingest.stored …` audit line. For a push confirmation, temporarily set
@@ -277,12 +261,10 @@ an `ingest.stored …` audit line. For a push confirmation, temporarily set
 
 ## Bulk backfill (full history)
 
-A multi-year first export is too large for the HTTP endpoint (it exceeds
-`MAX_PAYLOAD_BYTES` and the proxy timeout). Export the full history from HAE to
-JSON file(s), copy them into the `import/` folder under `/config` (created
-automatically on first start), and run the backfill CLI. It uses the same
-parse/store pipeline as the endpoint and is idempotent, so re-running is always
-safe:
+A multi-year first export exceeds the HTTP endpoint's limits (`MAX_PAYLOAD_BYTES`,
+proxy timeout). Export the full history from HAE to JSON file(s), copy them into the
+`import/` folder under `/config` (created on first start), and run the backfill CLI —
+same parse/store pipeline as the endpoint, idempotent, so re-running is safe:
 
 ```bash
 # Inspect first (parses + reports counts, writes nothing):
@@ -307,27 +289,24 @@ of silently skipping a day. To recompute the findings on demand:
 docker exec healthlog healthlog analyze
 ```
 
-Before trusting the findings, run a read-only data-quality audit. It reports the
-latest findings snapshot (per kind), per-metric coverage — flagging core metrics
-that have no data or fewer than the ~6-week correlation floor (`analysis.min_overlap`)
-— any stored unit that diverges from its canonical unit, and any workout `name`
-that maps to no canonical sport (those group as "Other" in Grafana; map them via
-`workouts.type_map`):
+Before trusting the findings, run a read-only data-quality audit — it reports the
+latest findings snapshot, per-metric coverage (flagging core metrics with no data or
+below the ~6-week `analysis.min_overlap` floor), units that diverge from canonical,
+and workout names that map to no canonical sport (map them via `workouts.type_map`):
 
 ```bash
 docker exec healthlog healthlog audit
 ```
 
-To check whether the raw archive carries the intra-workout heart-rate series
-that zone-based (Edwards) training load needs:
+Zone-based (Edwards) training load needs the intra-workout HR series; check whether
+the raw archive carries it:
 
 ```bash
 docker exec healthlog healthlog check-workout-hr
 ```
 
-Going forward the ingest extracts that series automatically. Workouts ingested
-*before* this feature only have it in the raw archive — replay it into the
-samples table once (idempotent; safe to re-run):
+New ingests extract it automatically. For workouts ingested *before* this feature,
+replay it from the raw archive once (idempotent):
 
 ```bash
 docker exec healthlog healthlog rederive-workout-hr
@@ -335,12 +314,11 @@ docker exec healthlog healthlog rederive-workout-hr
 
 ## LLM narration
 
-HealthLog can turn the current findings snapshot into a written health report
-using a **local** large language model via [Ollama](https://ollama.com/). The
-report summarises anomalies, recovery, training load, correlations, trends and
-sleep consistency in plain prose. Only statistical findings (z-scores, slopes,
-ratios) are sent to the model — **no raw health values ever leave your
-network**, and Ollama itself runs entirely on your own hardware.
+HealthLog can turn the current findings snapshot into a written health report via a
+**local** LLM ([Ollama](https://ollama.com/)) — anomalies, recovery, training load,
+correlations, trends and sleep consistency in plain prose. Only statistical findings
+(z-scores, slopes, ratios) reach the model — **no raw health values ever leave your
+network**.
 
 ```bash
 docker exec healthlog healthlog narrate
@@ -356,11 +334,10 @@ The report is printed to stdout and written to `/config/narration/YYYY-MM-DD.md`
 (the directory is created on first use). It is **off until you set
 `narrate.ollama_url`** in `config.yaml`.
 
-Use `--dry-run` to print the exact findings context that *would* be sent to the
-model — the curated, privacy-scrubbed prompt — and then exit without contacting
-Ollama or writing a report. It works even when `narrate.ollama_url` is unset, so
-you can verify the "data → report" input deterministically (correlation
-curation, scrubbed values, lookback window) before trusting the narrative.
+`--dry-run` prints the exact privacy-scrubbed context that *would* be sent —
+correlation curation, scrubbed values, lookback window — and exits without
+contacting Ollama. It works even when `narrate.ollama_url` is unset, so you can
+verify the input deterministically before trusting the narrative.
 
 To keep the report focused, only the highest-priority correlations are narrated
 (cross-domain links — e.g. training load vs next-day respiratory rate — rank
@@ -368,11 +345,12 @@ above expected within-subsystem pairs like total vs deep sleep); the rest are
 summarised as a count. Tune the cap with `narrate.max_correlations` (default 15,
 `0` = narrate them all).
 
-### Running Ollama on a Mac
+### Running Ollama for narration
 
-A Mac with Apple Silicon (unified memory) is well suited to running an 8–14B
-model locally. The analysis itself runs on your always-on server; only this
-optional narration step talks to the Mac.
+Any machine with enough memory can run an 8–14B model locally — an Apple Silicon
+Mac (unified memory) or a box with a capable GPU both work well. The analysis
+itself runs on your always-on server; only this optional narration step talks to
+the Ollama host. The steps below use macOS as the example.
 
 1. **Install Ollama** — download the app from
    [ollama.com/download](https://ollama.com/download) (or `brew install ollama`).
@@ -385,12 +363,13 @@ optional narration step talks to the Mac.
    ollama pull qwen2.5:14b
    ```
 
-   On a 16 GB Mac, `qwen2.5:7b` is a lighter alternative — set it as
+   On a host with ~16 GB, `qwen2.5:7b` is a lighter alternative — set it as
    `narrate.model` in `config.yaml`.
 
 3. **Expose Ollama on your network.** By default Ollama only listens on
    `127.0.0.1`, so the server can't reach it. Bind it to all interfaces by
-   setting `OLLAMA_HOST` (see the
+   setting `OLLAMA_HOST` (on macOS via `launchctl`, as below; on Linux set it in
+   the service's environment — see the
    [FAQ](https://github.com/ollama/ollama/blob/main/docs/faq.md#how-do-i-configure-ollama-server)):
 
    ```bash
@@ -400,7 +379,7 @@ optional narration step talks to the Mac.
    Keep this on a trusted LAN — Ollama has no authentication. Do **not** expose
    port `11434` to the internet.
 
-4. **Point HealthLog at the Mac** in `config.yaml`, using the Mac's LAN IP:
+4. **Point HealthLog at the Ollama host** in `config.yaml`, using its LAN IP:
 
    ```yaml
    narrate:
@@ -438,11 +417,10 @@ optional narration step talks to the Mac.
 Two configuration homes, deliberately split:
 
 - **Environment variables** (the table above) — **secrets and infrastructure**.
-- **`config.yaml`** (mounted at `/config/config.yaml`) — structured, non-secret
-  *behaviour* and *profile*. **Entirely optional**: a missing or fully-commented
-  file means all-default behaviour. The container seeds a fully-commented
-  example on first start, so you can discover the knobs and uncomment what you
-  want — never put secrets here.
+- **`config.yaml`** (at `/config/config.yaml`) — non-secret *behaviour* and
+  *profile*. **Entirely optional**: a missing or fully-commented file means
+  all-default behaviour. The container seeds a commented example on first start,
+  so you can uncomment what you want — never put secrets here.
 
 It holds:
 
@@ -451,30 +429,23 @@ It holds:
   consistency thresholds, ACWR load-spike/detraining bands). Retune without
   rebuilding the image.
 - **`profile`** — your `birth_year`/`sex` (and optional `hr_max`/`hr_rest`).
-  Personal but not secret; sharpens the HR-based training load (Banister TRIMP)
-  in the workout analysis (see [`docs/workout-analysis.md`](docs/workout-analysis.md)).
-  Without it, HR_max is derived from your data and a generic weighting is used.
-- **`workouts`** — `load_metric` (which load series to build: `trimp`/`energy`/
-  `both`), a `type_map` (localised HAE workout name → canonical sport) and
-  `edwards` (zone-based TRIMP, default on). With a map, an extra per-sport load
-  series is analysed for each mapped type, so one sport's lagged effect on
-  recovery is told apart from another's; unmapped workouts still feed the
-  type-agnostic aggregate. `edwards` adds a parallel zone-based load series when
-  the intra-workout HR series is present and self-gates off when it isn't.
-- **`narrate`** — Ollama endpoint (`ollama_url`), model (`qwen2.5:14b`),
-  report language (`en`/`de`, default `en`), lookback window for time-anchored
-  findings, HTTP timeout, and `thinking` (default `false`; enables qwen3
-  extended-thinking mode for deeper analysis). Off until `ollama_url` is set;
-  used only when you run `healthlog narrate` (see [LLM narration](#llm-narration)).
+  Personal but not secret; sharpens the HR-based training load (see
+  [`docs/workout-analysis.md`](https://github.com/anym001/healthlog/blob/HEAD/docs/workout-analysis.md)). Without it, HR_max is
+  derived from your data.
+- **`workouts`** — `load_metric` (`trimp`/`energy`/`both`), a `type_map`
+  (localised HAE workout name → canonical sport) and `edwards` (zone-based TRIMP,
+  default on). A `type_map` adds a per-sport load series per mapped type, so one
+  sport's lagged effect is told apart from another's; unmapped workouts still feed
+  the type-agnostic aggregate.
+- **`narrate`** — Ollama endpoint, model, report language, lookback, timeout and
+  `thinking` mode. Off until `ollama_url` is set (see [LLM narration](#llm-narration)).
 - **`notify`** — push notifications (see below).
 
-Changes to `config.yaml` are **picked up automatically** — no container restart
-needed; the file's modification time is checked on each access. Malformed YAML
-or an out-of-range value fails fast with a clear message at startup; a bad
-*edit* while the service is running never takes it down — the previous
-configuration stays active and a warning is logged. See the seeded
-`/config/config.yaml` (or `backend/config.example.yaml`) for every option with
-its default.
+Changes are **picked up automatically** — no restart needed (the file's mtime is
+checked on each access). Malformed YAML fails fast at startup; a bad *edit* while
+running never takes the service down — the previous config stays active and a
+warning is logged. See the seeded `/config/config.yaml` (or
+`backend/config.example.yaml`) for every option with its default.
 
 #### Notifications
 
@@ -522,12 +493,11 @@ rebuilt from the image.
 
 ### Disk usage
 
-The raw payload archive and the sample table are TimescaleDB hypertables with
-automatic **compression policies** (raw payloads after 7 days, samples after
-30): repetitive JSON compresses by an order of magnitude, so keeping the full
-verbatim archive stays cheap. No action needed — the policies run as background
-jobs inside the database. Re-importing overlapping history remains safe;
-writes into already-compressed chunks just take a little longer.
+The raw archive and sample table are TimescaleDB hypertables with automatic
+**compression policies** (raw after 7 days, samples after 30): repetitive JSON
+compresses by an order of magnitude, so the full verbatim archive stays cheap. No
+action needed. Re-importing overlapping history stays safe — writes into compressed
+chunks just take a little longer.
 
 ### Updating the database image
 
@@ -547,8 +517,8 @@ the engine under your data. Then update deliberately:
   **not** a plain image swap — it needs a dump/restore (or `pg_upgrade`). Back up
   first, then restore the dump into a fresh `pg17` container.
 
-Rule of thumb: keep the database version fixed until you choose to move it with a
-backup in hand. The app image (`healthlog`) is decoupled and can be updated freely.
+The app image (`healthlog`) is decoupled and updates freely; keep the database
+version fixed until you deliberately move it, backup in hand.
 
 ## Reverse proxy
 
@@ -584,18 +554,16 @@ IP (never the token), ready for fail2ban & co.
 
 Set `METRICS_ENABLED=true` to expose a Prometheus scrape endpoint at `/metrics`
 with ingest counters: requests by outcome (`stored`, `duplicate`, `invalid`,
-`too_large`, `unauthorized`, `unconfigured`), rows by kind, and the unix time of
-the last stored sync — alert on that going stale to catch a silently broken HAE
-automation. Values are counters and timestamps only; raw health data is never
-exported. The endpoint is unauthenticated (Prometheus convention): enable it
-only on a trusted network and do **not** forward `/metrics` through the public
-reverse proxy. The nightly analysis runs in a separate process and reports
-through notifications and logs instead.
+`too_large`, `unauthorized`, `unconfigured`), rows by kind, and the unix time of the
+last stored sync — alert on that going stale to catch a silently broken HAE
+automation. Counters and timestamps only; raw health data is never exported. The
+endpoint is unauthenticated (Prometheus convention): enable it only on a trusted
+network and do **not** forward `/metrics` through the public reverse proxy.
 
 ## Development
 
 Contributing, the test/lint workflow and a map of the codebase live in
-[`CONTRIBUTING.md`](CONTRIBUTING.md) and [`CLAUDE.md`](CLAUDE.md). In short:
+[`CONTRIBUTING.md`](https://github.com/anym001/healthlog/blob/HEAD/CONTRIBUTING.md) and [`CLAUDE.md`](https://github.com/anym001/healthlog/blob/HEAD/CLAUDE.md). In short:
 feature branch → PR against `dev`; release by tagging `vX.Y.Z` on `main`.
 
 ## License

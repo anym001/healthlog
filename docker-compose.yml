@@ -9,11 +9,12 @@
 name: healthlog
 
 services:
-  db:
+  healthlog-db:
     # Pin the exact TimescaleDB tag — never a floating one — so recreating
     # the container can't silently change the engine under your data
     # (see README "Updating the database image").
     image: timescale/timescaledb:2.17.2-pg16
+    container_name: healthlog-db
     environment:
       POSTGRES_USER: healthlog
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
@@ -32,12 +33,12 @@ services:
     # a new release never silently updates your instance.
     image: ghcr.io/anym001/healthlog:${HEALTHLOG_VERSION:-latest}
     depends_on:
-      db:
+      healthlog-db:
         condition: service_healthy
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql+psycopg://healthlog:${POSTGRES_PASSWORD}@db:5432/healthlog
+      DATABASE_URL: postgresql+psycopg://healthlog:${POSTGRES_PASSWORD}@healthlog-db:5432/healthlog
       INGEST_SECRET: ${INGEST_SECRET:?set INGEST_SECRET in .env}
       TZ: ${TZ:-Europe/Vienna}
       ANALYSIS_CRON: ${ANALYSIS_CRON:-30 3 * * *}
