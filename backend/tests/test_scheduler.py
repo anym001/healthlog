@@ -118,3 +118,47 @@ def test_run_analysis_failure_notifies_and_skips_marker(tmp_path, monkeypatch):
         assert read_last_run(tmp_path / "state" / "last_analysis") is None
     finally:
         config.get_settings.cache_clear()
+
+
+def test_run_analysis_survives_unexpected_error(tmp_path, monkeypatch):
+    # run_analysis doubles as the startup catch-up call in main(); an escaping
+    # OSError there would kill the scheduler before the nightly job is even
+    # registered. It must swallow, notify, and skip the marker instead.
+    monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "config.yaml"))
+    config.get_settings.cache_clear()
+
+    def boom(*a, **k):
+        raise OSError("spawn failed")
+
+    crashes: list[Exception] = []
+    monkeypatch.setattr(scheduler.subprocess, "run", boom)
+    from app import notify
+
+    monkeypatch.setattr(notify, "notify_analysis_crash", lambda cfg, exc: crashes.append(exc))
+    try:
+        scheduler.run_analysis()  # must not raise
+        assert len(crashes) == 1
+        assert read_last_run(tmp_path / "state" / "last_analysis") is None
+    finally:
+        config.get_settings.cache_clear()
+
+
+def test_run_analysis_survives_crashing_notifier(tmp_path, monkeypatch):
+    monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "config.yaml"))
+    config.get_settings.cache_clear()
+
+    def boom(*a, **k):
+        raise subprocess.CalledProcessError(1, "app.analysis")
+
+    monkeypatch.setattr(scheduler.subprocess, "run", boom)
+    from app import notify
+
+    def notify_boom(cfg, exc):
+        raise RuntimeError("gotify config broken")
+
+    monkeypatch.setattr(notify, "notify_analysis_crash", notify_boom)
+    try:
+        scheduler.run_analysis()  # even a broken crash alert must not propagate
+        assert read_last_run(tmp_path / "state" / "last_analysis") is None
+    finally:
+        config.get_settings.cache_clear()

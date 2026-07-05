@@ -30,6 +30,21 @@ from .findings import (
 from .load import load_sleep_frame
 
 
+def _guarded(kind: str, build, empty):
+    """Run one finding builder, containing its failures.
+
+    A single pathological series (e.g. a decomposition that fails to converge)
+    must cost only its own finding kind, not the whole night's snapshot — the
+    stale previous snapshot would otherwise keep being served until someone
+    intervenes. Logs the crash and falls back to ``empty`` for that kind.
+    """
+    try:
+        return build()
+    except Exception:
+        log.exception("%s findings failed; skipping this kind for this run", kind)
+        return empty
+
+
 def run(db: Session, tz: str | None = None, config: AppConfig | None = None) -> AnalysisResult:
     """Compute all findings and write them as a fresh snapshot (flush only).
 
@@ -48,12 +63,14 @@ def run(db: Session, tz: str | None = None, config: AppConfig | None = None) -> 
     # Decompose once; correlation de-trending and trend/seasonality both reuse it.
     decomps = _decompose_all(series)
 
-    correlations = _correlation_findings(series, computed_at, cfg, decomps)
-    anomalies = _anomaly_findings(series, computed_at, cfg)
-    trends, seasons = _trend_and_seasonality_findings(series, computed_at, cfg, decomps)
-    recovery = _recovery_findings(series, computed_at, cfg)
-    consistency = _consistency_findings(db, tz, computed_at, cfg, sleep=sleep)
-    training_load = _training_load_findings(series, computed_at, cfg)
+    correlations = _guarded("correlation", lambda: _correlation_findings(series, computed_at, cfg, decomps), [])
+    anomalies = _guarded("anomaly", lambda: _anomaly_findings(series, computed_at, cfg), [])
+    trends, seasons = _guarded(
+        "trend/seasonality", lambda: _trend_and_seasonality_findings(series, computed_at, cfg, decomps), ([], [])
+    )
+    recovery = _guarded("recovery", lambda: _recovery_findings(series, computed_at, cfg), [])
+    consistency = _guarded("consistency", lambda: _consistency_findings(db, tz, computed_at, cfg, sleep=sleep), [])
+    training_load = _guarded("training_load", lambda: _training_load_findings(series, computed_at, cfg), [])
 
     db.execute(delete(Finding))  # snapshot: replace the previous run
     db.add_all([*correlations, *anomalies, *trends, *seasons, *recovery, *consistency, *training_load])

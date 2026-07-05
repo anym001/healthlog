@@ -1,8 +1,9 @@
 """Unit tests for the narration module.
 
-Pure tests — no DB, no real network. The Ollama client is driven through an
-httpx MockTransport; context building and privacy scrubbing are tested with
-synthetic findings dicts.
+Mostly pure — no real network. The Ollama client is driven through an httpx
+MockTransport; context building and privacy scrubbing are tested with
+synthetic findings dicts. Only the loader test touches the test DB (it
+exercises the findings query itself).
 """
 
 from __future__ import annotations
@@ -486,3 +487,31 @@ def test_write_report_overwrites_existing(tmp_path):
 def test_write_report_returns_path(tmp_path):
     path = write_report("x", tmp_path / "narration", _TODAY)
     assert str(_TODAY) in path.name
+
+
+# ---------------------------------------------------------------------------
+# load_findings (DB-backed: the lookback window itself)
+# ---------------------------------------------------------------------------
+
+
+def test_load_findings_lookback_uses_local_day(db):
+    # The cutoff must be the *local* day (ref_date is written in local_tz by
+    # the analysis), not the DB server's CURRENT_DATE, which typically runs
+    # on UTC and would shift the window around local midnight.
+    from zoneinfo import ZoneInfo
+
+    from app.config import get_settings
+    from app.models import Finding
+    from app.narrate import load_findings
+
+    today = dt.datetime.now(ZoneInfo(get_settings().local_tz)).date()
+    old = today - dt.timedelta(days=30)
+    db.add(Finding(kind="anomaly", metric_a="resting_heart_rate", ref_date=today, severity=3.0))
+    db.add(Finding(kind="anomaly", metric_a="resting_heart_rate", ref_date=old, severity=3.0))
+    db.add(Finding(kind="correlation", metric_a="step_count", metric_b="resting_heart_rate"))
+    db.flush()
+
+    rows = load_findings(db, 7)
+    anomaly_dates = [r["ref_date"] for r in rows if r["kind"] == "anomaly"]
+    assert anomaly_dates == [today]  # the 30-day-old anomaly is outside the window
+    assert any(r["kind"] == "correlation" for r in rows)  # standing analyses always included

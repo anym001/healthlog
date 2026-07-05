@@ -111,6 +111,62 @@ def test_flagged_unit_value_skips_the_bounds_check():
     assert parsed.flagged_units == [("heart_rate", "bogus_unit")]
 
 
+def test_malformed_timestamp_skips_the_point_not_the_payload():
+    # A single bad date (wrong format or even a non-string) among good points
+    # must cost exactly that point — the rest of the payload still parses.
+    payload = _metric_payload(
+        "step_count",
+        [
+            {"date": "garbage", "qty": 100},
+            {"date": {"nested": "junk"}, "qty": 200},
+            {"date": "2026-06-15 10:00:00 +0000", "qty": 300},
+        ],
+        units="count",
+    )
+    parsed = parse_payload(payload)
+    assert [r["qty"] for r in parsed.metric_rows] == [300.0]
+
+
+def test_malformed_sleep_start_skips_the_row():
+    payload = {
+        "data": {
+            "metrics": [
+                {
+                    "name": "sleep_analysis",
+                    "units": "hr",
+                    "data": [
+                        {"sleepStart": "not a date", "totalSleep": 7.0},
+                        {"sleepStart": "2026-06-15 23:00:00 +0200", "totalSleep": 6.5},
+                    ],
+                }
+            ]
+        }
+    }
+    parsed = parse_payload(payload)
+    assert len(parsed.sleep_rows) == 1
+    assert parsed.sleep_rows[0]["total_sleep_h"] == 6.5
+
+
+def test_workout_malformed_times_tolerated_as_null():
+    payload = {
+        "data": {
+            "workouts": [
+                {
+                    "id": "3213AD95-044D-4777-9D99-B473968262F1",
+                    "start": "junk",
+                    "end": "2026-06-15 11:00:00 +0200",
+                    "name": "Outdoor Run",
+                }
+            ]
+        }
+    }
+    parsed = parse_payload(payload)
+    assert len(parsed.workout_rows) == 1
+    w = parsed.workout_rows[0]
+    assert w["start_time"] is None  # tolerated, column is nullable
+    assert w["end_time"] is not None
+
+
 def test_sleep_routed_to_sleep_rows_with_wake_day(sample_payload):
     parsed = parse_payload(sample_payload)
     assert not any(r["metric"] == "sleep_analysis" for r in parsed.metric_rows)
