@@ -18,7 +18,9 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.14"
-      - run: pip install ruff==0.15.17
+      # Single source of truth for the ruff pin: requirements-dev.txt. A second
+      # hardcoded pin here would let CI and local formatting silently disagree.
+      - run: pip install "$(grep '^ruff==' backend/requirements-dev.txt)"
       - name: ruff check
         run: ruff check .
         working-directory: backend

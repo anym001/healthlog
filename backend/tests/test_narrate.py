@@ -515,3 +515,86 @@ def test_load_findings_lookback_uses_local_day(db):
     anomaly_dates = [r["ref_date"] for r in rows if r["kind"] == "anomaly"]
     assert anomaly_dates == [today]  # the 30-day-old anomaly is outside the window
     assert any(r["kind"] == "correlation" for r in rows)  # standing analyses always included
+
+
+# ---------------------------------------------------------------------------
+# OllamaClient transport retry
+# ---------------------------------------------------------------------------
+
+
+def test_client_retries_once_on_transport_error(monkeypatch):
+    from app.narrate import client as client_mod
+
+    monkeypatch.setattr(client_mod, "_RETRY_DELAY_S", 0.0)
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.ConnectError("connection refused", request=request)
+        return httpx.Response(200, json={"message": {"content": "Report"}})
+
+    assert _client(handler).generate("sys", "ctx") == "Report"
+    assert calls["n"] == 2
+
+
+def test_client_gives_up_after_one_retry(monkeypatch):
+    from app.narrate import client as client_mod
+
+    monkeypatch.setattr(client_mod, "_RETRY_DELAY_S", 0.0)
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        raise httpx.ConnectError("still down", request=request)
+
+    with pytest.raises(httpx.ConnectError):
+        _client(handler).generate("sys", "ctx")
+    assert calls["n"] == 2  # exactly one retry, then propagate
+
+
+def test_client_does_not_retry_http_status_errors():
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(500, text="model exploded")
+
+    with pytest.raises(httpx.HTTPStatusError):
+        _client(handler).generate("sys", "ctx")
+    assert calls["n"] == 1  # a real answer from a reachable server: no retry
+
+
+# ---------------------------------------------------------------------------
+# Hand-wired display labels (series without a metric_registry row)
+# ---------------------------------------------------------------------------
+
+
+def test_handwired_labels_for_registry_less_series():
+    from app.narrate.loader import _handwired_label
+
+    assert _handwired_label("workout_trimp") == "Training Load (TRIMP)"
+    assert _handwired_label("workout_trimp_running") == "Training Load (TRIMP) — Running"
+    assert _handwired_label("workout_load_cycling") == "Training Load — Cycling"
+    assert _handwired_label("workout_edwards") == "Training Load (Edwards TRIMP)"
+    assert _handwired_label("sleep_total_h") == "Total Sleep"
+    assert _handwired_label("bedtime") == "Bedtime"
+    assert _handwired_label("step_count") is None  # registry metrics are not ours
+
+
+def test_load_findings_labels_handwired_series(db):
+    # workout/sleep series have no metric_registry row; the loader must still
+    # deliver a display label instead of leaking the snake_case key into prose.
+    from zoneinfo import ZoneInfo
+
+    from app.config import get_settings
+    from app.models import Finding
+    from app.narrate import load_findings
+
+    today = dt.datetime.now(ZoneInfo(get_settings().local_tz)).date()
+    db.add(Finding(kind="training_load", metric_a="workout_trimp_running", ref_date=today, severity=1.6))
+    db.flush()
+
+    rows = load_findings(db, 7)
+    row = next(r for r in rows if r["kind"] == "training_load")
+    assert row["metric_a_label"] == "Training Load (TRIMP) — Running"

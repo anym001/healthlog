@@ -116,6 +116,15 @@ def test_send_is_best_effort_on_network_error():
     assert _notifier(handler).send(_NOTE) is False
 
 
+def test_send_is_best_effort_on_any_exception():
+    # The "never propagates" promise must hold beyond httpx errors — e.g. a
+    # bug while building the request body may not crash the surrounding run.
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise RuntimeError("unexpected serialization bug")
+
+    assert _notifier(handler).send(_NOTE) is False
+
+
 # --- build_notifier --------------------------------------------------------
 
 

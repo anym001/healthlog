@@ -52,6 +52,9 @@ class ParsedPayload:
     # Values dropped for falling outside the registry plausibility envelope; the
     # raw payload is still archived verbatim, so a re-derive can recover them.
     implausible: list[tuple[str, float]] = field(default_factory=list)  # (metric, value)
+    # Workouts dropped for a missing/unparseable id; surfaced like the other
+    # data-quality counters so they never vanish silently. (raw_id, name)
+    dropped_workouts: list[tuple[str, str]] = field(default_factory=list)
 
 
 def _num(value) -> float | None:
@@ -159,8 +162,12 @@ def _qty_of(obj) -> float | None:
     return _num(obj)
 
 
-def _energy_kcal(obj) -> float | None:
-    """Workout energy ships in kJ; convert to the canonical kcal."""
+def _energy_kcal(obj, out: ParsedPayload) -> float | None:
+    """Workout energy ships in kJ; convert to the canonical kcal.
+
+    An unknown unit is kept as-is *and flagged* — mirroring the point-metric
+    unit guard — so a unit change in a future HAE version surfaces in the
+    counters instead of silently storing wrong numbers as kcal."""
     if not isinstance(obj, dict):
         return _num(obj)
     qty = _num(obj.get("qty"))
@@ -169,7 +176,10 @@ def _energy_kcal(obj) -> float | None:
     unit = obj.get("units")
     if unit and unit != "kcal":
         converted = units.convert(qty, unit, "kcal")
-        return converted if converted is not None else qty
+        if converted is None:
+            out.flagged_units.append(("workout_energy", unit))
+            return qty
+        return converted
     return qty
 
 
@@ -203,10 +213,12 @@ def _route_coords(point: dict) -> tuple[float, float, float | None, float | None
 def _parse_workout(w: dict, out: ParsedPayload, type_map: dict[str, str] | None = None) -> None:
     raw_id = w.get("id")
     if not raw_id:
+        out.dropped_workouts.append(("", str(w.get("name") or "")))
         return
     try:
         hae_id = uuid.UUID(str(raw_id))
     except ValueError:
+        out.dropped_workouts.append((str(raw_id), str(w.get("name") or "")))
         return
 
     # Intra-workout HR time series (only sometimes present). Each usable sample
@@ -258,8 +270,8 @@ def _parse_workout(w: dict, out: ParsedPayload, type_map: dict[str, str] | None 
             "location": w.get("location"),
             "is_indoor": w.get("isIndoor"),
             "duration_s": _num(w.get("duration")),
-            "total_energy_kcal": _energy_kcal(w.get("totalEnergy")),
-            "active_energy_kcal": _energy_kcal(w.get("activeEnergyBurned")),
+            "total_energy_kcal": _energy_kcal(w.get("totalEnergy"), out),
+            "active_energy_kcal": _energy_kcal(w.get("activeEnergyBurned"), out),
             "distance_km": _qty_of(w.get("distance")),
             "avg_hr": _qty_of(hr.get("avg")) if hr else _qty_of(w.get("avgHeartRate")),
             "max_hr": _qty_of(hr.get("max")) if hr else _qty_of(w.get("maxHeartRate")),
@@ -334,10 +346,12 @@ class StoreResult:
     workout_route_rows: int = 0
     unknown_metrics: int = 0
     # Data-quality counters: metric values whose incoming unit deviated with no
-    # known conversion (kept as-is), and values dropped for failing the registry
-    # plausibility envelope. Both are surfaced so a silent drift is visible.
+    # known conversion (kept as-is), values dropped for failing the registry
+    # plausibility envelope, and workouts dropped for a missing/unparseable id.
+    # All are surfaced so a silent drift is visible.
     flagged_units: int = 0
     implausible_values: int = 0
+    dropped_workouts: int = 0
     # New vs. updated counts from the Postgres xmax trick: xmax=0 means the
     # row was freshly inserted; xmax!=0 means an existing row was updated (i.e.
     # the payload contained data that was already in the DB).
@@ -538,6 +552,12 @@ def store(db: Session, parsed: ParsedPayload) -> StoreResult:
             metric,
             value,
         )
+    for raw_id, name in parsed.dropped_workouts:
+        log.warning(
+            "workout dropped: unusable id %r (name=%r); summary not stored (raw archive keeps it)",
+            raw_id,
+            name,
+        )
 
     return StoreResult(
         metric_rows=len(parsed.metric_rows),
@@ -548,6 +568,7 @@ def store(db: Session, parsed: ParsedPayload) -> StoreResult:
         unknown_metrics=len(parsed.unknown_metrics),
         flagged_units=len(parsed.flagged_units),
         implausible_values=len(parsed.implausible),
+        dropped_workouts=len(parsed.dropped_workouts),
         metric_new=metric_new,
         sleep_new=sleep_new,
         workout_new=workout_new,

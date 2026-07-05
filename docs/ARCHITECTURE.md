@@ -255,8 +255,9 @@ unit normalisation the ingest parser drops any value outside the envelope — a 
 corrupt the median/MAD baselines or correlations. The bounds are generous sanity rails
 (non-negativity for counts, wide physiological ranges for vitals), not clinical limits.
 Dropped values are **counted** (`implausible_values` in the ingest response, alongside
-`flagged_units`, and logged) but never lost — the verbatim payload still lands in the
-raw archive (§4.1), so a later re-derive can recover them once the envelope widens. A
+`flagged_units` and `dropped_workouts` — workouts discarded for a missing/unparseable
+id — and logged) but never lost — the verbatim payload still lands in the raw archive
+(§4.1), so a later re-derive can recover them once the envelope widens. A
 flagged-but-unconverted value is exempt: its unit isn't canonical, so the bounds would
 compare against the wrong scale.
 

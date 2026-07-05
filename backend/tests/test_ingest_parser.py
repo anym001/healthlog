@@ -167,6 +167,41 @@ def test_workout_malformed_times_tolerated_as_null():
     assert w["end_time"] is not None
 
 
+def test_workout_with_unusable_id_is_counted_not_silent():
+    # A dropped workout must leave a trace (counter + log), like the other
+    # data-quality cases — not vanish from the application.
+    payload = {
+        "data": {
+            "workouts": [
+                {"id": "not-a-uuid", "name": "Yoga"},
+                {"name": "Run"},  # id missing entirely
+            ]
+        }
+    }
+    parsed = parse_payload(payload)
+    assert parsed.workout_rows == []
+    assert ("not-a-uuid", "Yoga") in parsed.dropped_workouts
+    assert ("", "Run") in parsed.dropped_workouts
+
+
+def test_workout_energy_with_unknown_unit_is_flagged():
+    # An unconvertible energy unit must be flagged (mirroring the point-metric
+    # unit guard), not silently stored as if it were kcal.
+    payload = {
+        "data": {
+            "workouts": [
+                {
+                    "id": "3213AD95-044D-4777-9D99-B473968262F1",
+                    "totalEnergy": {"qty": 500.0, "units": "J"},
+                }
+            ]
+        }
+    }
+    parsed = parse_payload(payload)
+    assert ("workout_energy", "J") in parsed.flagged_units
+    assert parsed.workout_rows[0]["total_energy_kcal"] == 500.0  # kept as-is, but visible
+
+
 def test_sleep_routed_to_sleep_rows_with_wake_day(sample_payload):
     parsed = parse_payload(sample_payload)
     assert not any(r["metric"] == "sleep_analysis" for r in parsed.metric_rows)

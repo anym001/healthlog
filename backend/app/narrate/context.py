@@ -1,4 +1,4 @@
-"""Findings → privacy-safe plain-text context for the narration LLM.
+"""Findings → plain-text context for the narration LLM.
 
 Each finding kind is rendered by its own ``_section_<kind>`` helper;
 :func:`build_context` builds the header, groups findings by kind, and stitches
@@ -84,7 +84,7 @@ def _z_label(z: float, language: str) -> str:
     """Plain-language band for a z-score magnitude (matches the system-prompt thresholds)."""
     az = abs(z)
     if az < 1.5:
-        return "normal" if language == "en" else "normal"
+        return "normal"  # the same word in both languages
     if az < 2.5:
         return "mildly notable" if language == "en" else "leicht auffällig"
     if az < 3.5:

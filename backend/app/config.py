@@ -29,10 +29,13 @@ class Settings(BaseSettings):
     # Shared secret expected in the ingest request header. Empty => the ingest
     # endpoint fails closed (503) until configured.
     ingest_secret: str = Field(default="", alias="INGEST_SECRET")
-    ingest_header: str = Field(default="X-Ingest-Token", alias="INGEST_HEADER")
     # Reject payloads larger than this (HAE backfills can be large, but a hard
     # cap protects the service). Default 32 MiB.
     max_payload_bytes: int = Field(default=32 * 1024 * 1024, alias="MAX_PAYLOAD_BYTES")
+    # Reverse proxies (comma-separated IPs/CIDRs, or '*') trusted to set the
+    # X-Real-IP / X-Forwarded-For headers used for the audit client IP. Empty
+    # = the standard private + loopback ranges (see app/proxies.py).
+    trusted_proxies: str = Field(default="", alias="TRUSTED_PROXIES")
 
     # --- Time --------------------------------------------------------------
     # Single timezone knob (the standard LinuxServer/Unraid `TZ`): it sets the
