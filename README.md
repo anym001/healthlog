@@ -316,9 +316,11 @@ docker exec healthlog healthlog rederive-workout-hr
 
 HealthLog can turn the current findings snapshot into a written health report via a
 **local** LLM ([Ollama](https://ollama.com/)) — anomalies, recovery, training load,
-correlations, trends and sleep consistency in plain prose. Only statistical findings
-(z-scores, slopes, ratios) reach the model — **no raw health values ever leave your
-network**.
+correlations, trends and sleep consistency in plain prose. The model receives the
+statistical findings context (z-scores, slopes, ratios — plus the measured value
+where a finding carries one, e.g. an anomaly's reading). It is sent **only to the
+Ollama endpoint you configure** (`narrate.ollama_url`) — point it at a machine in
+your own network to keep the data local.
 
 ```bash
 docker exec healthlog healthlog narrate
@@ -334,8 +336,8 @@ The report is printed to stdout and written to `/config/narration/YYYY-MM-DD.md`
 (the directory is created on first use). It is **off until you set
 `narrate.ollama_url`** in `config.yaml`.
 
-`--dry-run` prints the exact privacy-scrubbed context that *would* be sent —
-correlation curation, scrubbed values, lookback window — and exits without
+`--dry-run` prints the exact findings context that *would* be sent —
+correlation curation, included values, lookback window — and exits without
 contacting Ollama. It works even when `narrate.ollama_url` is unset, so you can
 verify the input deterministically before trusting the narrative.
 
@@ -404,6 +406,7 @@ the Ollama host. The steps below use macOS as the example.
 | `TZ` | `Europe/Vienna` | container clock (log timestamps) **and** the daily-bucket timezone for analysis |
 | `ANALYSIS_CRON` | `30 3 * * *` | when the nightly analysis runs (5-field cron, in `TZ`) |
 | `MAX_PAYLOAD_BYTES` | `33554432` | max accepted ingest body (32 MiB); larger histories use the backfill CLI |
+| `TRUSTED_PROXIES` | *(private ranges)* | reverse proxies (comma-separated IPs/CIDRs, or `*`) trusted to set `X-Real-IP`/`X-Forwarded-For` for the audit client IP; empty trusts the standard private + loopback ranges |
 | `PUID` / `PGID` | `1000` | host user/group that owns `/config` (Unraid: `99` / `100`) |
 | `LOG_LEVEL` | `INFO` | log verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 | `LOG_FORMAT` | `text` | `text` (human-readable) or `json` (one object per line, for Loki/ELK) |

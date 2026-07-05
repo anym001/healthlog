@@ -82,7 +82,19 @@ async def ingest_payload(
         outcome, result = await run_in_threadpool(_ingest, db, body, ip, type_map)
     except ValueError as exc:
         INGEST_REQUESTS.labels(outcome="invalid").inc()
+        audit.info("ingest.invalid ip=%s error=%s", ip, exc)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        # Anything past the parse guard (a DB deadlock, a connection blip, an
+        # unexpected payload shape) must still leave an audit trail and count —
+        # a bare framework 500 would be invisible to the operator.
+        INGEST_REQUESTS.labels(outcome="error").inc()
+        audit.info("ingest.error ip=%s error=%s", ip, type(exc).__name__)
+        log.exception("ingest failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Ingest failed; see server logs.",
+        ) from exc
 
     if outcome == "duplicate":
         INGEST_REQUESTS.labels(outcome="duplicate").inc()
@@ -97,7 +109,7 @@ async def ingest_payload(
 
     audit.info(
         "ingest.stored ip=%s metrics=%d(%d new) sleep=%d(%d new) workouts=%d(%d new) "
-        "unknown=%d flagged_units=%d implausible=%d",
+        "unknown=%d flagged_units=%d implausible=%d dropped_workouts=%d",
         ip,
         result.metric_rows,
         result.metric_new,
@@ -108,6 +120,7 @@ async def ingest_payload(
         result.unknown_metrics,
         result.flagged_units,
         result.implausible_values,
+        result.dropped_workouts,
     )
     # Best-effort push after the response is sent (never blocks the HAE sync).
     background_tasks.add_task(
@@ -128,6 +141,7 @@ async def ingest_payload(
         unknown_metrics=result.unknown_metrics,
         flagged_units=result.flagged_units,
         implausible_values=result.implausible_values,
+        dropped_workouts=result.dropped_workouts,
         metric_new=result.metric_new,
         sleep_new=result.sleep_new,
         workout_new=result.workout_new,

@@ -20,6 +20,7 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import os
+import threading
 from pathlib import Path
 from typing import Literal
 
@@ -267,6 +268,7 @@ def load_config(path: str | Path) -> AppConfig:
 # (path, mtime_ns) -> parsed config. One entry; the stamp is the cache key, so
 # an edited config.yaml takes effect on the next access without a restart.
 _cache: tuple[str, int, AppConfig] | None = None
+_cache_lock = threading.Lock()
 
 
 def _stamp(path: Path) -> int:
@@ -286,23 +288,28 @@ def get_app_config() -> AppConfig:
     keeps the previous config (one warning per broken edit) so a bad edit
     never takes down a running service; the *first* load still raises, so a
     broken file is caught at startup rather than silently defaulted.
+
+    The check-then-reload is serialised: without the lock, concurrent requests
+    racing a config edit would reparse in parallel and log the reload-failure
+    warning more than once per broken edit.
     """
     global _cache
     from .config import get_settings
 
     path = Path(get_settings().config_file)
-    stamp = _stamp(path)
-    if _cache is not None and _cache[0] == str(path) and _cache[1] == stamp:
-        return _cache[2]
-    try:
-        config = load_config(path)
-    except ValueError as exc:
-        if _cache is None:
-            raise
-        log.warning("config.yaml reload failed (%s); keeping the previous configuration", exc)
-        config = _cache[2]  # remember the stamp so the warning fires once per edit
-    _cache = (str(path), stamp, config)
-    return config
+    with _cache_lock:
+        stamp = _stamp(path)
+        if _cache is not None and _cache[0] == str(path) and _cache[1] == stamp:
+            return _cache[2]
+        try:
+            config = load_config(path)
+        except ValueError as exc:
+            if _cache is None:
+                raise
+            log.warning("config.yaml reload failed (%s); keeping the previous configuration", exc)
+            config = _cache[2]  # remember the stamp so the warning fires once per edit
+        _cache = (str(path), stamp, config)
+        return config
 
 
 def reset_app_config_cache() -> None:

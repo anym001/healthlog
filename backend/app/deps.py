@@ -10,22 +10,41 @@ from fastapi import Header, HTTPException, Request, status
 
 from .config import get_settings
 from .metrics import INGEST_REQUESTS
+from .proxies import is_trusted_peer
 
 audit = logging.getLogger("healthlog.audit")
 
 
-def client_ip(request: Request) -> str | None:
-    """Return the client host only if it's a valid IP (the audit column type
-    is INET); proxy/test placeholders like 'testclient' map to None rather
-    than erroring."""
-    host = request.client.host if request.client else None
-    if not host:
+def _valid_ip(value: str | None) -> str | None:
+    """``value`` when it parses as an IP, else None (the audit column is INET)."""
+    if not value:
         return None
     try:
-        ipaddress.ip_address(host)
+        ipaddress.ip_address(value)
     except ValueError:
         return None
-    return host
+    return value
+
+
+def client_ip(request: Request) -> str | None:
+    """Best-effort client IP for the audit trail — a valid IP or None.
+
+    Behind a trusted reverse proxy (``TRUSTED_PROXIES``, see ``app/proxies``)
+    the forwarded client address wins — ``X-Real-IP``, else the first
+    ``X-Forwarded-For`` hop — so the audit log (and a fail2ban feed) sees the
+    real client instead of the proxy. Headers from an untrusted peer are
+    ignored: a direct client cannot spoof its audit IP. Proxy/test
+    placeholders like 'testclient' map to None rather than erroring.
+    """
+    peer = request.client.host if request.client else None
+    if peer and is_trusted_peer(peer):
+        forwarded = request.headers.get("x-real-ip") or ""
+        if not forwarded:
+            forwarded = (request.headers.get("x-forwarded-for") or "").split(",")[0]
+        resolved = _valid_ip(forwarded.strip())
+        if resolved:
+            return resolved
+    return _valid_ip(peer)
 
 
 def verify_ingest_token(provided: str | None) -> None:

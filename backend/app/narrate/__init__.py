@@ -1,8 +1,11 @@
 """LLM narration of the current findings snapshot via a local Ollama instance.
 
-Reads the ``findings`` table, builds a privacy-safe statistical context
-(no raw health values — only z-scores, slopes, ratios and coefficients), and
-calls Ollama's ``/api/chat`` endpoint to produce a weekly health report.
+Reads the ``findings`` table, renders it as a compact statistical context
+(z-scores, slopes, ratios and coefficients — plus the measured value where a
+finding carries one, e.g. an anomaly's reading), and calls Ollama's
+``/api/chat`` endpoint to produce a weekly health report. The context is sent
+only to the operator-configured endpoint (``narrate.ollama_url``) — run Ollama
+on your own hardware to keep the data inside your network.
 
 Usage::
 
@@ -17,7 +20,8 @@ stdout. Configure the Ollama endpoint and model under ``narrate:`` in
 The module is split by role:
 
 - ``prompts`` — the per-language system prompts (code artefacts, not config)
-- ``context`` — privacy scrub + findings → plain-text context for the model
+- ``context`` — findings → plain-text context for the model (``scrub_details``
+  is a deliberate pass-through today; the hook for a future privacy mode)
 - ``loader`` — the findings SQL query
 - ``client`` — the Ollama HTTP client
 - ``cli`` — argument parsing + the ``narrate`` command entry point

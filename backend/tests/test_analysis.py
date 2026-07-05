@@ -628,6 +628,81 @@ def test_run_writes_correlation_findings_as_snapshot(db):
     assert distinct_runs == 2
 
 
+def test_run_survives_a_crashing_finding_builder(db, monkeypatch):
+    # One pathological series must cost only its own finding kind: the run
+    # still writes tonight's snapshot for everything else instead of leaving
+    # the stale previous snapshot in place.
+    import importlib
+
+    run_mod = importlib.import_module("app.analysis.run")
+
+    rng = np.random.default_rng(10)
+    steps = rng.integers(3000, 12000, size=60).astype(float)
+    rhr = 80.0 - 0.002 * steps + rng.normal(scale=1.0, size=60)
+    _add_metric(db, "step_count", steps)
+    _add_metric(db, "resting_heart_rate", rhr)
+    db.flush()
+
+    def boom(*_a, **_k):
+        raise RuntimeError("pathological series")
+
+    monkeypatch.setattr(run_mod, "_anomaly_findings", boom)
+    result = analysis.run(db)  # must not raise
+    assert result.anomalies == 0
+    assert result.correlations >= 1  # the other builders still ran and wrote
+
+
+def test_aggregate_workout_daily_warns_on_degenerate_hr():
+    # A configured hr_rest above the resolved hr_max slips past the profile
+    # validator (which only checks explicit pairs); the zeroed TRIMP must be
+    # logged, not silently masked as "no training load".
+    import logging
+
+    from app.analysis.pure import aggregate_workout_daily
+
+    sessions = pd.DataFrame(
+        [
+            {
+                "day": pd.Timestamp("2026-01-01"),
+                "duration_s": 3600.0,
+                "active_energy_kcal": 500.0,
+                "avg_hr": 120.0,
+                "max_hr": 150.0,
+                "intensity": None,
+            }
+        ]
+    )
+    records: list[logging.LogRecord] = []
+    handler = logging.Handler()
+    handler.emit = records.append  # type: ignore[method-assign]
+    analysis_logger = logging.getLogger("healthlog.analysis")
+    analysis_logger.addHandler(handler)
+    try:
+        out = aggregate_workout_daily(
+            sessions, pd.Series(dtype="float64"), hr_rest_default=170.0, hr_max=160.0, sex="unspecified"
+        )
+    finally:
+        analysis_logger.removeHandler(handler)
+    assert out["trimp"].iloc[0] == 0.0  # degenerate params yield zero load
+    assert any("TRIMP is 0" in rec.getMessage() for rec in records)
+
+
+def test_decompose_all_isolates_a_crashing_series(monkeypatch):
+    from app.analysis import findings as findings_mod
+
+    calls: list[str] = []
+
+    def boom(_s):
+        calls.append("called")
+        raise RuntimeError("no convergence")
+
+    monkeypatch.setattr(findings_mod, "decompose", boom)
+    s = pd.Series([1.0, 2.0], index=pd.date_range("2026-01-01", periods=2))
+    out = findings_mod._decompose_all({"a": s, "b": s})
+    assert out == {"a": None, "b": None}  # degraded to "undecomposable", not raised
+    assert len(calls) == 2  # the second series was still attempted
+
+
 def test_build_series_includes_sleep_efficiency_and_consistency(db):
     rng = np.random.default_rng(11)
     start = dt.date(2026, 1, 1)

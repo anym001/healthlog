@@ -34,6 +34,7 @@ from .constants import (
     SEASONAL_MIN_SHARED_MONTHS,
     SEASONAL_PERIOD,
     WEEK_PERIOD,
+    log,
 )
 
 
@@ -415,9 +416,12 @@ def aggregate_workout_daily(
     if sessions.empty:
         return pd.DataFrame()
     rows = []
+    degenerate_hr = 0
     for r in sessions.itertuples(index=False):
         day = r.day
         rest = float(hr_rest.get(day, hr_rest_default)) if len(hr_rest) else hr_rest_default
+        if r.avg_hr is not None and hr_max <= rest:
+            degenerate_hr += 1  # banister_trimp silently yields 0.0 for these
         trimp = banister_trimp(r.duration_s, r.avg_hr, rest, hr_max, sex)
         edwards = float(getattr(r, "edwards", 0.0) or 0.0)
         rows.append(
@@ -430,6 +434,15 @@ def aggregate_workout_daily(
                 "count": 1,
                 "intensity": r.intensity,
             }
+        )
+    if degenerate_hr:
+        # A configured hr_rest above the (data-driven) hr_max slips past the
+        # profile validator; surface it instead of masking it as zero load.
+        log.warning(
+            "TRIMP is 0 for %d session(s): resolved hr_max (%.0f) <= hr_rest — "
+            "check profile.hr_max/hr_rest against the measured data",
+            degenerate_hr,
+            hr_max,
         )
     df = pd.DataFrame.from_records(rows).set_index("day")
     return df.groupby(level=0).agg(

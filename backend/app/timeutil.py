@@ -9,11 +9,19 @@ from zoneinfo import ZoneInfo
 _HAE_FORMAT = "%Y-%m-%d %H:%M:%S %z"
 
 
-def parse_hae_datetime(value: str | None) -> dt.datetime | None:
-    """Parse an HAE timestamp into a tz-aware datetime, or None."""
-    if not value:
+def parse_hae_datetime(value: object) -> dt.datetime | None:
+    """Parse an HAE timestamp into a tz-aware datetime, or None.
+
+    Tolerant by design: a missing, non-string, or malformed value yields None.
+    Ingest calls this for every timestamp in a payload, and a single bad
+    sample must degrade to a skipped point — never abort the whole payload.
+    """
+    if not isinstance(value, str) or not value:
         return None
-    return dt.datetime.strptime(value.strip(), _HAE_FORMAT)
+    try:
+        return dt.datetime.strptime(value.strip(), _HAE_FORMAT)
+    except ValueError:
+        return None
 
 
 def local_day(ts: dt.datetime, tz: str) -> dt.date:

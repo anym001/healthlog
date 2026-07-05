@@ -45,6 +45,7 @@ services:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
       NOTIFY_TOKEN: ${NOTIFY_TOKEN:-}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
       METRICS_ENABLED: ${METRICS_ENABLED:-false}
       API_DOCS_ENABLED: ${API_DOCS_ENABLED:-false}
     volumes:

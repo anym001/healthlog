@@ -47,11 +47,17 @@ ANALYSIS_TIMEOUT_S = 4 * 3600
 
 
 def run_analysis() -> None:
-    """Launch the analysis as an isolated subprocess (fault containment)."""
+    """Launch the analysis as an isolated subprocess (fault containment).
+
+    Never raises: this runs both as the APScheduler job and as the startup
+    catch-up call in ``main()`` — an escaping exception there would kill the
+    scheduler process before the nightly job is even registered, silently
+    disabling analysis until someone notices.
+    """
     log.info("nightly analysis trigger fired")
     try:
         subprocess.run([sys.executable, "-m", "app.analysis"], check=True, timeout=ANALYSIS_TIMEOUT_S)
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:  # pragma: no cover - defensive
+    except Exception as exc:
         log.error("analysis subprocess failed: %s", exc)
         # The crashed subprocess can't notify about its own death; the scheduler
         # owns the crash alert (the success/findings notifications are sent from
@@ -59,7 +65,10 @@ def run_analysis() -> None:
         from .appconfig import get_app_config
         from .notify import notify_analysis_crash
 
-        notify_analysis_crash(get_app_config().notify, exc)
+        try:
+            notify_analysis_crash(get_app_config().notify, exc)
+        except Exception:
+            log.exception("could not send analysis-crash notification")
         return
     write_last_run(last_run_marker(get_settings()), dt.datetime.now(dt.UTC))
 
