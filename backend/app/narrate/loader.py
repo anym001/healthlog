@@ -2,8 +2,11 @@
 
 Recent, dated findings (anomalies, recovery alerts, training load) are bounded
 by the lookback window; the standing analyses (correlations, trends,
-seasonality, consistency) are always included. Display names are joined from the
-metric registry so the context never leaks raw snake_case keys.
+seasonality, consistency) are always included. Display names are joined from
+the metric registry; the hand-wired series the analysis assembles itself
+(workout load, sleep — no registry rows, see docs/workout-analysis.md) get
+their labels from the fallback map below, so raw snake_case keys never reach
+the narration prose.
 """
 
 from __future__ import annotations
@@ -48,6 +51,35 @@ ORDER BY f.kind, f.ref_date DESC NULLS LAST, f.severity DESC NULLS LAST
 """
 
 
+# Labels for series without a metric_registry row: the workout-load and sleep
+# series are assembled by the analysis (not ingested), and a few finding kinds
+# use symbolic metric names. Same Title-Case style as the registry display names.
+_HANDWIRED_LABELS = {
+    "workout_trimp": "Training Load (TRIMP)",
+    "workout_load": "Training Load",
+    "workout_edwards": "Training Load (Edwards TRIMP)",
+    "sleep_total_h": "Total Sleep",
+    "sleep_deep_h": "Deep Sleep",
+    "sleep_rem_h": "REM Sleep",
+    "sleep_efficiency": "Sleep Efficiency",
+    "bedtime": "Bedtime",
+    "recovery": "Recovery",
+}
+# Per-sport variants: "workout_trimp_running" -> "Training Load (TRIMP) — Running".
+_HANDWIRED_PREFIXES = ("workout_trimp_", "workout_load_", "workout_edwards_")
+
+
+def _handwired_label(key: str) -> str | None:
+    """Display label for a hand-wired series key, or None when unknown."""
+    if key in _HANDWIRED_LABELS:
+        return _HANDWIRED_LABELS[key]
+    for prefix in _HANDWIRED_PREFIXES:
+        if key.startswith(prefix):
+            sport = key[len(prefix) :].replace("_", " ").title()
+            return f"{_HANDWIRED_LABELS[prefix.rstrip('_')]} — {sport}"
+    return None
+
+
 def load_findings(db: Session, lookback_days: int) -> list[dict]:
     """Query the current findings snapshot, joining display names from the registry.
 
@@ -70,5 +102,11 @@ def load_findings(db: Session, lookback_days: int) -> list[dict]:
                 d["details"] = json.loads(d["details"])
             except (ValueError, TypeError):
                 d["details"] = {}
+        # Hand-wired series have no registry row, so the SQL COALESCE fell
+        # back to the raw key — swap in the fallback label where we have one.
+        for side in ("metric_a", "metric_b"):
+            key = d.get(side)
+            if key and d.get(f"{side}_label") == key:
+                d[f"{side}_label"] = _handwired_label(key) or key
         result.append(d)
     return result

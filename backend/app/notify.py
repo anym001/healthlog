@@ -98,7 +98,9 @@ class GotifyNotifier:
                     "priority": notification.priority,
                 },
             )
-        except httpx.HTTPError as exc:
+        except Exception as exc:
+            # Broad by design: send() is the module's "never propagates"
+            # promise — any failure here must cost only this notification.
             log.warning("notification failed: %s", safe(exc))
             return False
         if response.status_code >= 400:

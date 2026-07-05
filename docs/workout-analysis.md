@@ -75,10 +75,16 @@ HR_max  =  profile.hr_max                          # explicit override (max test
         ?: 208 − 0.7 · (year − profile.birth_year) # Tanaka, more accurate than 220−age
         ?: clamp(max(observed max_hr), 160, 210)   # data-driven, always available
 
-HR_rest =  28-day median(resting_heart_rate)       # measured, personalised, time-varying
-        ?: profile.hr_rest                          # escape hatch
-        ?: 60                                        # last fallback
+HR_rest =  28-day rolling median(resting_heart_rate)  # measured, personalised, time-varying
+        ?: profile.hr_rest                            # configured value wins for unmeasured days
+        ?: overall median(resting_heart_rate)         # measured fallback when no profile value
+        ?: 60                                          # last resort
 ```
+
+Where measurements exist, the rolling 28-day median always wins. For days it
+cannot cover (outside the measured span, or too few points), a configured
+`profile.hr_rest` takes priority **over** the overall measured median — an
+explicit profile value is treated as an operator override, not a last resort.
 
 From **`birth_year`** (not `age`) the age is recomputed each run, so HR_max drifts
 correctly (~0.7/year). The pipeline runs **even with no profile at all** (data-driven
@@ -205,9 +211,12 @@ Once the series are in the dict, among others these fall out:
 - **Type-separated:** `workouts.type_map` (localised `name` → canonical type,
   case-insensitive) **additionally** produces a load series per sport
   (`workout_trimp_<type>` / `workout_load_<type>`, gated via `load_metric`). Unmapped
-  workouts keep feeding only the aggregate. Correlations between an aggregate and its
-  own sport component are mechanical and are excluded
-  (`_is_workout_aggregate_child`); sport↔sport and sport↔other metric remain.
+  workouts keep feeding only the aggregate. Correlations between two
+  activity-volume series (aggregate↔its own sport component, sport↔sport, and
+  activity-ring↔load pairs) are training/movement composition rather than a
+  health signal and are excluded (`_is_redundant_activity_pair`); a load series
+  against any body-state metric (sleep, recovery, vitals) remains — that is
+  where the value is.
 - **ACWR per sport:** ACWR runs on the aggregate **and** per sport
   (`_training_load_targets`, TRIMP preferred). Guard against false alarms for
   rarely-practised sports: a series with fewer than `analysis.acwr_min_active_days`
@@ -233,7 +242,9 @@ Once the series are in the dict, among others these fall out:
     Checkable beforehand with `healthlog check-workout-hr`.
   - **ACWR stays on Banister/kcal** (`_training_load_targets`): Edwards is a **parallel**
     load series for correlations/anomalies/trends, not an additional ACWR target
-    (scoring the same training load three times would be redundant). Aggregate↔own sport
-    component of the same metric stays excluded (`_is_workout_aggregate_child`, now incl.
-    `workout_edwards`); cross-comparisons between the metrics (trimp/load/edwards) remain
-    — their agreement/divergence is itself informative.
+    (scoring the same training load three times would be redundant). `workout_edwards*`
+    falls under the same activity-volume suppression as every other load series
+    (`_is_redundant_activity_pair`) — including cross-comparisons between
+    trimp/load/edwards, which are composition, not health signal. Edwards' value
+    surfaces in correlations against body-state metrics and in its own
+    anomaly/trend findings.

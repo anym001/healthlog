@@ -147,6 +147,22 @@ def test_metrics_endpoint_when_enabled(client, monkeypatch):
     assert "healthlog_last_ingest_timestamp_seconds" in r.text
 
 
+def test_metrics_expose_ingest_counter_after_ingest(client, sample_payload, monkeypatch):
+    from app import config
+
+    monkeypatch.setenv("METRICS_ENABLED", "1")
+    config.get_settings.cache_clear()
+    try:
+        client.post("/api/ingest", json=sample_payload, headers={"X-Ingest-Token": "test-secret"})
+        r = client.get("/metrics")
+    finally:
+        config.get_settings.cache_clear()
+    assert r.status_code == 200
+    # The stored-outcome sample must exist with a labelled value, proving the
+    # counter is actually wired to the ingest path (not just registered).
+    assert 'healthlog_ingest_requests_total{outcome="stored"}' in r.text
+
+
 def test_ingest_invalid_json_rejected(client):
     r = client.post(
         "/api/ingest",
@@ -192,6 +208,7 @@ def test_ingest_happy_path(client, sample_payload):
     assert body["sleep_rows"] == 1
     assert body["workout_rows"] == 1
     assert body["unknown_metrics"] == 1
+    assert body["dropped_workouts"] == 0
     # First ingest: every row is new.
     assert body["metric_new"] == 7
     assert body["sleep_new"] == 1

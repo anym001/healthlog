@@ -652,6 +652,41 @@ def test_run_survives_a_crashing_finding_builder(db, monkeypatch):
     assert result.correlations >= 1  # the other builders still ran and wrote
 
 
+def test_aggregate_workout_daily_warns_on_degenerate_hr():
+    # A configured hr_rest above the resolved hr_max slips past the profile
+    # validator (which only checks explicit pairs); the zeroed TRIMP must be
+    # logged, not silently masked as "no training load".
+    import logging
+
+    from app.analysis.pure import aggregate_workout_daily
+
+    sessions = pd.DataFrame(
+        [
+            {
+                "day": pd.Timestamp("2026-01-01"),
+                "duration_s": 3600.0,
+                "active_energy_kcal": 500.0,
+                "avg_hr": 120.0,
+                "max_hr": 150.0,
+                "intensity": None,
+            }
+        ]
+    )
+    records: list[logging.LogRecord] = []
+    handler = logging.Handler()
+    handler.emit = records.append  # type: ignore[method-assign]
+    analysis_logger = logging.getLogger("healthlog.analysis")
+    analysis_logger.addHandler(handler)
+    try:
+        out = aggregate_workout_daily(
+            sessions, pd.Series(dtype="float64"), hr_rest_default=170.0, hr_max=160.0, sex="unspecified"
+        )
+    finally:
+        analysis_logger.removeHandler(handler)
+    assert out["trimp"].iloc[0] == 0.0  # degenerate params yield zero load
+    assert any("TRIMP is 0" in rec.getMessage() for rec in records)
+
+
 def test_decompose_all_isolates_a_crashing_series(monkeypatch):
     from app.analysis import findings as findings_mod
 
