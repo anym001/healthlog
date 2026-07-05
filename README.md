@@ -406,6 +406,7 @@ the Ollama host. The steps below use macOS as the example.
 | `TZ` | `Europe/Vienna` | container clock (log timestamps) **and** the daily-bucket timezone for analysis |
 | `ANALYSIS_CRON` | `30 3 * * *` | when the nightly analysis runs (5-field cron, in `TZ`) |
 | `MAX_PAYLOAD_BYTES` | `33554432` | max accepted ingest body (32 MiB); larger histories use the backfill CLI |
+| `TRUSTED_PROXIES` | *(private ranges)* | reverse proxies (comma-separated IPs/CIDRs, or `*`) trusted to set `X-Real-IP`/`X-Forwarded-For` for the audit client IP; empty trusts the standard private + loopback ranges |
 | `PUID` / `PGID` | `1000` | host user/group that owns `/config` (Unraid: `99` / `100`) |
 | `LOG_LEVEL` | `INFO` | log verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 | `LOG_FORMAT` | `text` | `text` (human-readable) or `json` (one object per line, for Loki/ELK) |

@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     # Reject payloads larger than this (HAE backfills can be large, but a hard
     # cap protects the service). Default 32 MiB.
     max_payload_bytes: int = Field(default=32 * 1024 * 1024, alias="MAX_PAYLOAD_BYTES")
+    # Reverse proxies (comma-separated IPs/CIDRs, or '*') trusted to set the
+    # X-Real-IP / X-Forwarded-For headers used for the audit client IP. Empty
+    # = the standard private + loopback ranges (see app/proxies.py).
+    trusted_proxies: str = Field(default="", alias="TRUSTED_PROXIES")
 
     # --- Time --------------------------------------------------------------
     # Single timezone knob (the standard LinuxServer/Unraid `TZ`): it sets the
