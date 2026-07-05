@@ -17,7 +17,7 @@ from ..appconfig import AnalysisConfig, ProfileConfig, WorkoutConfig
 from ..models import Finding
 from ..registry import METRIC_REGISTRY
 from ..workout_types import canonical_workout_type
-from .constants import _DEFAULT_APP_CONFIG, _DEFAULTS, ACWR_ACUTE_DAYS, ACWR_CHRONIC_DAYS
+from .constants import _DEFAULT_APP_CONFIG, _DEFAULTS, ACWR_ACUTE_DAYS, ACWR_CHRONIC_DAYS, log
 from .load import (
     _reindex_full,
     load_daily_series,
@@ -215,8 +215,19 @@ def _decompose_all(series: dict[str, pd.Series]) -> dict[str, Decomp | None]:
     step in the pipeline; both the correlation de-trending and the
     trend/seasonality findings need it, so ``run`` computes it once here and
     threads the result through both passes instead of decomposing twice.
+
+    A decomposition that blows up on one pathological series degrades to None
+    for that series (the same as "too short to decompose") instead of aborting
+    the whole run — every consumer already handles the None case.
     """
-    return {name: decompose(s) for name, s in series.items()}
+    out: dict[str, Decomp | None] = {}
+    for name, s in series.items():
+        try:
+            out[name] = decompose(s)
+        except Exception:
+            log.exception("decomposition failed for %s; treating series as undecomposable", name)
+            out[name] = None
+    return out
 
 
 def _detrended_series(s: pd.Series, decomp: Decomp) -> pd.Series:

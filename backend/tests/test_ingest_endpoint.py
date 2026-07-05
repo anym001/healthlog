@@ -147,6 +147,42 @@ def test_metrics_endpoint_when_enabled(client, monkeypatch):
     assert "healthlog_last_ingest_timestamp_seconds" in r.text
 
 
+def test_ingest_invalid_json_rejected(client):
+    r = client.post(
+        "/api/ingest",
+        content=b"this is not json",
+        headers={"X-Ingest-Token": "test-secret", "Content-Type": "application/json"},
+    )
+    assert r.status_code == 400
+    assert r.json()["detail"] == "Invalid JSON body."
+
+
+def test_ingest_unexpected_error_returns_500_with_audit_trail(client, monkeypatch):
+    # Anything past the parse guard (DB deadlock, connection blip) must not
+    # become an invisible framework 500 — it needs an audit line + counter.
+    from app import ingest as ingest_svc
+
+    def boom(*_a, **_k):
+        raise RuntimeError("db exploded")
+
+    monkeypatch.setattr(ingest_svc, "ingest_bytes", boom)
+
+    records: list[logging.LogRecord] = []
+    handler = logging.Handler()
+    handler.emit = records.append  # type: ignore[method-assign]
+    audit_logger = logging.getLogger("healthlog.audit")
+    audit_logger.addHandler(handler)
+    try:
+        r = client.post("/api/ingest", json={"data": {}}, headers={"X-Ingest-Token": "test-secret"})
+    finally:
+        audit_logger.removeHandler(handler)
+    assert r.status_code == 500
+    assert r.json()["detail"] == "Ingest failed; see server logs."
+    messages = [rec.getMessage() for rec in records]
+    assert any(m.startswith("ingest.error ip=") for m in messages)
+    assert not any("db exploded" in m for m in messages)  # audit stays terse; detail goes to the app log
+
+
 def test_ingest_happy_path(client, sample_payload):
     r = client.post("/api/ingest", json=sample_payload, headers={"X-Ingest-Token": "test-secret"})
     assert r.status_code == 200

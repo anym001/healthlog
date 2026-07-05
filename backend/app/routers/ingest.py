@@ -82,7 +82,19 @@ async def ingest_payload(
         outcome, result = await run_in_threadpool(_ingest, db, body, ip, type_map)
     except ValueError as exc:
         INGEST_REQUESTS.labels(outcome="invalid").inc()
+        audit.info("ingest.invalid ip=%s error=%s", ip, exc)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        # Anything past the parse guard (a DB deadlock, a connection blip, an
+        # unexpected payload shape) must still leave an audit trail and count —
+        # a bare framework 500 would be invisible to the operator.
+        INGEST_REQUESTS.labels(outcome="error").inc()
+        audit.info("ingest.error ip=%s error=%s", ip, type(exc).__name__)
+        log.exception("ingest failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Ingest failed; see server logs.",
+        ) from exc
 
     if outcome == "duplicate":
         INGEST_REQUESTS.labels(outcome="duplicate").inc()

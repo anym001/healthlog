@@ -217,10 +217,7 @@ def _parse_workout(w: dict, out: ParsedPayload, type_map: dict[str, str] | None 
         for point in hr_series:
             if not isinstance(point, dict):
                 continue
-            try:
-                ts = parse_hae_datetime(point.get("date"))
-            except ValueError:
-                ts = None  # a single malformed sample must not abort the payload
+            ts = parse_hae_datetime(point.get("date"))  # None for a malformed sample -> skipped
             bpm = _hr_sample_bpm(point)
             if ts is not None and bpm is not None:
                 out.workout_hr_rows.append({"workout_hae_id": hae_id, "ts": ts, "bpm": bpm})
@@ -234,12 +231,9 @@ def _parse_workout(w: dict, out: ParsedPayload, type_map: dict[str, str] | None 
             coords = _route_coords(point)
             if coords is None:
                 continue
-            try:
-                ts = parse_hae_datetime(point.get("timestamp"))
-            except ValueError:
-                ts = None  # a single malformed sample must not abort the payload
+            ts = parse_hae_datetime(point.get("timestamp"))
             if ts is None:
-                continue
+                continue  # a malformed timestamp skips the point, not the payload
             lat, lon, altitude_m, speed_mps = coords
             out.workout_route_rows.append(
                 {

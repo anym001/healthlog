@@ -8,8 +8,12 @@ metric registry so the context never leaks raw snake_case keys.
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo
+
+from ..config import get_settings
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -37,7 +41,7 @@ LEFT JOIN metric_registry rb ON rb.metric = f.metric_b
 WHERE
     (
         f.kind IN ('anomaly', 'recovery_alert', 'training_load')
-        AND f.ref_date >= CURRENT_DATE - :lookback_days
+        AND f.ref_date >= :cutoff
     )
     OR f.kind IN ('correlation', 'trend', 'seasonality', 'consistency')
 ORDER BY f.kind, f.ref_date DESC NULLS LAST, f.severity DESC NULLS LAST
@@ -45,10 +49,18 @@ ORDER BY f.kind, f.ref_date DESC NULLS LAST, f.severity DESC NULLS LAST
 
 
 def load_findings(db: Session, lookback_days: int) -> list[dict]:
-    """Query the current findings snapshot, joining display names from the registry."""
+    """Query the current findings snapshot, joining display names from the registry.
+
+    The lookback cutoff is computed here in the configured local timezone:
+    ``ref_date`` is a local-TZ day (ARCHITECTURE.md — daily buckets are local,
+    not UTC), while the DB server typically runs on UTC, so Postgres'
+    ``CURRENT_DATE`` would shift the window around local midnight.
+    """
     from sqlalchemy import text
 
-    rows = db.execute(text(_FINDINGS_SQL), {"lookback_days": lookback_days}).mappings().all()
+    today = dt.datetime.now(ZoneInfo(get_settings().local_tz)).date()
+    cutoff = today - dt.timedelta(days=lookback_days)
+    rows = db.execute(text(_FINDINGS_SQL), {"cutoff": cutoff}).mappings().all()
     result = []
     for row in rows:
         d = dict(row)
