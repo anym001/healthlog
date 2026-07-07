@@ -1,9 +1,9 @@
 {
   "uid": "healthlog-training",
   "title": "HealthLog – Training",
-  "description": "30-day training load, recovery metrics, and workout history. TRIMP is a relative estimate: the resting-HR baseline is auto-derived from your measured resting_heart_rate, so only HR Max needs setting to match your physiology. Display times use the dashboard timezone (Settings → Timezone, default Europe/Vienna); the TRIMP daily grouping is bucketed via the hidden 'tz' constant (default Europe/Vienna).",
+  "description": "30-day training load, recovery metrics, and workout history. TRIMP is a relative estimate: the resting-HR baseline is auto-derived from your measured resting_heart_rate, and HR Max defaults to 'auto' (highest recorded workout HR, clamped to 160-210); type a number into the HR Max variable to override it with a tested value. Display times use the dashboard timezone (Settings → Timezone, default Europe/Vienna); the TRIMP daily grouping is bucketed via the hidden 'tz' constant (default Europe/Vienna).",
   "schemaVersion": 39,
-  "version": 10,
+  "version": 11,
   "timezone": "Europe/Vienna",
   "time": {
     "from": "now-30d",
@@ -73,8 +73,18 @@
         "label": "Timezone",
         "description": "Hidden constant. Timezone name used only for the SQL-side local-date bucketing of the TRIMP-by-day panels (DATE(start_time AT TIME ZONE ...)), which Grafana's dashboard timezone cannot reach. Change the value here to re-localise the daily grouping.",
         "query": "Europe/Vienna",
-        "current": {"value": "Europe/Vienna", "text": "Europe/Vienna", "selected": false},
-        "options": [{"text": "Europe/Vienna", "value": "Europe/Vienna", "selected": false}],
+        "current": {
+          "value": "Europe/Vienna",
+          "text": "Europe/Vienna",
+          "selected": false
+        },
+        "options": [
+          {
+            "text": "Europe/Vienna",
+            "value": "Europe/Vienna",
+            "selected": false
+          }
+        ],
         "hide": 2
       },
       {
@@ -82,7 +92,9 @@
         "type": "query",
         "label": "HR Base (bpm)",
         "description": "Hidden, auto-derived. Resting-HR baseline for the TRIMP estimate, taken from your measured resting_heart_rate over the last 90 days (median of the daily values), so you don't have to type a value that is already in the database. Falls back to 60 if no resting-HR data exists. The measured value is also charted in the Resting HR panel.",
-        "datasource": {"uid": "healthlog-db"},
+        "datasource": {
+          "uid": "healthlog-db"
+        },
         "query": "SELECT COALESCE(ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY vmin))::int, 60) AS hr_rest FROM daily_metrics WHERE metric = 'resting_heart_rate' AND day >= (NOW() - INTERVAL '90 days')::date",
         "refresh": 1,
         "sort": 0,
@@ -96,8 +108,8 @@
         "name": "hr_max",
         "type": "textbox",
         "label": "HR Max (bpm)",
-        "description": "Your maximum heart rate — the one value the TRIMP estimate needs that is NOT measured (Apple Health has no HR_max). Set it from a max-HR test, or use an age estimate (Tanaka: 208 − 0.7 × age). HR reserve is computed as HR Max − HR Base.",
-        "query": "190",
+        "description": "Your maximum heart rate - the one value the TRIMP estimate needs that is NOT measured (Apple Health has no HR_max). Default 'auto' derives it from your data: the highest workout max_hr on record, clamped to 160-210 bpm (mirrors the analysis' data-driven fallback, docs/workout-analysis.md §3.1). Type a number to override it - a measured max-HR test or an age estimate (Tanaka: 208 − 0.7 × age) beats the data-driven guess. HR reserve is computed as HR Max − HR Base.",
+        "query": "auto",
         "hide": 0
       }
     ]
@@ -120,7 +132,7 @@
       "id": 1,
       "type": "stat",
       "title": "TRIMP (last 7d)",
-      "description": "Training Impulse accumulated over the last 7 days (relative estimate). TRIMP = Σ (duration_min × HR-intensity × 0.64·e^(1.92·intensity)). Blue < 100 (light week), green 100–299, yellow 300–499, red ≥ 500 (very high load). HR Base is auto-derived from your measured resting HR; set HR Max above to match your physiology.",
+      "description": "Training Impulse accumulated over the last 7 days (relative estimate). TRIMP = Σ (duration_min × HR-intensity × 0.64·e^(1.92·intensity)). Blue < 100 (light week), green 100–299, yellow 300–499, red ≥ 500 (very high load). HR Base is auto-derived from your measured resting HR; HR Max defaults to 'auto' (max observed workout HR, clamped to 160-210); type a number into the HR Max variable to override it.",
       "gridPos": {
         "x": 0,
         "y": 1,
@@ -178,7 +190,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT ROUND(SUM(CASE WHEN avg_hr IS NOT NULL AND duration_s IS NOT NULL AND duration_s > 0 THEN (duration_s/60.0) * LEAST(1.0,GREATEST(0.0,(avg_hr-${hr_rest}::numeric)/(${hr_max}::numeric - ${hr_rest}::numeric))) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,(avg_hr-${hr_rest}::numeric)/(${hr_max}::numeric - ${hr_rest}::numeric))))) ELSE 0 END)::numeric, 0) AS \"TRIMP (7d)\" FROM workouts WHERE start_time >= NOW() - INTERVAL '7 days'",
+          "rawSql": "WITH params AS (SELECT COALESCE(NULLIF('${hr_max}','auto')::numeric, LEAST(GREATEST((SELECT MAX(max_hr)::numeric FROM workouts),160),210), 190) AS hr_max) SELECT ROUND(SUM(CASE WHEN avg_hr IS NOT NULL AND duration_s IS NOT NULL AND duration_s > 0 THEN (duration_s/60.0) * LEAST(1.0,GREATEST(0.0,(avg_hr-${hr_rest}::numeric)/(p.hr_max - ${hr_rest}::numeric))) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,(avg_hr-${hr_rest}::numeric)/(p.hr_max - ${hr_rest}::numeric))))) ELSE 0 END)::numeric, 0) AS \"TRIMP (7d)\" FROM workouts, params p WHERE start_time >= NOW() - INTERVAL '7 days'",
           "format": "table"
         }
       ]
@@ -389,7 +401,7 @@
       "id": 5,
       "type": "barchart",
       "title": "Training Load (TRIMP)",
-      "description": "Daily total TRIMP (relative estimate). Formula: Σ (duration_min × intensity × 0.64·e^(1.92·intensity)) where intensity = LEAST(1, MAX(0, (AvgHR − HR Base) / (HR Max − HR Base))). HR Base is auto-derived from your measured resting_heart_rate (90-day median); set HR Max above to match your physiology.",
+      "description": "Daily total TRIMP (relative estimate). Formula: Σ (duration_min × intensity × 0.64·e^(1.92·intensity)) where intensity = LEAST(1, MAX(0, (AvgHR − HR Base) / (HR Max − HR Base))). HR Base is auto-derived from your measured resting_heart_rate (90-day median); HR Max defaults to 'auto' (max observed workout HR, clamped to 160-210); type a number into the HR Max variable to override it.",
       "gridPos": {
         "x": 0,
         "y": 6,
@@ -427,7 +439,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT DATE(start_time AT TIME ZONE '$tz') AS time, ROUND(SUM(CASE WHEN avg_hr IS NOT NULL AND duration_s IS NOT NULL AND duration_s > 0 THEN (duration_s/60.0) * LEAST(1.0,GREATEST(0.0,(avg_hr-${hr_rest}::numeric)/(${hr_max}::numeric - ${hr_rest}::numeric))) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,(avg_hr-${hr_rest}::numeric)/(${hr_max}::numeric - ${hr_rest}::numeric))))) ELSE 0 END)::numeric, 1) AS \"TRIMP\" FROM workouts WHERE $__timeFilter(start_time) GROUP BY DATE(start_time AT TIME ZONE '$tz') ORDER BY time",
+          "rawSql": "WITH params AS (SELECT COALESCE(NULLIF('${hr_max}','auto')::numeric, LEAST(GREATEST((SELECT MAX(max_hr)::numeric FROM workouts),160),210), 190) AS hr_max) SELECT DATE(start_time AT TIME ZONE '$tz') AS time, ROUND(SUM(CASE WHEN avg_hr IS NOT NULL AND duration_s IS NOT NULL AND duration_s > 0 THEN (duration_s/60.0) * LEAST(1.0,GREATEST(0.0,(avg_hr-${hr_rest}::numeric)/(p.hr_max - ${hr_rest}::numeric))) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,(avg_hr-${hr_rest}::numeric)/(p.hr_max - ${hr_rest}::numeric))))) ELSE 0 END)::numeric, 1) AS \"TRIMP\" FROM workouts, params p WHERE $__timeFilter(start_time) GROUP BY DATE(start_time AT TIME ZONE '$tz') ORDER BY time",
           "format": "time_series"
         }
       ]
@@ -475,7 +487,9 @@
         {
           "id": "partitionByValues",
           "options": {
-            "fields": ["sport_group"],
+            "fields": [
+              "sport_group"
+            ],
             "keepFields": false
           }
         }
@@ -483,7 +497,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT DATE(w.start_time AT TIME ZONE '$tz') AS time, COALESCE(g.group_name, 'Other') AS sport_group, ROUND(SUM(CASE WHEN w.avg_hr IS NOT NULL AND w.duration_s IS NOT NULL AND w.duration_s > 0 THEN (w.duration_s/60.0) * LEAST(1.0,GREATEST(0.0,(w.avg_hr-${hr_rest}::numeric)/(${hr_max}::numeric - ${hr_rest}::numeric))) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,(w.avg_hr-${hr_rest}::numeric)/(${hr_max}::numeric - ${hr_rest}::numeric))))) ELSE 0 END)::numeric, 1) AS trimp FROM workouts w LEFT JOIN workout_type_groups g ON g.canonical_type = w.canonical_type WHERE $__timeFilter(w.start_time) GROUP BY DATE(w.start_time AT TIME ZONE '$tz'), COALESCE(g.group_name, 'Other'), COALESCE(g.sort_order, 99) ORDER BY time, COALESCE(g.sort_order, 99), sport_group",
+          "rawSql": "WITH params AS (SELECT COALESCE(NULLIF('${hr_max}','auto')::numeric, LEAST(GREATEST((SELECT MAX(max_hr)::numeric FROM workouts),160),210), 190) AS hr_max) SELECT DATE(w.start_time AT TIME ZONE '$tz') AS time, COALESCE(g.group_name, 'Other') AS sport_group, ROUND(SUM(CASE WHEN w.avg_hr IS NOT NULL AND w.duration_s IS NOT NULL AND w.duration_s > 0 THEN (w.duration_s/60.0) * LEAST(1.0,GREATEST(0.0,(w.avg_hr-${hr_rest}::numeric)/(p.hr_max - ${hr_rest}::numeric))) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,(w.avg_hr-${hr_rest}::numeric)/(p.hr_max - ${hr_rest}::numeric))))) ELSE 0 END)::numeric, 1) AS trimp FROM workouts w CROSS JOIN params p LEFT JOIN workout_type_groups g ON g.canonical_type = w.canonical_type WHERE $__timeFilter(w.start_time) GROUP BY DATE(w.start_time AT TIME ZONE '$tz'), COALESCE(g.group_name, 'Other'), COALESCE(g.sort_order, 99) ORDER BY time, COALESCE(g.sort_order, 99), sport_group",
           "format": "table"
         }
       ]
@@ -563,11 +577,20 @@
             "properties": [
               {
                 "id": "color",
-                "value": {"mode": "fixed", "fixedColor": "blue"}
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
               },
               {
                 "id": "custom.lineStyle",
-                "value": {"fill": "dash", "dash": [8, 4]}
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    8,
+                    4
+                  ]
+                }
               },
               {
                 "id": "custom.lineWidth",
@@ -599,11 +622,20 @@
               },
               {
                 "id": "color",
-                "value": {"mode": "fixed", "fixedColor": "dark-orange"}
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "dark-orange"
+                }
               },
               {
                 "id": "custom.lineStyle",
-                "value": {"fill": "dash", "dash": [8, 4]}
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    8,
+                    4
+                  ]
+                }
               },
               {
                 "id": "custom.lineWidth",
@@ -694,7 +726,13 @@
             "properties": [
               {
                 "id": "custom.lineStyle",
-                "value": {"fill": "dash", "dash": [8, 4]}
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    8,
+                    4
+                  ]
+                }
               },
               {
                 "id": "custom.lineWidth",
@@ -710,7 +748,10 @@
               },
               {
                 "id": "color",
-                "value": {"mode": "fixed", "fixedColor": "gray"}
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "gray"
+                }
               }
             ]
           }
@@ -792,7 +833,13 @@
             "properties": [
               {
                 "id": "custom.lineStyle",
-                "value": {"fill": "dash", "dash": [8, 4]}
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    8,
+                    4
+                  ]
+                }
               },
               {
                 "id": "custom.lineWidth",
@@ -808,7 +855,10 @@
               },
               {
                 "id": "color",
-                "value": {"mode": "fixed", "fixedColor": "gray"}
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "gray"
+                }
               }
             ]
           }
@@ -877,7 +927,13 @@
             "properties": [
               {
                 "id": "custom.lineStyle",
-                "value": {"fill": "dash", "dash": [8, 4]}
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    8,
+                    4
+                  ]
+                }
               },
               {
                 "id": "custom.lineWidth",
@@ -893,7 +949,10 @@
               },
               {
                 "id": "color",
-                "value": {"mode": "fixed", "fixedColor": "gray"}
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "gray"
+                }
               }
             ]
           }
