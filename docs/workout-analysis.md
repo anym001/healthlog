@@ -161,6 +161,34 @@ ACWR = mean_7d(workout_trimp) / mean_28d(workout_trimp)
 - Computed on `workout_trimp` (more meaningful than on energy). A good candidate to
   also include in the notify `findings` (alongside `anomalies` + `recovery_alerts`).
 
+### 5.2 Training status (CTL/ATL/TSB) — a status, not an alert
+
+The Banister impulse-response smoothing of the same daily load (§10 has the
+formulas): CTL = EWMA 42 d ("fitness"), ATL = EWMA 7 d ("fatigue"),
+TSB = CTL − ATL ("form"). As an **alert** this would double-score the ACWR —
+normalised form is `TSB/CTL = 1 − ATL/CTL`, i.e. monotonically an EWMA variant
+of the same acute-vs-chronic idea — so the alerting role stays with §5.1.
+What was missing is **context**: the narration could not say *where* the
+training state stands when nothing is alert-worthy.
+
+- `kind = "training_status"` (fits `String(16)`, no migration), written **every**
+  run like the consistency findings; `metric_a` = the aggregate load series
+  (TRIMP preferred), **aggregate only** — form is systemic, not per-sport.
+- `details = {ctl, atl, tsb, tsb_pct, zone, ctl_ago, ctl_trend, …}`;
+  `severity = |tsb_pct|`. Zones are classified on **TSB/CTL** (scale-free on the
+  relative TRIMP estimate — absolute TSB bands only make sense on a calibrated
+  TSS scale): `tsb_overreach_pct`/`tsb_fresh_pct`/`tsb_detraining_pct` in
+  `config.yaml` (defaults −0.30 / 0.05 / 0.15). `ctl_trend`
+  (rising/flat/falling vs. 28 days earlier) states whether the base is growing.
+- Skipped below one CTL time constant (42 days) of history — the zero-seeded
+  EWMA is still warm-up dominated — and when the chronic load is zero.
+- Consumers: the narration renders it as its own section (the report's baseline:
+  "productive, base rising"); **notify ignores it** (not an alert; the run
+  summary lists its count only at `level: always`). Grafana's Fitness dashboard
+  computes the same numbers live in SQL — the finding is the nightly snapshot on
+  the analysis' richer profile-driven TRIMP (§3.1), queryable over time via
+  `findings_history`.
+
 ## 6. What it unlocks (lag correlations)
 
 Once the series are in the dict, among others these fall out:
@@ -264,14 +292,15 @@ This lives **entirely in the Fitness dashboard** (`grafana/dashboards/fitness.js
 a recursive SQL CTE over the dense 0-filled daily TRIMP), **not** in the nightly
 analysis, deliberately:
 
-- CTL/ATL/TSB are **descriptive smoothings for a chart**, not alert-worthy
-  statistics — the alerting role is already covered by the ACWR finding (§5),
-  which is the same acute-vs-chronic idea expressed as a ratio. Duplicating it
-  as a second `training_load`-style finding would score the same load twice.
-  Instead the dashboard pulls the analysis *in*: the PMC chart overlays the
-  stored `training_load` and `recovery_alert` findings as annotations (from
-  `findings_history`, deduplicated to one marker per alert day), and an ACWR
-  history panel charts the 7d/28d ratio per day against the §5 bands.
+- CTL/ATL/TSB are **descriptive smoothings**, not alert-worthy statistics — the
+  alerting role stays with the ACWR finding (§5.1), which is the same
+  acute-vs-chronic idea expressed as a ratio; a TSB *alert* would score the same
+  load twice. The nightly run stores the numbers as the **`training_status`
+  status finding** (§5.2, narration context, never notified), and the dashboard
+  pulls the analysis *in*: the PMC chart overlays the stored `training_load` and
+  `recovery_alert` findings as annotations (from `findings_history`,
+  deduplicated to one marker per alert day), and an ACWR history panel charts
+  the 7d/28d ratio per day against the §5 bands.
 - Chart-side derivation needs **no schema, no stored derived series** — the same
   reasoning that keeps the other dashboard TRIMP panels in SQL. The dashboard's
   TRIMP mirrors the analysis' fallback chains (§3.1) as far as SQL can reach:

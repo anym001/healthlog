@@ -84,6 +84,13 @@
 #   acwr_high: 1.5            # above => load spike flagged (overload risk)
 #   acwr_low: 0.8             # below => detraining flagged
 #   acwr_min_active_days: 8   # min training days in 28 before a (per-sport) ratio is trusted
+#   # Training status (fitness/form): descriptive CTL/ATL/TSB snapshot written
+#   # every run (a status like consistency, NOT an alert - it feeds the
+#   # narration's baseline). Zones sit on TSB normalised by CTL (scale-free on
+#   # the relative TRIMP estimate):
+#   tsb_fresh_pct: 0.05       # |TSB|/CTL below => neutral; above => fresh (positive TSB)
+#   tsb_detraining_pct: 0.15  # TSB/CTL above => detraining (base shrinking)
+#   tsb_overreach_pct: -0.30  # TSB/CTL below => overreaching risk; between => productive
 
 # --- LLM narration ---------------------------------------------------------
 # On-demand health report from a local Ollama instance. Reads the current

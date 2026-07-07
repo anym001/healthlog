@@ -49,6 +49,7 @@ def _result(**kw):
         "recovery_alerts": 0,
         "consistency": 0,
         "training_load": 0,
+        "training_status": 0,
     }
     counts.update(kw)
     return SimpleNamespace(**counts)

@@ -24,6 +24,7 @@ from .findings import (
     _decompose_all,
     _recovery_findings,
     _training_load_findings,
+    _training_status_findings,
     _trend_and_seasonality_findings,
     build_series,
 )
@@ -71,9 +72,12 @@ def run(db: Session, tz: str | None = None, config: AppConfig | None = None) -> 
     recovery = _guarded("recovery", lambda: _recovery_findings(series, computed_at, cfg), [])
     consistency = _guarded("consistency", lambda: _consistency_findings(db, tz, computed_at, cfg, sleep=sleep), [])
     training_load = _guarded("training_load", lambda: _training_load_findings(series, computed_at, cfg), [])
+    training_status = _guarded("training_status", lambda: _training_status_findings(series, computed_at, cfg), [])
 
     db.execute(delete(Finding))  # snapshot: replace the previous run
-    db.add_all([*correlations, *anomalies, *trends, *seasons, *recovery, *consistency, *training_load])
+    db.add_all(
+        [*correlations, *anomalies, *trends, *seasons, *recovery, *consistency, *training_load, *training_status]
+    )
     db.flush()
     # Archive this snapshot (append-only) before the next run replaces it, so
     # findings stay queryable over time; computed_at is the per-run key.
@@ -92,6 +96,7 @@ def run(db: Session, tz: str | None = None, config: AppConfig | None = None) -> 
         recovery_alerts=len(recovery),
         consistency=len(consistency),
         training_load=len(training_load),
+        training_status=len(training_status),
     )
 
 

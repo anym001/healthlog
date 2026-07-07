@@ -138,6 +138,45 @@ def test_build_context_anomaly_contains_raw_value():
     assert "72.5" in ctx
 
 
+def test_build_context_training_status_section():
+    findings = [
+        _finding(
+            "training_status",
+            metric_a="workout_trimp",
+            metric_a_label="Training Load (TRIMP)",
+            severity=0.17,
+            note="productive training (moderate negative form)",
+            details={
+                "ctl": 42.3,
+                "atl": 49.5,
+                "tsb": -7.2,
+                "tsb_pct": -0.1702,
+                "zone": "productive",
+                "ctl_days": 42,
+                "atl_days": 7,
+                "ctl_ago": 38.1,
+                "ctl_trend": "rising",
+                "ctl_trend_days": 28,
+            },
+        )
+    ]
+    ctx = build_context(findings, 7, _TODAY)
+    assert "TRAININGSZUSTAND" in ctx
+    assert "CTL=42.3" in ctx and "ATL=49.5" in ctx and "TSB=-7.2" in ctx
+    assert "-17% CTL" in ctx
+    assert "produktives Training" in ctx
+    assert "steigend" in ctx
+
+    ctx_en = build_context(findings, 7, _TODAY, language="en")
+    assert "TRAINING STATUS" in ctx_en
+    assert "productive training" in ctx_en and "rising" in ctx_en
+
+
+def test_build_context_training_status_empty_shows_placeholder():
+    ctx = build_context([], 7, _TODAY)
+    assert "TRAININGSZUSTAND" in ctx
+
+
 def test_build_context_uses_display_name_not_metric_key():
     findings = [_finding("anomaly", details={"z": 2.1}, severity=2.1)]
     ctx = build_context(findings, 7, _TODAY)

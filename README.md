@@ -429,8 +429,8 @@ It holds:
 
 - **`analysis`** — the nightly pipeline's tunables (correlation lag range and
   FDR alpha, anomaly window/threshold, trend/seasonality strengths, recovery and
-  consistency thresholds, ACWR load-spike/detraining bands). Retune without
-  rebuilding the image.
+  consistency thresholds, ACWR load-spike/detraining bands, training-status
+  form zones `tsb_*`). Retune without rebuilding the image.
 - **`profile`** — your `birth_year`/`sex` (and optional `hr_max`/`hr_rest`).
   Personal but not secret; sharpens the HR-based training load (see
   [`docs/workout-analysis.md`](https://github.com/anym001/healthlog/blob/HEAD/docs/workout-analysis.md)). Without it, HR_max is
