@@ -72,15 +72,19 @@ weighted average of the daily TRIMP estimate, **Form (TSB)** their difference.
 Everything is computed live in SQL from the `workouts` table — the same relative
 TRIMP formula as the Training dashboard, so the same two dashboard variables
 apply: HR Base is auto-derived from your measured resting HR, **HR Max must be
-set once** (dashboard variable, default 190) to match your physiology. The
-default time range runs 14 days past "now" to show the dashed projection
-(fitness/fatigue decay assuming no further training). Two companion panels:
-the **Training Load Ratio** gauge (ACWR = 7-day / 28-day mean load, the same
-ratio the nightly analysis stores as a `training_load` finding when it leaves
-the safe band, see `docs/workout-analysis.md` §5) and the **Training Load
-Focus** table (last 28 days of training time split into low-aerobic /
-high-aerobic / anaerobic HR zones from the intra-workout HR samples, falling
-back to a session's average HR when no samples are stored).
+set once** (dashboard variable, default 190) to match your physiology. Every
+panel follows the time picker: the stat tiles and the ratio gauge read off the
+**end of the selected range** (capped at today, so scrubbing back in time shows
+the historical values), the load focus covers exactly the selected range, and
+the chart's dashed projection (fitness/fatigue decay assuming no further
+training) extends as far past "now" as the range does — the default range runs
+14 days into the future for that reason. Two companion panels: the **Training
+Load Ratio** gauge (ACWR = 7-day / 28-day mean load, the same ratio the nightly
+analysis stores as a `training_load` finding when it leaves the safe band, see
+`docs/workout-analysis.md` §5) and the **Training Load Focus** table (the
+selected range's training time split into low-aerobic / high-aerobic /
+anaerobic HR zones from the intra-workout HR samples, falling back to a
+session's average HR when no samples are stored).
 
 The **Metrics Explorer** is metric-agnostic: two cascading dropdowns at the top —
 `Category` first, then `Metric` (only the metrics that belong to the chosen

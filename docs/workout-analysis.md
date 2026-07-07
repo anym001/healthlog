@@ -274,12 +274,14 @@ analysis, deliberately:
   resting-HR base) and is therefore, like those panels, a *relative* view; the
   analysis keeps the richer profile-driven fallback chains (§3.1).
 - The EWMA warms up from the first recorded workout day (seeded with
-  `TRIMP_0/42` resp. `/7`), and the dashboard extends 14 days past "now" with
-  TRIMP = 0 to show the projected decay (dashed): fatigue falls fast, form
-  rebounds — the taper view.
+  `TRIMP_0/42` resp. `/7`). Every panel follows the dashboard time picker: the
+  stat tiles and the ACWR gauge are anchored on the end of the selected range
+  (capped at today), and days past "now" continue with TRIMP = 0 to show the
+  projected decay (dashed) as far as the range extends: fatigue falls fast,
+  form rebounds — the taper view.
 
 The dashboard's **Training Load Focus** panel reuses the Edwards zone boundaries
-(§9, % of HR_max) to split the last 28 days of training time into low-aerobic
+(§9, % of HR_max) to split the selected range's training time into low-aerobic
 (50–80%), high-aerobic (80–90%) and anaerobic (≥ 90%) shares from
 `workout_hr_samples`, with a whole-session fallback to `avg_hr` for workouts
 without a stored HR series.
