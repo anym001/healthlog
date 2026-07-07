@@ -248,3 +248,38 @@ Once the series are in the dict, among others these fall out:
     trimp/load/edwards, which are composition, not health signal. Edwards' value
     surfaces in correlations against body-state metrics and in its own
     anomaly/trend findings.
+
+## 10. Fitness & form (CTL / ATL / TSB) — dashboard-side
+
+The classic performance-management chart (Banister impulse-response, as popularised
+by TrainingPeaks/Garmin) on top of the same daily TRIMP:
+
+```
+CTL_t = CTL_{t-1} + (TRIMP_t − CTL_{t-1}) / 42     # "fitness", slow EWMA
+ATL_t = ATL_{t-1} + (TRIMP_t − ATL_{t-1}) / 7      # "fatigue", fast EWMA
+TSB_t = CTL_t − ATL_t                              # "form"
+```
+
+This lives **entirely in the Fitness dashboard** (`grafana/dashboards/fitness.json`,
+a recursive SQL CTE over the dense 0-filled daily TRIMP), **not** in the nightly
+analysis, deliberately:
+
+- CTL/ATL/TSB are **descriptive smoothings for a chart**, not alert-worthy
+  statistics — the alerting role is already covered by the ACWR finding (§5),
+  which is the same acute-vs-chronic idea expressed as a ratio. Duplicating it
+  as a second `training_load`-style finding would score the same load twice.
+- Chart-side derivation needs **no schema, no stored derived series** — the same
+  reasoning that keeps the other dashboard TRIMP panels in SQL. The dashboard
+  formula is the same relative estimate (dashboard `hr_max` variable, auto-derived
+  resting-HR base) and is therefore, like those panels, a *relative* view; the
+  analysis keeps the richer profile-driven fallback chains (§3.1).
+- The EWMA warms up from the first recorded workout day (seeded with
+  `TRIMP_0/42` resp. `/7`), and the dashboard extends 14 days past "now" with
+  TRIMP = 0 to show the projected decay (dashed): fatigue falls fast, form
+  rebounds — the taper view.
+
+The dashboard's **Training Load Focus** panel reuses the Edwards zone boundaries
+(§9, % of HR_max) to split the last 28 days of training time into low-aerobic
+(50–80%), high-aerobic (80–90%) and anaerobic (≥ 90%) shares from
+`workout_hr_samples`, with a whole-session fallback to `avg_hr` for workouts
+without a stored HR series.

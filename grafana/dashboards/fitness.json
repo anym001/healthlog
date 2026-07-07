@@ -1,0 +1,521 @@
+{
+  "uid": "healthlog-fitness",
+  "title": "HealthLog – Fitness",
+  "description": "Fitness & form (performance management chart): CTL / ATL / TSB computed from the same relative TRIMP estimate as the Training dashboard, plus the acute:chronic workload ratio and a 28-day training-load focus. All numbers are computed live in SQL from the workouts table — HR Base is auto-derived from your measured resting HR, only HR Max needs setting to match your physiology. The default time range extends 14 days into the future to show the projected (no further training) fitness and fatigue decay.",
+  "schemaVersion": 39,
+  "version": 1,
+  "timezone": "Europe/Vienna",
+  "time": {
+    "from": "now-90d",
+    "to": "now+14d"
+  },
+  "refresh": "",
+  "tags": [
+    "healthlog"
+  ],
+  "links": [
+    {
+      "title": "Overview",
+      "url": "/d/healthlog-overview",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": false,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Overview dashboard"
+    },
+    {
+      "title": "Training",
+      "url": "/d/healthlog-training",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": false,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Training dashboard"
+    },
+    {
+      "title": "Sleep",
+      "url": "/d/healthlog-sleep",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": false,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Sleep dashboard"
+    },
+    {
+      "title": "Metrics Explorer",
+      "url": "/d/healthlog-metrics",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": false,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Metrics Explorer"
+    },
+    {
+      "title": "Workout Detail",
+      "url": "/d/healthlog-workout-detail",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": false,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Workout Detail dashboard"
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "tz",
+        "type": "constant",
+        "label": "Timezone",
+        "description": "Hidden constant. Timezone name used only for the SQL-side local-date bucketing of the daily TRIMP series (DATE(start_time AT TIME ZONE ...)), which Grafana's dashboard timezone cannot reach. Change the value here to re-localise the daily grouping.",
+        "query": "Europe/Vienna",
+        "current": {"value": "Europe/Vienna", "text": "Europe/Vienna", "selected": false},
+        "options": [{"text": "Europe/Vienna", "value": "Europe/Vienna", "selected": false}],
+        "hide": 2
+      },
+      {
+        "name": "hr_rest",
+        "type": "query",
+        "label": "HR Base (bpm)",
+        "description": "Hidden, auto-derived. Resting-HR baseline for the TRIMP estimate, taken from your measured resting_heart_rate over the last 90 days (median of the daily values), so you don't have to type a value that is already in the database. Falls back to 60 if no resting-HR data exists.",
+        "datasource": {"uid": "healthlog-db"},
+        "query": "SELECT COALESCE(ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY vmin))::int, 60) AS hr_rest FROM daily_metrics WHERE metric = 'resting_heart_rate' AND day >= (NOW() - INTERVAL '90 days')::date",
+        "refresh": 1,
+        "sort": 0,
+        "multi": false,
+        "includeAll": false,
+        "hide": 2,
+        "current": {},
+        "options": []
+      },
+      {
+        "name": "hr_max",
+        "type": "textbox",
+        "label": "HR Max (bpm)",
+        "description": "Your maximum heart rate — the one value the TRIMP estimate and the HR zones need that is NOT measured (Apple Health has no HR_max). Set it from a max-HR test, or use an age estimate (Tanaka: 208 − 0.7 × age). HR reserve is computed as HR Max − HR Base.",
+        "query": "190",
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 100,
+      "type": "row",
+      "title": "Fitness & Form",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Today – Fitness (CTL) / Fatigue (ATL) / Form (TSB)",
+      "description": "Current values of the performance management chart below. Fitness (CTL) = 42-day exponentially weighted average of daily TRIMP — your training base. Fatigue (ATL) = 7-day exponentially weighted average — the short-term load you are carrying. Form (TSB) = CTL − ATL: negative while training hard (fatigue masks fitness), positive when fresh/tapered, strongly positive for long = detraining.",
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 24,
+        "h": 4
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Fatigue (ATL)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {"mode": "fixed", "fixedColor": "red"}
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Form (TSB)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {"mode": "fixed", "fixedColor": "green"}
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "horizontal",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "WITH RECURSIVE daily AS (SELECT DATE(start_time AT TIME ZONE '$tz') AS day, SUM(CASE WHEN avg_hr IS NOT NULL AND duration_s IS NOT NULL AND duration_s > 0 THEN (duration_s/60.0) * LEAST(1.0,GREATEST(0.0,(avg_hr-${hr_rest}::numeric)/(${hr_max}::numeric - ${hr_rest}::numeric))) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,(avg_hr-${hr_rest}::numeric)/(${hr_max}::numeric - ${hr_rest}::numeric))))) ELSE 0 END) AS trimp FROM workouts GROUP BY DATE(start_time AT TIME ZONE '$tz')), days AS (SELECT gs::date AS day, ROW_NUMBER() OVER (ORDER BY gs) AS rn, COALESCE(d.trimp, 0) AS trimp FROM generate_series((SELECT MIN(day) FROM daily), (NOW() AT TIME ZONE '$tz')::date, INTERVAL '1 day') gs LEFT JOIN daily d ON d.day = gs::date), pmc AS (SELECT rn, day, trimp/42.0 AS ctl, trimp/7.0 AS atl FROM days WHERE rn = 1 UNION ALL SELECT d.rn, d.day, p.ctl + (d.trimp - p.ctl)/42.0, p.atl + (d.trimp - p.atl)/7.0 FROM pmc p JOIN days d ON d.rn = p.rn + 1) SELECT ROUND(ctl::numeric, 0) AS \"Fitness (CTL)\", ROUND(atl::numeric, 0) AS \"Fatigue (ATL)\", ROUND((ctl - atl)::numeric, 0) AS \"Form (TSB)\" FROM pmc ORDER BY day DESC LIMIT 1",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Performance Management Chart (CTL / ATL / TSB)",
+      "description": "Banister impulse-response model on the daily TRIMP estimate (same formula as the Training dashboard). CTL_t = CTL_{t-1} + (TRIMP_t − CTL_{t-1})/42 (fitness, slow EWMA), ATL_t analogous with /7 (fatigue, fast EWMA), TSB = CTL − ATL (form). The EWMA warms up from your first recorded workout, so early values are relative. Dashed lines are the projection assuming no further training (TRIMP = 0): fatigue decays fast, form rebounds — widen the time range past 'now' to see it. All three share one axis (TRIMP-derived, unitless).",
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 1,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Fitness (CTL)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {"mode": "fixed", "fixedColor": "blue"}
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 15
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Fatigue (ATL)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {"mode": "fixed", "fixedColor": "red"}
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Form (TSB)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {"mode": "fixed", "fixedColor": "green"}
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 15
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "CTL projected"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {"mode": "fixed", "fixedColor": "blue"}
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {"fill": "dash", "dash": [8, 4]}
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.hideFrom",
+                "value": {"legend": true, "tooltip": false, "viz": false}
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ATL projected"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {"mode": "fixed", "fixedColor": "red"}
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {"fill": "dash", "dash": [8, 4]}
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.hideFrom",
+                "value": {"legend": true, "tooltip": false, "viz": false}
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "TSB projected"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {"mode": "fixed", "fixedColor": "green"}
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {"fill": "dash", "dash": [8, 4]}
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.hideFrom",
+                "value": {"legend": true, "tooltip": false, "viz": false}
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "WITH RECURSIVE daily AS (SELECT DATE(start_time AT TIME ZONE '$tz') AS day, SUM(CASE WHEN avg_hr IS NOT NULL AND duration_s IS NOT NULL AND duration_s > 0 THEN (duration_s/60.0) * LEAST(1.0,GREATEST(0.0,(avg_hr-${hr_rest}::numeric)/(${hr_max}::numeric - ${hr_rest}::numeric))) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,(avg_hr-${hr_rest}::numeric)/(${hr_max}::numeric - ${hr_rest}::numeric))))) ELSE 0 END) AS trimp FROM workouts GROUP BY DATE(start_time AT TIME ZONE '$tz')), days AS (SELECT gs::date AS day, ROW_NUMBER() OVER (ORDER BY gs) AS rn, COALESCE(d.trimp, 0) AS trimp FROM generate_series((SELECT MIN(day) FROM daily), (NOW() AT TIME ZONE '$tz')::date + 14, INTERVAL '1 day') gs LEFT JOIN daily d ON d.day = gs::date), pmc AS (SELECT rn, day, trimp/42.0 AS ctl, trimp/7.0 AS atl FROM days WHERE rn = 1 UNION ALL SELECT d.rn, d.day, p.ctl + (d.trimp - p.ctl)/42.0, p.atl + (d.trimp - p.atl)/7.0 FROM pmc p JOIN days d ON d.rn = p.rn + 1) SELECT day AS time, CASE WHEN day <= (NOW() AT TIME ZONE '$tz')::date THEN ROUND(ctl::numeric, 1) END AS \"Fitness (CTL)\", CASE WHEN day <= (NOW() AT TIME ZONE '$tz')::date THEN ROUND(atl::numeric, 1) END AS \"Fatigue (ATL)\", CASE WHEN day <= (NOW() AT TIME ZONE '$tz')::date THEN ROUND((ctl - atl)::numeric, 1) END AS \"Form (TSB)\", CASE WHEN day >= (NOW() AT TIME ZONE '$tz')::date THEN ROUND(ctl::numeric, 1) END AS \"CTL projected\", CASE WHEN day >= (NOW() AT TIME ZONE '$tz')::date THEN ROUND(atl::numeric, 1) END AS \"ATL projected\", CASE WHEN day >= (NOW() AT TIME ZONE '$tz')::date THEN ROUND((ctl - atl)::numeric, 1) END AS \"TSB projected\" FROM pmc WHERE $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "id": 101,
+      "type": "row",
+      "title": "Load Ratio & Focus",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 3,
+      "type": "gauge",
+      "title": "Training Load Ratio (ACWR)",
+      "description": "Acute:Chronic Workload Ratio = (7-day mean of daily TRIMP) / (28-day mean), anchored on today. Blue < 0.8 = detraining (acute load low vs. your chronic base), green 0.8–1.3 = sweet spot, orange 1.3–1.5 = high, red > 1.5 = load spike (overload/injury risk). The nightly analysis computes the same ratio on the last data day and stores a training_load finding when it leaves the safe band (see the Training dashboard's findings table).",
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 2,
+          "min": 0,
+          "max": 2,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0.8
+              },
+              {
+                "color": "orange",
+                "value": 1.3
+              },
+              {
+                "color": "red",
+                "value": 1.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "WITH daily AS (SELECT DATE(start_time AT TIME ZONE '$tz') AS day, SUM(CASE WHEN avg_hr IS NOT NULL AND duration_s IS NOT NULL AND duration_s > 0 THEN (duration_s/60.0) * LEAST(1.0,GREATEST(0.0,(avg_hr-${hr_rest}::numeric)/(${hr_max}::numeric - ${hr_rest}::numeric))) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,(avg_hr-${hr_rest}::numeric)/(${hr_max}::numeric - ${hr_rest}::numeric))))) ELSE 0 END) AS trimp FROM workouts WHERE start_time >= NOW() - INTERVAL '30 days' GROUP BY DATE(start_time AT TIME ZONE '$tz')) SELECT ROUND((((COALESCE(SUM(trimp) FILTER (WHERE day > (NOW() AT TIME ZONE '$tz')::date - 7), 0)) / 7.0) / NULLIF((SUM(trimp) FILTER (WHERE day > (NOW() AT TIME ZONE '$tz')::date - 28)) / 28.0, 0))::numeric, 2) AS \"ACWR\" FROM daily",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Training Load Focus (last 28 days)",
+      "description": "How the last 28 days of training time distribute across intensity zones, relative to HR Max (same zone boundaries as the zone-based Edwards TRIMP in the analysis): anaerobic ≥ 90% HR Max, high aerobic 80–90%, low aerobic 50–80%; time below 50% does not count as training load. Zone time comes from the intra-workout HR samples (workout_hr_samples), credited to the zone of each sample until the next one (gaps capped at 5 min); a workout without an HR series falls back to crediting its whole duration to the zone of its average HR.",
+      "gridPos": {
+        "x": 8,
+        "y": 16,
+        "w": 16,
+        "h": 8
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Minutes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix:min"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Share"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {"type": "gauge", "mode": "gradient"}
+              },
+              {
+                "id": "color",
+                "value": {"mode": "fixed", "fixedColor": "orange"}
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "sortBy": [],
+        "footer": {
+          "show": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "WITH recent AS (SELECT hae_id, avg_hr, duration_s FROM workouts WHERE start_time >= NOW() - INTERVAL '28 days'), sampled AS (SELECT s.workout_hae_id, s.bpm, LEAST(EXTRACT(EPOCH FROM (LEAD(s.ts) OVER (PARTITION BY s.workout_hae_id ORDER BY s.ts) - s.ts)), 300) AS sec FROM workout_hr_samples s JOIN recent w ON w.hae_id = s.workout_hae_id), zoned AS (SELECT bpm, sec FROM sampled WHERE sec IS NOT NULL AND sec > 0 UNION ALL SELECT w.avg_hr, w.duration_s FROM recent w WHERE w.avg_hr IS NOT NULL AND w.duration_s > 0 AND NOT EXISTS (SELECT 1 FROM workout_hr_samples s WHERE s.workout_hae_id = w.hae_id)), buckets AS (SELECT COALESCE(SUM(sec) FILTER (WHERE bpm >= 0.9 * ${hr_max}::numeric), 0) AS anaerobic, COALESCE(SUM(sec) FILTER (WHERE bpm >= 0.8 * ${hr_max}::numeric AND bpm < 0.9 * ${hr_max}::numeric), 0) AS high_aerobic, COALESCE(SUM(sec) FILTER (WHERE bpm >= 0.5 * ${hr_max}::numeric AND bpm < 0.8 * ${hr_max}::numeric), 0) AS low_aerobic FROM zoned) SELECT z.zone AS \"Zone\", ROUND((z.sec / 60.0)::numeric) AS \"Minutes\", ROUND((100.0 * z.sec / NULLIF(b.anaerobic + b.high_aerobic + b.low_aerobic, 0))::numeric, 0) AS \"Share\" FROM buckets b CROSS JOIN LATERAL (VALUES ('Anaerobic (≥ 90% HR Max)', b.anaerobic, 1), ('High aerobic (80–90%)', b.high_aerobic, 2), ('Low aerobic (50–80%)', b.low_aerobic, 3)) AS z(zone, sec, ord) ORDER BY z.ord",
+          "format": "table"
+        }
+      ]
+    }
+  ]
+}

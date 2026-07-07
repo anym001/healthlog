@@ -3,7 +3,7 @@
   "title": "HealthLog – Training",
   "description": "30-day training load, recovery metrics, and workout history. TRIMP is a relative estimate: the resting-HR baseline is auto-derived from your measured resting_heart_rate, so only HR Max needs setting to match your physiology. Display times use the dashboard timezone (Settings → Timezone, default Europe/Vienna); the TRIMP daily grouping is bucketed via the hidden 'tz' constant (default Europe/Vienna).",
   "schemaVersion": 39,
-  "version": 9,
+  "version": 10,
   "timezone": "Europe/Vienna",
   "time": {
     "from": "now-30d",
@@ -23,6 +23,16 @@
       "targetBlank": false,
       "includeVars": false,
       "tooltip": "Open Overview dashboard"
+    },
+    {
+      "title": "Fitness",
+      "url": "/d/healthlog-fitness",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": false,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Fitness dashboard (CTL/ATL/TSB, load ratio & focus; opens with its own future-extended time range)"
     },
     {
       "title": "Sleep",

@@ -1,6 +1,6 @@
 # Grafana Dashboards
 
-Five pre-built Grafana dashboards for HealthLog. Import them once via the
+Six pre-built Grafana dashboards for HealthLog. Import them once via the
 Grafana UI — no provisioning required.
 
 ## Prerequisites
@@ -61,8 +61,26 @@ Dashboards → New → Import → upload JSON file (repeat for each):
 | `dashboards/overview.json` | Overview — daily summary (14-day window) |
 | `dashboards/sleep.json` | Sleep — phases, efficiency, bedtime, overnight vitals (30-day window) |
 | `dashboards/training.json` | Training & Recovery — TRIMP by sport, HRV, workouts table (30-day window) |
+| `dashboards/fitness.json` | Fitness — CTL/ATL/TSB performance management chart, ACWR gauge, 28-day training-load focus (90-day window + 14-day projection) |
 | `dashboards/workout-detail.json` | Workout Detail — single-session drill-down: intra-workout HR curve, KPIs, metadata |
 | `dashboards/metrics.json` | Metrics Explorer — raw values for any metric, Apple-Health-style (30-day window) |
+
+The **Fitness** dashboard is a performance-management view of the training load
+(the classic CTL/ATL/TSB "fitness & form" chart known from Garmin/TrainingPeaks):
+**Fitness (CTL)** is a 42-day and **Fatigue (ATL)** a 7-day exponentially
+weighted average of the daily TRIMP estimate, **Form (TSB)** their difference.
+Everything is computed live in SQL from the `workouts` table — the same relative
+TRIMP formula as the Training dashboard, so the same two dashboard variables
+apply: HR Base is auto-derived from your measured resting HR, **HR Max must be
+set once** (dashboard variable, default 190) to match your physiology. The
+default time range runs 14 days past "now" to show the dashed projection
+(fitness/fatigue decay assuming no further training). Two companion panels:
+the **Training Load Ratio** gauge (ACWR = 7-day / 28-day mean load, the same
+ratio the nightly analysis stores as a `training_load` finding when it leaves
+the safe band, see `docs/workout-analysis.md` §5) and the **Training Load
+Focus** table (last 28 days of training time split into low-aerobic /
+high-aerobic / anaerobic HR zones from the intra-workout HR samples, falling
+back to a session's average HR when no samples are stored).
 
 The **Metrics Explorer** is metric-agnostic: two cascading dropdowns at the top —
 `Category` first, then `Metric` (only the metrics that belong to the chosen
