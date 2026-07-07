@@ -268,11 +268,28 @@ analysis, deliberately:
   statistics — the alerting role is already covered by the ACWR finding (§5),
   which is the same acute-vs-chronic idea expressed as a ratio. Duplicating it
   as a second `training_load`-style finding would score the same load twice.
+  Instead the dashboard pulls the analysis *in*: the PMC chart overlays the
+  stored `training_load` and `recovery_alert` findings as annotations (from
+  `findings_history`, deduplicated to one marker per alert day), and an ACWR
+  history panel charts the 7d/28d ratio per day against the §5 bands.
 - Chart-side derivation needs **no schema, no stored derived series** — the same
-  reasoning that keeps the other dashboard TRIMP panels in SQL. The dashboard
-  formula is the same relative estimate (dashboard `hr_max` variable, auto-derived
-  resting-HR base) and is therefore, like those panels, a *relative* view; the
-  analysis keeps the richer profile-driven fallback chains (§3.1).
+  reasoning that keeps the other dashboard TRIMP panels in SQL. The dashboard's
+  TRIMP mirrors the analysis' fallback chains (§3.1) as far as SQL can reach:
+  HR_max defaults to `auto` = `clamp(max(observed max_hr), 160, 210)` with the
+  dashboard variable as the explicit override, and HR_rest is a per-day 28-day
+  rolling median of the measured resting HR (overall median, then 60, as
+  fallbacks). What the dashboard *cannot* see is `config.yaml` (birth_year/sex),
+  so it stays a *relative* view; the analysis keeps the profile-driven chain.
+- **Sample-resolved Banister:** where an intra-workout HR series is stored, the
+  session TRIMP is the Banister formula applied per sample interval (interval
+  time credited to the start sample and rescaled to `duration_s`, the same
+  crediting scheme as Edwards, §9) instead of one average HR — so intervals
+  cost more than a steady run with the same average, which single-average
+  Banister smooths over (§8). Sessions without samples keep the average-HR
+  formula, which yields the *identical* value for a constant-HR session — both
+  variants are the same unit, so mixing them in one daily sum does not violate
+  §2.1's don't-mix-units rule (unlike Edwards' zone weights, which is why the
+  daily load is not Edwards here).
 - The EWMA warms up from the first recorded workout day (seeded with
   `TRIMP_0/42` resp. `/7`). Every panel follows the dashboard time picker: the
   stat tiles and the ACWR gauge are anchored on the end of the selected range
