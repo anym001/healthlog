@@ -220,6 +220,15 @@ class NarrateConfig(BaseModel):
     model: str = "qwen2.5:14b"
     # Report language. "en" = English, "de" = German.
     language: Literal["de", "en"] = "en"
+    # Audience the report is written for — selects a curated style block in the
+    # system prompt (prompts.py). Changes how much gets explained, never what
+    # is included: the findings context is identical at every level.
+    #   simple   → everyday words only, no jargon at all, analogies
+    #   standard → plain language, every technical term translated on first use
+    #   expert   → technical vocabulary and statistics used directly
+    audience: Literal["simple", "standard", "expert"] = "standard"
+    # Soft word budget the model is instructed to stay within.
+    max_words: int = Field(default=700, ge=100, le=3000)
     # How far back to look for ref_date-based findings (anomaly, recovery_alert,
     # training_load). Time-independent kinds (correlation, trend, seasonality,
     # consistency) are always included — they represent the current state.

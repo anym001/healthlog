@@ -389,7 +389,9 @@ def test_run_dry_run_renders_context_without_ollama(tmp_path, monkeypatch, capsy
     )
     monkeypatch.setattr(narrate_cli, "OllamaClient", _no_client)
 
-    args = argparse.Namespace(lookback_days=None, output_dir=None, note=None, dry_run=True)
+    args = argparse.Namespace(
+        lookback_days=None, output_dir=None, language=None, audience=None, note=None, dry_run=True
+    )
     rc = narrate_cli.run(args)
 
     out = capsys.readouterr().out
@@ -418,6 +420,41 @@ def test_system_prompt_unknown_language_falls_back_to_de():
     p = _system_prompt("fr")
     p_de = _system_prompt("de")
     assert p == p_de
+
+
+def test_system_prompt_every_audience_keeps_safety_rules():
+    # The safety rules are invariant: every language x audience combination
+    # must contain them - the audience only changes the explanation style.
+    markers = {
+        "de": ("keine erfundenen Zahlen", "Keine medizinischen Diagnosen", "Berichtsstruktur"),
+        "en": ("do not invent numbers", "Do not make medical diagnoses", "Report structure"),
+    }
+    for lang, needles in markers.items():
+        for audience in ("simple", "standard", "expert"):
+            p = _system_prompt(lang, audience)
+            for needle in needles:
+                assert needle in p, (lang, audience, needle)
+
+
+def test_system_prompt_audience_styles_differ():
+    simple = _system_prompt("de", "simple")
+    standard = _system_prompt("de", "standard")
+    expert = _system_prompt("de", "expert")
+    assert len({simple, standard, expert}) == 3
+    assert "erscheinen im Text gar nicht" in simple  # no jargon at all
+    assert "beim ersten Auftreten" in standard  # terms translated once
+    assert "ohne Erklärung verwenden" in expert  # jargon allowed
+
+
+def test_system_prompt_default_audience_is_standard():
+    assert _system_prompt("en") == _system_prompt("en", "standard")
+    # An unknown audience value falls back to standard instead of failing.
+    assert _system_prompt("en", "phd") == _system_prompt("en", "standard")
+
+
+def test_system_prompt_injects_max_words():
+    assert "Maximal 700 Wörter" in _system_prompt("de")
+    assert "Maximum 450 words" in _system_prompt("en", "simple", max_words=450)
 
 
 # ---------------------------------------------------------------------------
