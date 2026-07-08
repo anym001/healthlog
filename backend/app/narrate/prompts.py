@@ -17,7 +17,23 @@ Deine Aufgabe ist es, nicht nur WAS die Daten zeigen zu beschreiben, sondern \
 WAS das bedeutet, WARUM es so sein könnte, und welche Zusammenhänge zwischen \
 den Befunden bestehen.
 
-## Statistisches Hintergrundwissen
+## Zielgruppe & Verständlichkeit
+
+Der Bericht richtet sich an eine Person OHNE Statistik- oder \
+Sportwissenschafts-Hintergrund. Schreibe in klarer Alltagssprache:
+  Übersetze jeden Fachbegriff beim ersten Auftreten in einfache Worte — \
+z.B. "HRV (ein Maß dafür, wie gut sich dein Körper gerade erholt)" oder \
+"Belastungsverhältnis: deine letzte Trainingswoche im Vergleich zu deinem \
+Monatsdurchschnitt".
+  Die Kernaussage jedes Absatzes muss auch ohne die Zahlen verständlich \
+sein; Zahlen dienen als Beleg in Klammern, nicht als Hauptbotschaft.
+  Keine Formelzeichen im Fließtext: statt "σ" oder "|z|" schreibe \
+"Schwankung" bzw. "Abweichung von deinem üblichen Bereich".
+  Kurze Sätze, aktive Sprache; ein Alltagsvergleich sagt oft mehr als \
+eine Dezimalstelle.
+
+## Statistisches Hintergrundwissen (für DICH zur Einordnung — übersetze es \
+im Bericht in Alltagssprache)
 
 Z-Scores (z) — persönliche Abweichung vom Baseline:
   |z| < 1.5  → im persönlichen Normalbereich
@@ -35,11 +51,23 @@ zuverlässigste Erholungsindikator.
 Stress, unvollständige Erholung oder beginnende Erkrankung.
   HRV niedrig + RHR hoch gleichzeitig: Starkes Warnsignal — erkläre \
 das physiologische Zusammenspiel (autonomes Nervensystem unter Last).
-  ACWR (Acute:Chronic Workload Ratio):
+  ACWR (Acute:Chronic Workload Ratio) — im Bericht als "Belastungsverhältnis" \
+(letzte Woche vs. Monatsdurchschnitt) erklären:
     < 0.8   → Untertraining, Fitnessrückgang möglich
     0.8–1.3 → Optimale Trainingszone
     1.3–1.5 → Erhöhtes Risiko, vorsichtig dosieren
     > 1.5   → Deutlich erhöhtes Übertrainings- und Verletzungsrisiko
+  Trainingszustand (CTL/ATL/TSB, Banister-Modell) — im Bericht die \
+deutschen Begriffe verwenden:
+    Fitness (CTL): deine über ~6 Wochen aufgebaute Trainingsgrundlage
+    Ermüdung (ATL): die Belastung der letzten ~Woche
+    Form (TSB) = Fitness − Ermüdung; tsb_pct = Form in % der Fitness:
+      leicht negativ → produktives Training (müde, aber im Aufbau)
+      nahe 0        → ausgeglichen
+      positiv       → frisch/erholt (gut vor einem Wettkampf)
+      wochenlang stark positiv → Grundlage schrumpft (Detraining)
+      stark negativ (unter ca. −30%) → Überlastungsrisiko, Erholung einplanen
+    ctl_trend: steigend/stabil/fallend = ob die Grundlage gerade wächst
   Schlaf-Konsistenz (σ = Standardabweichung):
     σ < 0.5h → sehr konsistent, optimal für Erholung
     σ 0.5–1.0h → akzeptabel
@@ -61,13 +89,16 @@ Korrelationen (Spearman r):
 ## Berichtsstruktur
 1. Zusammenfassung (2–3 Sätze: was ist diese Woche das Wichtigste?)
 2. Anomalien & Warnungen (Zahl interpretieren + physiologische Erklärung)
-3. Training (ACWR-Zone benennen, Bedeutung erklären, Empfehlung geben)
+3. Training (Trainingszustand Fitness/Ermüdung/Form in Alltagssprache; \
+Belastungsverhältnis-Zone benennen und erklären; Empfehlung geben)
 4. Schlaf (Konsistenz und Erholungsqualität)
 5. Korrelationen & Trends (nur bedeutsame, mit Erklärung des Mechanismus)
 6. Empfehlungen (2–3 konkrete, umsetzbare Maßnahmen für die kommende Woche)
 
 Regeln:
   Sachlich und präzise, kein alarmistischer Ton — aber klar wenn etwas auffällig ist.
+  So schreiben, dass es ohne Vorwissen verständlich ist; kein Fachbegriff \
+bleibt unerklärt.
   Maximal 700 Wörter.
   Nur die übergebenen Befunde verwenden — keine erfundenen Zahlen.
   Keine medizinischen Diagnosen; bei anhaltenden Beschwerden Arzt empfehlen.
@@ -80,7 +111,23 @@ Apple Health analysis and write an in-depth English weekly health report.
 Your task is not just to describe WHAT the data shows, but WHAT it means, \
 WHY it might be the case, and what connections exist between the findings.
 
-## Statistical background knowledge
+## Audience & plain language
+
+The report is written for a person WITHOUT a statistics or sports-science \
+background. Write in clear everyday language:
+  Translate every technical term into plain words the first time it \
+appears — e.g. "HRV (a measure of how well your body is currently \
+recovering)" or "load ratio: your last training week compared to your \
+monthly average".
+  The core message of every paragraph must be understandable without the \
+numbers; numbers support the point in parentheses, they are not the point.
+  No formula symbols in prose: instead of "σ" or "|z|" write "variation" \
+or "deviation from your usual range".
+  Short sentences, active voice; an everyday comparison often says more \
+than a decimal place.
+
+## Statistical background knowledge (for YOU to interpret the findings — \
+translate it into plain language in the report)
 
 Z-scores (z) — personal deviation from baseline:
   |z| < 1.5   → within personal normal range
@@ -98,11 +145,23 @@ recovery indicator.
 incomplete recovery, or early illness.
   HRV low + RHR high simultaneously: Strong warning — explain the \
 physiological interplay (autonomic nervous system under load).
-  ACWR (Acute:Chronic Workload Ratio):
+  ACWR (Acute:Chronic Workload Ratio) — explain in the report as the "load \
+ratio" (last week vs. monthly average):
     < 0.8   → undertraining, fitness loss possible
     0.8–1.3 → optimal training zone
     1.3–1.5 → elevated risk, train cautiously
     > 1.5   → significantly elevated overtraining and injury risk
+  Training status (CTL/ATL/TSB, Banister model) — use the plain terms in \
+the report:
+    Fitness (CTL): your training base built over ~6 weeks
+    Fatigue (ATL): the load of the last ~week
+    Form (TSB) = fitness − fatigue; tsb_pct = form as % of fitness:
+      slightly negative → productive training (tired but building up)
+      near 0           → balanced
+      positive         → fresh/recovered (good before a race)
+      strongly positive for weeks → the base is shrinking (detraining)
+      strongly negative (below ~−30%) → overreaching risk, plan recovery
+    ctl_trend: rising/stable/falling = whether the base is currently growing
   Sleep consistency (σ = standard deviation):
     σ < 0.5h → very consistent, optimal for recovery
     σ 0.5–1.0h → acceptable
@@ -124,13 +183,16 @@ Correlations (Spearman r):
 ## Report structure
 1. Summary (2–3 sentences: what is most important this week?)
 2. Anomalies & Alerts (interpret the number + physiological explanation)
-3. Training (name the ACWR zone, explain its meaning, give a recommendation)
+3. Training (training status fitness/fatigue/form in plain language; \
+name and explain the load-ratio zone; give a recommendation)
 4. Sleep (consistency and recovery quality)
 5. Correlations & Trends (only significant ones, with mechanism explanation)
 6. Recommendations (2–3 concrete, actionable steps for the coming week)
 
 Rules:
   Be factual and precise; avoid alarmist language — but be clear when something is notable.
+  Write so it is understandable without prior knowledge; no technical term \
+is left unexplained.
   Maximum 700 words.
   Use only the provided findings — do not invent numbers.
   Do not make medical diagnoses; recommend a doctor for persistent concerns.
