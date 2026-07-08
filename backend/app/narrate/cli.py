@@ -57,6 +57,13 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         "(how much gets explained — the findings are identical at every level)",
     )
     parser.add_argument(
+        "--max-words",
+        type=int,
+        default=None,
+        metavar="N",
+        help="override narrate.max_words from config.yaml for this report",
+    )
+    parser.add_argument(
         "--note",
         default=None,
         metavar="TEXT",
@@ -80,6 +87,7 @@ def run(args: argparse.Namespace) -> int:
     output_dir = args.output_dir if args.output_dir is not None else (Path(settings.config_file).parent / "narration")
     language = args.language if args.language is not None else cfg.language
     audience = args.audience if args.audience is not None else cfg.audience
+    max_words = args.max_words if args.max_words is not None else cfg.max_words
 
     # A real run needs Ollama; a dry run only renders the findings context (no
     # model call), so it must work even when no endpoint is configured.
@@ -111,7 +119,7 @@ def run(args: argparse.Namespace) -> int:
 
     client = OllamaClient(cfg.ollama_url, cfg.model, timeout=float(cfg.timeout_s), thinking=cfg.thinking)
     try:
-        report = client.generate(_system_prompt(language, audience, cfg.max_words), context)
+        report = client.generate(_system_prompt(language, audience, max_words), context)
     except httpx.HTTPError as exc:
         log.error("ollama call failed: %s", safe(str(exc)))
         return 1

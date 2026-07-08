@@ -330,6 +330,8 @@ docker exec healthlog healthlog narrate --note "Focus on the HRV/training link."
 docker exec healthlog healthlog narrate --language de --lookback-days 14
 # One-off expert-level report (jargon and statistics unexplained):
 docker exec healthlog healthlog narrate --audience expert
+# One-off short summary:
+docker exec healthlog healthlog narrate --max-words 300
 # Inspect what the model would receive — no Ollama call, no report written:
 docker exec healthlog healthlog narrate --dry-run
 ```
@@ -349,8 +351,8 @@ verify the input deterministically before trusting the narrative.
 `expert` writes for a reader fluent in statistics and training terminology.
 The level changes the explanation depth, never the content — every level
 narrates the same findings. `narrate.max_words` (default 700) sets the word
-budget independently. Both can be overridden per report (`--audience`,
-`--language`).
+budget independently. All of it can be overridden per report (`--audience`,
+`--language`, `--max-words`).
 
 To keep the report focused, only the highest-priority correlations are narrated
 (cross-domain links — e.g. training load vs next-day respiratory rate — rank

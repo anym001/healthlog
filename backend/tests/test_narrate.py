@@ -390,7 +390,7 @@ def test_run_dry_run_renders_context_without_ollama(tmp_path, monkeypatch, capsy
     monkeypatch.setattr(narrate_cli, "OllamaClient", _no_client)
 
     args = argparse.Namespace(
-        lookback_days=None, output_dir=None, language=None, audience=None, note=None, dry_run=True
+        lookback_days=None, output_dir=None, language=None, audience=None, max_words=None, note=None, dry_run=True
     )
     rc = narrate_cli.run(args)
 
