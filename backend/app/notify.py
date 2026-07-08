@@ -142,6 +142,7 @@ def compose_analysis_run_message(result: AnalysisResult) -> Notification:
         f"recovery alerts: {result.recovery_alerts}",
         f"consistency: {result.consistency}",
         f"training load: {result.training_load}",
+        f"training status: {result.training_status}",
     ]
     return Notification("HealthLog: analysis OK", "\n".join(lines), PRIORITY_INFO, False)
 
@@ -157,7 +158,8 @@ def compose_findings_message(result: AnalysisResult) -> Notification | None:
     training-load alerts.
 
     Returns None when nothing alert-worthy came out of the run. Correlations,
-    trends, seasonality and consistency are background analytics, not alerts.
+    trends, seasonality, consistency and the training-status snapshot are
+    background analytics, not alerts.
     Training-load findings are only emitted when the ACWR leaves the safe band,
     so any count here is genuinely alert-worthy.
     """

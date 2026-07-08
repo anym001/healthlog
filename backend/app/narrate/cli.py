@@ -44,6 +44,26 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         help="override the output directory (default: /config/narration)",
     )
     parser.add_argument(
+        "--language",
+        choices=("de", "en"),
+        default=None,
+        help="override narrate.language from config.yaml for this report",
+    )
+    parser.add_argument(
+        "--audience",
+        choices=("simple", "standard", "expert"),
+        default=None,
+        help="override narrate.audience from config.yaml for this report "
+        "(how much gets explained — the findings are identical at every level)",
+    )
+    parser.add_argument(
+        "--max-words",
+        type=int,
+        default=None,
+        metavar="N",
+        help="override narrate.max_words from config.yaml for this report",
+    )
+    parser.add_argument(
         "--note",
         default=None,
         metavar="TEXT",
@@ -65,6 +85,9 @@ def run(args: argparse.Namespace) -> int:
     # Apply CLI overrides.
     lookback_days = args.lookback_days if args.lookback_days is not None else cfg.lookback_days
     output_dir = args.output_dir if args.output_dir is not None else (Path(settings.config_file).parent / "narration")
+    language = args.language if args.language is not None else cfg.language
+    audience = args.audience if args.audience is not None else cfg.audience
+    max_words = args.max_words if args.max_words is not None else cfg.max_words
 
     # A real run needs Ollama; a dry run only renders the findings context (no
     # model call), so it must work even when no endpoint is configured.
@@ -83,7 +106,7 @@ def run(args: argparse.Namespace) -> int:
         lookback_days,
         today,
         note=args.note,
-        language=cfg.language,
+        language=language,
         max_correlations=cfg.max_correlations,
     )
 
@@ -96,7 +119,7 @@ def run(args: argparse.Namespace) -> int:
 
     client = OllamaClient(cfg.ollama_url, cfg.model, timeout=float(cfg.timeout_s), thinking=cfg.thinking)
     try:
-        report = client.generate(_system_prompt(cfg.language), context)
+        report = client.generate(_system_prompt(language, audience, max_words), context)
     except httpx.HTTPError as exc:
         log.error("ollama call failed: %s", safe(str(exc)))
         return 1
