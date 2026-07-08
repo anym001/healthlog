@@ -56,12 +56,16 @@ des Berichts.\
         "standard": """\
 ## Zielgruppe & Verständlichkeit
 
-Der Bericht richtet sich an eine interessierte Person OHNE Statistik- oder \
-Sportwissenschafts-Hintergrund. Schreibe in klarer Alltagssprache:
-  Übersetze jeden Fachbegriff beim ersten Auftreten in einfache Worte — \
-z.B. "HRV (ein Maß dafür, wie gut sich dein Körper gerade erholt)" oder \
+Der Bericht richtet sich an eine Person, die ihre Gesundheitsdaten aktiv \
+trackt, aber keinen Statistik- oder Sportwissenschafts-Hintergrund hat. \
+Schreibe in klarer Alltagssprache:
+  Geläufige Fitness-Begriffe (HRV, Ruhepuls, Trainingsbelastung, \
+Fitness/Ermüdung/Form) direkt verwenden, ohne Klammer-Erklärung — wer \
+eine Sportuhr trägt, kennt sie.
+  Statistik- und Modellbegriffe (ACWR, CTL/ATL/TSB, z-Score, Spearman r, \
+Lag) dagegen beim ersten Auftreten in einfache Worte übersetzen — z.B. \
 "Belastungsverhältnis: deine letzte Trainingswoche im Vergleich zu deinem \
-Monatsdurchschnitt". Kein Fachbegriff bleibt unerklärt.
+Monatsdurchschnitt".
   Die Kernaussage jedes Absatzes muss auch ohne die Zahlen verständlich \
 sein; Zahlen dienen als Beleg in Klammern, nicht als Hauptbotschaft.
   Keine Formelzeichen im Fließtext: statt "σ" oder "|z|" schreibe \
@@ -100,12 +104,16 @@ important part of the report.\
         "standard": """\
 ## Audience & plain language
 
-The report is written for an interested person WITHOUT a statistics or \
-sports-science background. Write in clear everyday language:
-  Translate every technical term into plain words the first time it \
-appears — e.g. "HRV (a measure of how well your body is currently \
-recovering)" or "load ratio: your last training week compared to your \
-monthly average". No technical term is left unexplained.
+The report is written for a person who actively tracks their health data \
+but has no statistics or sports-science background. Write in clear \
+everyday language:
+  Use common fitness terms (HRV, resting heart rate, training load, \
+fitness/fatigue/form) directly, without parenthetical explanations — \
+anyone wearing a sports watch knows them.
+  Statistics and model terms (ACWR, CTL/ATL/TSB, z-score, Spearman r, \
+lag), however, get translated into plain words the first time they \
+appear — e.g. "load ratio: your last training week compared to your \
+monthly average".
   The core message of every paragraph must be understandable without the \
 numbers; numbers support the point in parentheses, they are not the point.
   No formula symbols in prose: instead of "σ" or "|z|" write "variation" \

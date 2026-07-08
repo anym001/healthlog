@@ -442,7 +442,10 @@ def test_system_prompt_audience_styles_differ():
     expert = _system_prompt("de", "expert")
     assert len({simple, standard, expert}) == 3
     assert "erscheinen im Text gar nicht" in simple  # no jargon at all
-    assert "beim ersten Auftreten" in standard  # terms translated once
+    # standard is two-tier: consumer-fitness terms used directly, statistics
+    # and model terms still translated on first use.
+    assert "ohne Klammer-Erklärung" in standard
+    assert "beim ersten Auftreten" in standard
     assert "ohne Erklärung verwenden" in expert  # jargon allowed
 
 

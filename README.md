@@ -347,8 +347,10 @@ verify the input deterministically before trusting the narrative.
 
 **How much the report explains** is set by `narrate.audience` (`simple` |
 `standard` | `expert`, default `standard`): `simple` uses everyday words only
-(no jargon at all), `standard` translates every technical term on first use,
-`expert` writes for a reader fluent in statistics and training terminology.
+(no jargon at all), `standard` uses common fitness terms (HRV, resting heart
+rate) directly but translates statistics and model terms (ACWR, z-score) on
+first use, `expert` writes for a reader fluent in statistics and training
+terminology.
 The level changes the explanation depth, never the content — every level
 narrates the same findings. `narrate.max_words` (default 700) sets the word
 budget independently. All of it can be overridden per report (`--audience`,

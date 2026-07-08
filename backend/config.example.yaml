@@ -104,9 +104,9 @@
 #   language: en              # en | de
 #   audience: standard        # simple | standard | expert — how much the report
 #                             # explains (same findings at every level: simple =
-#                             # everyday words only, standard = every technical
-#                             # term translated on first use, expert = technical
-#                             # vocabulary and statistics used directly)
+#                             # everyday words only, standard = fitness terms like
+#                             # HRV used directly but statistics terms translated
+#                             # on first use, expert = everything used directly)
 #   max_words: 700            # soft word budget the model is told to respect
 #   lookback_days: 7          # ref_date window for anomalies / recovery / load
 #   timeout_s: 300            # generous — 14B models take time
