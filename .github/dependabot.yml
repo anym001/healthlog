@@ -4,7 +4,7 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     # PRs always target dev, never main (see CONTRIBUTING.md); main only
     # updates via the dev -> main release PR.
     target-branch: "dev"
@@ -17,7 +17,7 @@ updates:
   - package-ecosystem: "pip"
     directory: "/backend"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     target-branch: "dev"
     groups:
       python:
@@ -28,7 +28,7 @@ updates:
   - package-ecosystem: "docker"
     directory: "/backend"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     target-branch: "dev"
     groups:
       docker:
