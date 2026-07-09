@@ -2,7 +2,7 @@
 
 Recent, dated findings (anomalies, recovery alerts, training load) are bounded
 by the lookback window; the standing analyses (correlations, trends,
-seasonality, consistency) are always included. Display names are joined from
+seasonality, consistency, training status) are always included. Display names are joined from
 the metric registry; the hand-wired series the analysis assembles itself
 (workout load, sleep — no registry rows, see docs/workout-analysis.md) get
 their labels from the fallback map below, so raw snake_case keys never reach
@@ -46,7 +46,7 @@ WHERE
         f.kind IN ('anomaly', 'recovery_alert', 'training_load')
         AND f.ref_date >= :cutoff
     )
-    OR f.kind IN ('correlation', 'trend', 'seasonality', 'consistency')
+    OR f.kind IN ('correlation', 'trend', 'seasonality', 'consistency', 'training_status')
 ORDER BY f.kind, f.ref_date DESC NULLS LAST, f.severity DESC NULLS LAST
 """
 

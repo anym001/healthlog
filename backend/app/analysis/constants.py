@@ -65,6 +65,14 @@ CONSISTENCY_BEDTIME_STD = _DEFAULTS.consistency_bedtime_std  # hours; above => i
 # ACWR is conventionally a 7-day acute over a 28-day chronic mean.
 ACWR_ACUTE_DAYS = 7
 ACWR_CHRONIC_DAYS = 28
+# Training status (Banister impulse-response): CTL/ATL are the conventional
+# 42/7-day EWMA time constants; the CTL trend compares against 28 days earlier
+# and calls it rising/falling beyond a 5% relative change. Structural, like the
+# ACWR windows; the zone bands on TSB/CTL are the operator tunables (tsb_*).
+CTL_DAYS = 42
+ATL_DAYS = 7
+CTL_TREND_LOOKBACK_DAYS = 28
+CTL_TREND_REL = 0.05
 # HR_rest is the trailing-median resting heart rate; HR_max / HR_rest fall back
 # along the chains documented in docs/workout-analysis.md §3.1.
 HR_REST_WINDOW = 28

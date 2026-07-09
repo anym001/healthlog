@@ -84,6 +84,13 @@
 #   acwr_high: 1.5            # above => load spike flagged (overload risk)
 #   acwr_low: 0.8             # below => detraining flagged
 #   acwr_min_active_days: 8   # min training days in 28 before a (per-sport) ratio is trusted
+#   # Training status (fitness/form): descriptive CTL/ATL/TSB snapshot written
+#   # every run (a status like consistency, NOT an alert - it feeds the
+#   # narration's baseline). Zones sit on TSB normalised by CTL (scale-free on
+#   # the relative TRIMP estimate):
+#   tsb_fresh_pct: 0.05       # |TSB|/CTL below => neutral; above => fresh (positive TSB)
+#   tsb_detraining_pct: 0.15  # TSB/CTL above => detraining (base shrinking)
+#   tsb_overreach_pct: -0.30  # TSB/CTL below => overreaching risk; between => productive
 
 # --- LLM narration ---------------------------------------------------------
 # On-demand health report from a local Ollama instance. Reads the current
@@ -95,6 +102,12 @@
 #   ollama_url:               # required: http://192.168.1.100:11434
 #   model: qwen2.5:14b
 #   language: en              # en | de
+#   audience: standard        # simple | standard | expert — how much the report
+#                             # explains (same findings at every level: simple =
+#                             # everyday words only, standard = fitness terms like
+#                             # HRV used directly but statistics terms translated
+#                             # on first use, expert = everything used directly)
+#   max_words: 700            # soft word budget the model is told to respect
 #   lookback_days: 7          # ref_date window for anomalies / recovery / load
 #   timeout_s: 300            # generous — 14B models take time
 #   max_correlations: 15      # cap the correlations narrated, highest-priority
