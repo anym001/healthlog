@@ -15,20 +15,24 @@ from ..appconfig import AppConfig, load_config
 from ..cli_support import bootstrap, db_session
 from ..config import get_settings
 from ..models import FINDING_FIELDS, Finding, FindingHistory
+from .body_battery import run_body_battery
 from .constants import _DEFAULT_APP_CONFIG, log
 from .findings import (
     AnalysisResult,
     _anomaly_findings,
+    _body_battery_findings,
     _consistency_findings,
     _correlation_findings,
     _decompose_all,
     _recovery_findings,
+    _stress_findings,
     _training_load_findings,
     _training_status_findings,
     _trend_and_seasonality_findings,
     build_series,
 )
 from .load import load_sleep_frame
+from .stress import run_stress
 
 
 def _guarded(kind: str, build, empty):
@@ -74,9 +78,42 @@ def run(db: Session, tz: str | None = None, config: AppConfig | None = None) -> 
     training_load = _guarded("training_load", lambda: _training_load_findings(series, computed_at, cfg), [])
     training_status = _guarded("training_status", lambda: _training_status_findings(series, computed_at, cfg), [])
 
+    # Stress: compute the intraday timeline + daily summary into its own tables
+    # (guarded so a failure can't sink the findings snapshot), then read the
+    # fresh stress_daily back for the alert-only finding.
+    _guarded(
+        "stress-compute",
+        lambda: run_stress(db, tz, app_cfg.stress, app_cfg.profile, app_cfg.stress.window_days),
+        None,
+    )
+    db.flush()
+    stress = _guarded("stress", lambda: _stress_findings(db, computed_at, app_cfg.stress), [])
+
+    # Body Battery: integrate the fresh stress_intraday timeline into the 0-100
+    # energy-reserve tables (guarded), then read body_battery_daily back for the
+    # alert-only finding. Runs after the stress flush — it reads those rows.
+    _guarded(
+        "body-battery-compute",
+        lambda: run_body_battery(db, tz, app_cfg.body_battery, app_cfg.body_battery.window_days),
+        None,
+    )
+    db.flush()
+    body_battery = _guarded("body_battery", lambda: _body_battery_findings(db, computed_at, app_cfg.body_battery), [])
+
     db.execute(delete(Finding))  # snapshot: replace the previous run
     db.add_all(
-        [*correlations, *anomalies, *trends, *seasons, *recovery, *consistency, *training_load, *training_status]
+        [
+            *correlations,
+            *anomalies,
+            *trends,
+            *seasons,
+            *recovery,
+            *consistency,
+            *training_load,
+            *training_status,
+            *stress,
+            *body_battery,
+        ]
     )
     db.flush()
     # Archive this snapshot (append-only) before the next run replaces it, so
@@ -97,6 +134,8 @@ def run(db: Session, tz: str | None = None, config: AppConfig | None = None) -> 
         consistency=len(consistency),
         training_load=len(training_load),
         training_status=len(training_status),
+        stress=len(stress),
+        body_battery=len(body_battery),
     )
 
 

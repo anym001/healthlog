@@ -19,7 +19,10 @@ local LLM. Everything runs on the user's own hardware — no external calls.
   - `ingest.py` — HAE payload parser (pure function) + idempotent upsert
   - `analysis/` — nightly statistics, split by role: `pure.py` (DB-free math,
     unit-tested), `load.py` (DB loaders), `findings.py` (series assembly + finding
-    builders), `run.py` (orchestration), `constants.py` (tunables). `__init__.py`
+    builders), `stress.py` (intraday stress-proxy timeline + daily summary → own
+    tables), `body_battery.py` (0-100 energy-reserve timeline + daily summary → own
+    tables, integrating the stress timeline), `run.py` (orchestration),
+    `constants.py` (tunables). `__init__.py`
     re-exports the flat public API; `python -m app.analysis` runs it as an isolated
     subprocess via the scheduler.
   - `narrate/` — LLM narration, split by role: `prompts.py` (per-language system
@@ -28,13 +31,14 @@ local LLM. Everything runs on the user's own hardware — no external calls.
     `client.py` (Ollama HTTP client), `cli.py` (the `narrate` command).
     `__init__.py` re-exports the flat public API.
   - `cli.py` — the `healthlog` operator CLI (`backfill`, `analyze`, `audit`,
-    `narrate`, `check-workout-hr`, `rederive-workout-hr`); `cli_support.py` —
-    shared command scaffolding (`bootstrap`, `db_session`, `module_main`)
+    `narrate`, `check-workout-hr`, `rederive-workout-hr`, `rederive-stress`,
+    `rederive-body-battery`); `cli_support.py` — shared command scaffolding
+    (`bootstrap`, `db_session`, `module_main`)
   - `registry.py`, `units.py`, `workout_types.py` — normalisation (metric registry,
     unit guard, localised-workout-name → canonical-slug map)
   - `appconfig.py` — `config.yaml` model; `config.py` — env-var `Settings`
   - `notify.py`, `audit.py`, `diagnostics.py`, `rederive.py`,
-    `backfill.py`, `scheduler.py`
+    `stress_backfill.py`, `body_battery_backfill.py`, `backfill.py`, `scheduler.py`
 - `backend/migrations/versions/` — Alembic migrations (the schema is migrations-only)
 - `backend/tests/` — pytest (parser, idempotency, analysis math, registry, …)
 - `grafana/` — provisioned dashboards

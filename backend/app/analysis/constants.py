@@ -81,3 +81,35 @@ HR_REST_FALLBACK = 60.0  # last-resort resting HR when no data and no profile
 HR_MAX_FALLBACK = 190.0  # last-resort max HR when neither profile nor data give one
 HR_MAX_DATA_FLOOR = 160.0  # clamp for the data-driven HR_max estimate
 HR_MAX_DATA_CEIL = 210.0
+
+# --- Stress proxy -----------------------------------------------------------
+# Mirrors of app/appconfig.py StressConfig defaults, so the pure helpers have
+# back-compatible defaults when no config is threaded in. See ARCHITECTURE §4.9.
+_STRESS_DEFAULTS = _DEFAULT_APP_CONFIG.stress
+STRESS_RESERVE_FULL = _STRESS_DEFAULTS.reserve_full  # HR-reserve fraction mapped to stress 100
+STRESS_HRV_WEIGHT = _STRESS_DEFAULTS.hrv_weight  # 0 => HR-only; higher => stronger HRV modulation
+STRESS_ZONE_LOW = _STRESS_DEFAULTS.zone_low  # 0-100 stress-scale zone edges (rest/low/medium/high)
+STRESS_ZONE_MEDIUM = _STRESS_DEFAULTS.zone_medium
+STRESS_ZONE_HIGH = _STRESS_DEFAULTS.zone_high
+# Intraday bucket cadence: HAE ships heart-rate as ~per-minute buckets, so a
+# minute is the natural resolution of the stress timeline (used to convert a
+# bucket's dwell time into minutes-in-zone). Structural, not an operator knob.
+STRESS_BUCKET_MINUTES = 1.0
+# A heart-rate reading covers the time until the next one (Apple samples HR
+# sparsely at rest). Attribute at most this many minutes of dwell to one bucket;
+# a longer silence means the watch was off/unworn -> the excess is
+# "unmeasurable", not held at the last state. Structural domain constant.
+STRESS_GAP_CAP_MINUTES = 10.0
+
+# --- Body Battery -----------------------------------------------------------
+# Mirrors of app/appconfig.py BodyBatteryConfig defaults, so the pure integrator
+# has back-compatible defaults when no config is threaded in. See ARCHITECTURE
+# §4.10. The battery integrates the stress timeline against recovery, so it
+# shares the stress bucket cadence and gap cap.
+_BODY_BATTERY_DEFAULTS = _DEFAULT_APP_CONFIG.body_battery
+BODY_BATTERY_NEUTRAL = _BODY_BATTERY_DEFAULTS.neutral  # energy-neutral stress level
+BODY_BATTERY_CHARGE_RATE = _BODY_BATTERY_DEFAULTS.charge_rate  # points/min at calm rest
+BODY_BATTERY_DRAIN_RATE = _BODY_BATTERY_DEFAULTS.drain_rate  # points/min at max stress
+BODY_BATTERY_SLEEP_CHARGE_RATE = _BODY_BATTERY_DEFAULTS.sleep_charge_rate  # points/min asleep
+BODY_BATTERY_ACTIVE_DRAIN_RATE = _BODY_BATTERY_DEFAULTS.active_drain_rate  # points/min in a workout
+BODY_BATTERY_SEED_LEVEL = _BODY_BATTERY_DEFAULTS.seed_level  # neutral seed at window start

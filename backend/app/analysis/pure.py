@@ -23,6 +23,12 @@ from .constants import (
     ANOMALY_THRESHOLD,
     ANOMALY_WINDOW,
     ATL_DAYS,
+    BODY_BATTERY_ACTIVE_DRAIN_RATE,
+    BODY_BATTERY_CHARGE_RATE,
+    BODY_BATTERY_DRAIN_RATE,
+    BODY_BATTERY_NEUTRAL,
+    BODY_BATTERY_SEED_LEVEL,
+    BODY_BATTERY_SLEEP_CHARGE_RATE,
     CTL_DAYS,
     CTL_TREND_LOOKBACK_DAYS,
     FDR_ALPHA,
@@ -36,6 +42,13 @@ from .constants import (
     SEASONAL_MIN_PEAK_TROUGH_GAP,
     SEASONAL_MIN_SHARED_MONTHS,
     SEASONAL_PERIOD,
+    STRESS_BUCKET_MINUTES,
+    STRESS_GAP_CAP_MINUTES,
+    STRESS_HRV_WEIGHT,
+    STRESS_RESERVE_FULL,
+    STRESS_ZONE_HIGH,
+    STRESS_ZONE_LOW,
+    STRESS_ZONE_MEDIUM,
     WEEK_PERIOD,
     log,
 )
@@ -456,6 +469,251 @@ def aggregate_workout_daily(
         count=("count", "sum"),
         intensity=("intensity", "mean"),
     )
+
+
+# --- Stress proxy -----------------------------------------------------------
+# All 0-100. Intraday score from the heart-rate elevation above the personal
+# resting baseline (workouts excluded), optionally modulated by HRV. See
+# docs/ARCHITECTURE.md §4.9 for the model and its RR-interval caveat.
+
+STRESS_STATES: tuple[str, ...] = ("rest", "low", "medium", "high", "active", "unmeasurable")
+MEASURED_STRESS_STATES: frozenset[str] = frozenset({"rest", "low", "medium", "high"})
+
+
+def stress_state(stress: float, zone_low: float, zone_medium: float, zone_high: float) -> str:
+    """Garmin-style zone label for a 0-100 stress value."""
+    if stress < zone_low:
+        return "rest"
+    if stress < zone_medium:
+        return "low"
+    if stress < zone_high:
+        return "medium"
+    return "high"
+
+
+def stress_intraday_from_hr(
+    hr: pd.Series,
+    hr_rest_day: float,
+    hr_max: float,
+    workout_intervals: list[tuple[pd.Timestamp, pd.Timestamp]] | None = None,
+    hrv_z: float | None = None,
+    *,
+    reserve_full: float = STRESS_RESERVE_FULL,
+    hrv_weight: float = STRESS_HRV_WEIGHT,
+    zone_low: float = STRESS_ZONE_LOW,
+    zone_medium: float = STRESS_ZONE_MEDIUM,
+    zone_high: float = STRESS_ZONE_HIGH,
+) -> pd.DataFrame:
+    """Per-bucket stress (0-100) + state from a day's heart-rate buckets.
+
+    ``hr`` is the day's representative HR per bucket (index = bucket time, values
+    bpm). Stress scales the heart-rate reserve above the personal resting
+    baseline: ``HRr = clamp((hr - hr_rest) / (reserve_full·(hr_max - hr_rest)),
+    0, 1)`` → ``100·HRr``. A low-HRV day (negative ``hrv_z``) multiplies the
+    score up (Stufe 3); the multiplier is clamped to ``[1 - hrv_weight,
+    1 + hrv_weight]``. Buckets inside a workout interval are ``state="active"``
+    with NULL stress (Garmin's grey band); buckets with no usable HR or a
+    degenerate reserve are ``"unmeasurable"``. Returns a frame indexed by ``ts``
+    with ``stress`` (int or None), ``hr``, ``state``; empty in → empty out.
+    """
+    intervals = workout_intervals or []
+    reserve = hr_max - hr_rest_day
+    modifier = 1.0
+    if hrv_z is not None and hrv_weight > 0:
+        modifier = float(np.clip(1.0 - hrv_weight * hrv_z, 1.0 - hrv_weight, 1.0 + hrv_weight))
+
+    rows: list[tuple] = []
+    for ts, bpm in hr.items():
+        in_workout = any(start <= ts < end for start, end in intervals)
+        bpm_val = float(bpm) if bpm is not None and not pd.isna(bpm) else None
+        if in_workout:
+            rows.append((ts, None, bpm_val, "active"))
+        elif bpm_val is None or reserve <= 0:
+            rows.append((ts, None, bpm_val, "unmeasurable"))
+        else:
+            hrr = float(np.clip((bpm_val - hr_rest_day) / (reserve_full * reserve), 0.0, 1.0))
+            stress = float(np.clip(100.0 * hrr * modifier, 0.0, 100.0))
+            rows.append((ts, int(round(stress)), bpm_val, stress_state(stress, zone_low, zone_medium, zone_high)))
+    return pd.DataFrame(rows, columns=["ts", "stress", "hr", "state"]).set_index("ts")
+
+
+def summarize_stress_day(intraday: pd.DataFrame, gap_cap_minutes: float = STRESS_GAP_CAP_MINUTES) -> dict:
+    """Aggregate a day's per-bucket stress frame into a summary dict.
+
+    Each reading covers the time until the next one (capped at
+    ``gap_cap_minutes``; the excess is unmeasurable), so minutes-in-zone weight
+    each bucket by its dwell — mirroring the interval attribution in
+    :func:`edwards_trimp`. ``score`` is the dwell-weighted mean stress over the
+    measured (non-active, non-gap) minutes, or ``None`` when nothing was
+    measured. Returns ``score`` and ``{rest,low,medium,high,active,unmeasurable,
+    measured}_min`` (integer minutes). Empty in → all-zero, score ``None``.
+    """
+    empty = {f"{s}_min": 0 for s in STRESS_STATES} | {"measured_min": 0, "score": None}
+    if intraday.empty:
+        return empty
+
+    df = intraday.sort_index()
+    gap_min = df.index.to_series().diff().shift(-1).dt.total_seconds().to_numpy() / 60.0
+    states = df["state"].to_numpy()
+    stresses = df["stress"].to_numpy()
+
+    minutes = {s: 0.0 for s in STRESS_STATES}
+    weighted_sum = 0.0
+    weight = 0.0
+    for i in range(len(df)):
+        g = gap_min[i]
+        if np.isnan(g):
+            dwell, extra = STRESS_BUCKET_MINUTES, 0.0
+        else:
+            g = max(float(g), 0.0)
+            dwell, extra = min(g, gap_cap_minutes), max(g - gap_cap_minutes, 0.0)
+        st = states[i]
+        minutes[st] += dwell
+        if extra > 0:
+            minutes["unmeasurable"] += extra
+        val = stresses[i]
+        if st in MEASURED_STRESS_STATES and val is not None and not pd.isna(val):
+            weighted_sum += float(val) * dwell
+            weight += dwell
+
+    measured = sum(minutes[s] for s in MEASURED_STRESS_STATES)
+    return {
+        "score": round(weighted_sum / weight, 1) if weight > 0 else None,
+        "rest_min": int(round(minutes["rest"])),
+        "low_min": int(round(minutes["low"])),
+        "medium_min": int(round(minutes["medium"])),
+        "high_min": int(round(minutes["high"])),
+        "active_min": int(round(minutes["active"])),
+        "unmeasurable_min": int(round(minutes["unmeasurable"])),
+        "measured_min": int(round(measured)),
+    }
+
+
+# --- Body Battery -----------------------------------------------------------
+# A Garmin-style 0-100 energy reserve: the stress timeline integrated against
+# recovery. See docs/ARCHITECTURE.md §4.10 for the model, its self-correcting
+# sleep re-anchor, and the (shared with stress) RR-interval proxy caveat.
+
+
+def _sleep_efficiency_at(ts: pd.Timestamp, intervals: list[tuple[pd.Timestamp, pd.Timestamp, float]]) -> float | None:
+    """Sleep charge multiplier for a bucket, or ``None`` when awake.
+
+    Returns the efficiency (>0) of the sleep interval containing ``ts`` — used to
+    scale the sleep charge rate — or ``None`` if the bucket is not inside any
+    sleep interval. A missing/zero efficiency falls back to ``1.0``.
+    """
+    for start, end, eff in intervals:
+        if start <= ts < end:
+            return eff if eff and eff > 0 else 1.0
+    return None
+
+
+def body_battery_timeline(
+    intraday: pd.DataFrame,
+    sleep_intervals: list[tuple[pd.Timestamp, pd.Timestamp, float]] | None = None,
+    *,
+    neutral: float = BODY_BATTERY_NEUTRAL,
+    charge_rate: float = BODY_BATTERY_CHARGE_RATE,
+    drain_rate: float = BODY_BATTERY_DRAIN_RATE,
+    sleep_charge_rate: float = BODY_BATTERY_SLEEP_CHARGE_RATE,
+    active_drain_rate: float = BODY_BATTERY_ACTIVE_DRAIN_RATE,
+    seed_level: float = BODY_BATTERY_SEED_LEVEL,
+    gap_cap_minutes: float = STRESS_GAP_CAP_MINUTES,
+) -> pd.DataFrame:
+    """Integrate a stress timeline into a 0-100 Body-Battery ``level`` per bucket.
+
+    ``intraday`` is the per-bucket stress frame (index = bucket time, columns
+    ``stress`` 0-100/None and ``state`` rest/low/medium/high/active/unmeasurable),
+    as stored in ``stress_intraday``. ``sleep_intervals`` are ``(start, end,
+    efficiency)`` tuples. Each bucket contributes a balance *rate* (points/min),
+    weighted by its dwell (time to the next bucket, capped at ``gap_cap_minutes``
+    — the excess is a measurement gap that holds the level):
+
+    - inside a sleep interval → ``+sleep_charge_rate·efficiency`` (the nightly
+      re-anchor: a full night pushes the battery toward 100, clamped);
+    - ``state="active"`` (workout) → ``−active_drain_rate``;
+    - ``state="unmeasurable"`` / no stress → ``0`` (hold, invent nothing);
+    - otherwise a measured awake bucket → drain above ``neutral`` stress
+      (``−drain_rate·(stress−neutral)/(100−neutral)``), charge at/below it
+      (``+charge_rate·(neutral−stress)/neutral``).
+
+    Integrated as ``level(t) = clamp(level(t−dwell) + rate·dwell, 0, 100)`` from a
+    neutral ``seed_level`` at the first bucket; the seed washes out within days as
+    sleep re-anchors the battery, so the result is deterministic without any
+    cross-run carry-over. Returns a frame indexed by ``ts`` with a float
+    ``level``; empty in → empty out. Run once over the whole window (the
+    integrator is continuous across day boundaries), then slice per day.
+    """
+    if intraday.empty:
+        return pd.DataFrame({"level": pd.Series(dtype="float64")}, index=intraday.index[:0])
+
+    df = intraday.sort_index()
+    gap_min = df.index.to_series().diff().shift(-1).dt.total_seconds().to_numpy() / 60.0
+    states = df["state"].to_numpy()
+    stresses = df["stress"].to_numpy()
+    times = df.index
+    intervals = sleep_intervals or []
+
+    level = float(np.clip(seed_level, 0.0, 100.0))
+    levels: list[float] = []
+    for i in range(len(df)):
+        g = gap_min[i]
+        dwell = STRESS_BUCKET_MINUTES if np.isnan(g) else min(max(float(g), 0.0), gap_cap_minutes)
+
+        eff = _sleep_efficiency_at(times[i], intervals)
+        st = states[i]
+        val = stresses[i]
+        if eff is not None:
+            rate = sleep_charge_rate * eff
+        elif st == "active":
+            rate = -active_drain_rate
+        elif st == "unmeasurable" or val is None or pd.isna(val):
+            rate = 0.0
+        elif float(val) > neutral:
+            denom = 100.0 - neutral
+            rate = -drain_rate * ((float(val) - neutral) / denom if denom > 0 else 1.0)
+        else:
+            rate = charge_rate * ((neutral - float(val)) / neutral if neutral > 0 else 0.0)
+
+        level = float(np.clip(level + rate * dwell, 0.0, 100.0))
+        levels.append(level)
+
+    return pd.DataFrame({"level": levels}, index=df.index)
+
+
+def summarize_body_battery_day(timeline: pd.DataFrame, wake_ts: pd.Timestamp | None = None) -> dict:
+    """Aggregate a day's Body-Battery level series into a summary dict.
+
+    ``timeline`` is the day's slice of :func:`body_battery_timeline` (index =
+    bucket time, column ``level``). ``wake_ts`` is the end of the day's main sleep
+    (the longest sleep interval ending that day); the level at/just before it is
+    ``wake_level`` — what you started the day with. Returns ``wake_level``,
+    ``high_level``, ``low_level`` (0-100 ints or ``None``) plus ``charged`` /
+    ``drained`` (total points gained / lost across the day). Empty in → all
+    ``None`` / 0.
+    """
+    empty = {"wake_level": None, "high_level": None, "low_level": None, "charged": 0.0, "drained": 0.0}
+    if timeline.empty:
+        return empty
+
+    levels = timeline["level"].to_numpy(dtype=float)
+    diffs = np.diff(levels)
+    charged = float(diffs[diffs > 0].sum()) if diffs.size else 0.0
+    drained = float(-diffs[diffs < 0].sum()) if diffs.size else 0.0
+
+    wake_level = None
+    if wake_ts is not None:
+        mask = timeline.index <= wake_ts
+        if mask.any():
+            wake_level = int(round(float(levels[mask][-1])))
+
+    return {
+        "wake_level": wake_level,
+        "high_level": int(round(float(levels.max()))),
+        "low_level": int(round(float(levels.min()))),
+        "charged": round(charged, 1),
+        "drained": round(drained, 1),
+    }
 
 
 def acute_chronic_ratio(s: pd.Series) -> tuple[float, float, float] | None:

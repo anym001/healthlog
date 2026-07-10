@@ -2,8 +2,10 @@
 
 Builds the analysis series (core metrics + derived sleep + workout-load) and the
 finding kinds (correlation, anomaly, trend, seasonality, recovery_alert,
-consistency, training_load, training_status) on top of the pure helpers and DB
-loaders.
+consistency, training_load, training_status, stress, body_battery) on top of the
+pure helpers and DB loaders. The stress and body_battery findings are alert-only;
+their continuous scores/timelines live in their own tables (see ``stress.py`` /
+``body_battery.py``).
 """
 
 from __future__ import annotations
@@ -14,10 +16,11 @@ from dataclasses import dataclass, fields
 import pandas as pd
 from sqlalchemy.orm import Session
 
-from ..appconfig import AnalysisConfig, ProfileConfig, WorkoutConfig
+from ..appconfig import AnalysisConfig, BodyBatteryConfig, ProfileConfig, StressConfig, WorkoutConfig
 from ..models import Finding
 from ..registry import METRIC_REGISTRY
 from ..workout_types import canonical_workout_type
+from .body_battery import load_body_battery_daily
 from .constants import (
     _DEFAULT_APP_CONFIG,
     _DEFAULTS,
@@ -58,6 +61,7 @@ from .pure import (
     trend_monotonicity,
     trend_slope,
 )
+from .stress import load_stress_daily
 
 
 @dataclass
@@ -70,6 +74,8 @@ class AnalysisResult:
     consistency: int = 0
     training_load: int = 0
     training_status: int = 0
+    stress: int = 0
+    body_battery: int = 0
 
     def counts(self) -> list[tuple[str, int]]:
         """The (category, count) pairs in declaration order — the single source
@@ -689,6 +695,91 @@ def _recovery_findings(
                     },
                 )
             )
+    return findings
+
+
+def _stress_findings(db: Session, computed_at: dt.datetime, cfg: StressConfig | None = None) -> list[Finding]:
+    """High-stress days as alert-only findings (mirrors ``_recovery_findings``).
+
+    The continuous stress score lives in ``stress_daily`` (for Grafana); this
+    surfaces only the recent days whose score reaches ``cfg.alert_score`` as a
+    ``kind="stress"`` finding, so the narration can mention them. A calm day
+    produces no row.
+    """
+    cfg = cfg or StressConfig()
+    if not cfg.enabled:
+        return []
+    daily = load_stress_daily(db, since_days=cfg.alert_recent_days)
+    if daily.empty:
+        return []
+    findings: list[Finding] = []
+    for ts, row in daily.iterrows():
+        score = row["score"]
+        if score is None or pd.isna(score) or score < cfg.alert_score:
+            continue
+        findings.append(
+            Finding(
+                computed_at=computed_at,
+                kind="stress",
+                metric_a="stress",
+                ref_date=ts.date(),
+                severity=round(float(score), 4),
+                note="elevated daily stress",
+                details={
+                    "score": round(float(score), 1),
+                    "high_min": int(row["high_min"]),
+                    "medium_min": int(row["medium_min"]),
+                    "rest_min": int(row["rest_min"]),
+                    "hrv_z": round(float(row["hrv_z"]), 4)
+                    if row["hrv_z"] is not None and not pd.isna(row["hrv_z"])
+                    else None,
+                },
+            )
+        )
+    return findings
+
+
+def _body_battery_findings(
+    db: Session, computed_at: dt.datetime, cfg: BodyBatteryConfig | None = None
+) -> list[Finding]:
+    """Low Body-Battery days as alert-only findings (mirrors ``_stress_findings``).
+
+    The continuous 0-100 reserve lives in ``body_battery_daily`` (for Grafana);
+    this surfaces only the recent days whose lowest level drops to at/below
+    ``cfg.alert_level`` as a ``kind="body_battery"`` finding, so the narration can
+    flag a day you ran the tank near empty. A day that stayed charged produces no
+    row. ``severity`` is the day's low level (lower = worse).
+    """
+    cfg = cfg or BodyBatteryConfig()
+    if not cfg.enabled:
+        return []
+    daily = load_body_battery_daily(db, since_days=cfg.alert_recent_days)
+    if daily.empty:
+        return []
+    findings: list[Finding] = []
+    for ts, row in daily.iterrows():
+        low = row["low_level"]
+        if low is None or pd.isna(low) or low > cfg.alert_level:
+            continue
+        wake = row["wake_level"]
+        high = row["high_level"]
+        findings.append(
+            Finding(
+                computed_at=computed_at,
+                kind="body_battery",
+                metric_a="body_battery",
+                ref_date=ts.date(),
+                severity=round(float(low), 4),
+                note="low energy reserve",
+                details={
+                    "low_level": int(low),
+                    "high_level": int(high) if high is not None and not pd.isna(high) else None,
+                    "wake_level": int(wake) if wake is not None and not pd.isna(wake) else None,
+                    "charged": round(float(row["charged"]), 1),
+                    "drained": round(float(row["drained"]), 1),
+                },
+            )
+        )
     return findings
 
 

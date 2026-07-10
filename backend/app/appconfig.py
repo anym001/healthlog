@@ -172,6 +172,100 @@ class AnalysisConfig(BaseModel):
     tsb_overreach_pct: float = Field(default=-0.30, ge=-1.0, le=0.0)
 
 
+class StressConfig(BaseModel):
+    """Intraday stress-proxy knobs (see docs/ARCHITECTURE.md §4.9).
+
+    Stress is derived, not measured: HAE does not export the beat-to-beat RR
+    intervals a Garmin/Firstbeat score needs, so this is a proxy built from the
+    heart-rate elevation above a personal resting baseline (workouts excluded),
+    optionally modulated by the day's HRV. The numbers track *your own* baseline
+    over time; they are NOT comparable to a Garmin stress value.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    # Trailing days recomputed on each nightly run. The full history is rebuilt
+    # on demand with `healthlog rederive-stress --all` (e.g. after a backfill);
+    # old days rarely change, so the nightly job only revisits the recent window.
+    window_days: int = Field(default=90, ge=1, le=3650)
+    # Fraction of heart-rate reserve (HR_max - HR_rest) mapped to a stress of
+    # 100. Non-exercise sympathetic activation rarely exceeds ~half the reserve,
+    # so 0.5 saturates the scale sensibly; lower = more sensitive.
+    reserve_full: float = Field(default=0.5, gt=0.0, le=1.0)
+    # HRV modulation weight. 0 = pure heart-rate model (Stufe 2); higher lets the
+    # day's HRV-z shift the score (low HRV → higher stress, Stufe 3). The
+    # multiplier is clamped to [1 - hrv_weight, 1 + hrv_weight].
+    hrv_weight: float = Field(default=0.3, ge=0.0, le=1.0)
+    # Zone boundaries on the 0-100 stress scale (Garmin-style rest/low/medium/
+    # high). A minute's state is rest < zone_low <= low < zone_medium <=
+    # medium < zone_high <= high.
+    zone_low: float = Field(default=25.0, ge=0.0, le=100.0)
+    zone_medium: float = Field(default=50.0, ge=0.0, le=100.0)
+    zone_high: float = Field(default=75.0, ge=0.0, le=100.0)
+    # Minimum measured (non-active, non-gap) minutes in a day before a daily
+    # score is stored; a mostly-unworn day yields no row (gap, not a zero).
+    min_measured_min: int = Field(default=60, ge=0)
+    # Daily score at/above which a high-stress alert finding is emitted, and how
+    # recent a day must be to alert (mirrors the recovery early-warning).
+    alert_score: float = Field(default=60.0, ge=0.0, le=100.0)
+    alert_recent_days: int = Field(default=14, ge=1)
+
+    @model_validator(mode="after")
+    def _check(self) -> StressConfig:
+        if not (self.zone_low < self.zone_medium < self.zone_high):
+            raise ValueError("stress zones must be strictly ascending: zone_low < zone_medium < zone_high")
+        return self
+
+
+class BodyBatteryConfig(BaseModel):
+    """Body-Battery (energy-reserve) proxy knobs (see docs/ARCHITECTURE.md §4.10).
+
+    Body Battery integrates the intraday stress timeline (``stress_intraday``)
+    against recovery over the day: stress and activity drain it, calm rest and
+    sleep charge it, clamped to 0-100. Like the stress score it is a proxy on a
+    proxy — HAE exports no beat-to-beat RR intervals — so the numbers track
+    *your own* baseline over time, not a Garmin value. Drift is avoided by a
+    self-correcting rate integrator: sleep (clamped at 100) re-anchors the
+    battery each night, so the wake level is an emergent function of sleep
+    quality, not a hard-coded reset.
+
+    The charge/drain rates are points-per-minute; the defaults are calibrated so
+    a normal night refills the battery and a stressful day drains it noticeably.
+    Being a personal-relative proxy, the exact numbers are not critical — tune
+    them if your battery pins at 0 or 100.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    # Trailing days recomputed on each nightly run (full history on demand via
+    # `healthlog rederive-body-battery --all`). Old days rarely change.
+    window_days: int = Field(default=90, ge=1, le=3650)
+    # Stress level (0-100) that is energy-neutral: below it awake rest charges,
+    # above it drains. Defaults to the stress "rest/low" boundary.
+    neutral: float = Field(default=25.0, ge=0.0, le=100.0)
+    # Charge earned per minute of fully-calm wake rest (stress 0); scales down
+    # linearly toward `neutral`.
+    charge_rate: float = Field(default=0.03, ge=0.0)
+    # Drain per minute at maximum stress (100); scales down linearly toward
+    # `neutral`.
+    drain_rate: float = Field(default=0.2, ge=0.0)
+    # Charge per minute asleep (scaled by sleep efficiency when known). ~0.15
+    # refills a full night (8 h ~ +72), so the battery self-anchors at wake.
+    sleep_charge_rate: float = Field(default=0.15, ge=0.0)
+    # Drain per minute inside a workout (stress is NULL there, but exertion still
+    # costs energy).
+    active_drain_rate: float = Field(default=0.3, ge=0.0)
+    # Neutral seed at the recompute window's first bucket; washed out within a
+    # few days by the nightly sleep re-anchor, so its exact value is immaterial.
+    seed_level: float = Field(default=50.0, ge=0.0, le=100.0)
+    # Day whose lowest level reaches at/below this emits a low-battery alert
+    # finding; how recent a day must be to alert.
+    alert_level: float = Field(default=20.0, ge=0.0, le=100.0)
+    alert_recent_days: int = Field(default=14, ge=1)
+
+
 NotifyEvent = Literal["ingest", "analysis", "findings"]
 
 
@@ -254,6 +348,8 @@ class AppConfig(BaseModel):
     profile: ProfileConfig = Field(default_factory=ProfileConfig)
     workouts: WorkoutConfig = Field(default_factory=WorkoutConfig)
     analysis: AnalysisConfig = Field(default_factory=AnalysisConfig)
+    stress: StressConfig = Field(default_factory=StressConfig)
+    body_battery: BodyBatteryConfig = Field(default_factory=BodyBatteryConfig)
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
     narrate: NarrateConfig = Field(default_factory=NarrateConfig)
 

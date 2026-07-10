@@ -7,6 +7,7 @@ daily index so lag shifts stay calendar-correct.
 
 from __future__ import annotations
 
+import datetime as dt
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -155,6 +156,137 @@ def load_workout_hr_samples(db: Session) -> dict[str, pd.DataFrame]:
         frame["ts"] = pd.to_datetime(frame["ts"])
         out[hid] = frame
     return out
+
+
+def load_intraday_hr(db: Session, start: dt.datetime, end: dt.datetime) -> pd.Series:
+    """Per-bucket representative heart rate in ``[start, end)`` (bpm).
+
+    The all-day ``heart_rate`` buckets at their native (sub-daily) resolution —
+    ``COALESCE(vavg, qty)`` handles both HAE shapes. Buckets from multiple
+    sources at the same instant are averaged, so the index is unique (the
+    downstream ``stress_intraday`` keys on ``ts`` alone). Index is the tz-aware
+    bucket time; feeds the intraday stress model. Uses the ``(metric, time)`` index.
+    """
+    rows = db.execute(
+        text(
+            """
+            SELECT time, avg(coalesce(vavg, qty)) AS bpm
+            FROM metric_samples
+            WHERE metric = 'heart_rate' AND time >= :start AND time < :end
+              AND coalesce(vavg, qty) IS NOT NULL
+            GROUP BY time
+            ORDER BY time
+            """
+        ),
+        {"start": start, "end": end},
+    ).all()
+    if not rows:
+        return pd.Series(dtype="float64")
+    idx = pd.DatetimeIndex([r.time for r in rows])
+    return pd.Series([float(r.bpm) for r in rows], index=idx, dtype="float64")
+
+
+def load_workout_intervals(
+    db: Session, start: dt.datetime, end: dt.datetime
+) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
+    """``(start, end)`` intervals of workouts overlapping ``[start, end)``.
+
+    ``end_time`` falls back to ``start_time + duration_s`` when absent. Used to
+    exclude workout minutes from the stress timeline (Garmin's grey "active"
+    band). Returns tz-aware Timestamp pairs, sorted by start.
+    """
+    rows = db.execute(
+        text(
+            """
+            SELECT start_time,
+                   coalesce(end_time, start_time + make_interval(secs => duration_s)) AS end_time
+            FROM workouts
+            WHERE start_time IS NOT NULL
+              AND coalesce(end_time, start_time + make_interval(secs => duration_s), start_time) >= :start
+              AND start_time < :end
+            ORDER BY start_time
+            """
+        ),
+        {"start": start, "end": end},
+    ).all()
+    intervals: list[tuple[pd.Timestamp, pd.Timestamp]] = []
+    for r in rows:
+        if r.end_time is None:
+            continue
+        intervals.append((pd.Timestamp(r.start_time), pd.Timestamp(r.end_time)))
+    return intervals
+
+
+def load_stress_intraday(db: Session, start: dt.datetime, end: dt.datetime) -> pd.DataFrame:
+    """The stored stress timeline in ``[start, end)`` as a frame.
+
+    Reads the freshly computed ``stress_intraday`` rows (``ts``, ``stress``,
+    ``state``) that the Body-Battery integrator drives off — so the body-battery
+    pass must run *after* the stress pass has flushed. Index is the tz-aware
+    bucket time; empty frame when the window has no rows.
+    """
+    rows = db.execute(
+        text(
+            """
+            SELECT ts, stress, state
+            FROM stress_intraday
+            WHERE ts >= :start AND ts < :end
+            ORDER BY ts
+            """
+        ),
+        {"start": start, "end": end},
+    ).all()
+    idx = pd.DatetimeIndex([r.ts for r in rows], name="ts")
+    return pd.DataFrame(
+        {
+            "stress": pd.array([r.stress for r in rows], dtype="object"),
+            "state": [r.state for r in rows],
+        },
+        index=idx,
+    )
+
+
+def load_sleep_intervals(
+    db: Session, start: dt.datetime, end: dt.datetime
+) -> list[tuple[pd.Timestamp, pd.Timestamp, float]]:
+    """``(sleep_start, sleep_end, efficiency)`` intervals overlapping ``[start, end)``.
+
+    The asleep windows that charge the Body-Battery timeline. ``efficiency`` (total
+    sleep / time in bed, clamped to ``(0, 1]``, defaulting to ``1.0`` when unknown)
+    scales the sleep charge rate; ``sleep_end`` falls back to ``in_bed_end`` and
+    the in-bed duration to the timestamp window (mirroring
+    :func:`load_sleep_frame`). Returns tz-aware Timestamp triples, sorted by start.
+    """
+    rows = db.execute(
+        text(
+            """
+            SELECT sleep_start,
+                   coalesce(sleep_end, in_bed_end) AS sleep_end,
+                   total_sleep_h, in_bed_h, in_bed_start, in_bed_end
+            FROM sleep_sessions
+            WHERE sleep_start IS NOT NULL
+              AND coalesce(sleep_end, in_bed_end, sleep_start) >= :start
+              AND sleep_start < :end
+            ORDER BY sleep_start
+            """
+        ),
+        {"start": start, "end": end},
+    ).all()
+    intervals: list[tuple[pd.Timestamp, pd.Timestamp, float]] = []
+    for r in rows:
+        if r.sleep_end is None:
+            continue
+        in_bed_h = r.in_bed_h
+        if (in_bed_h is None or in_bed_h <= 0) and r.in_bed_start is not None and r.in_bed_end is not None:
+            in_bed_h = (r.in_bed_end - r.in_bed_start).total_seconds() / 3600.0
+        if in_bed_h and in_bed_h > 0 and r.total_sleep_h is not None:
+            eff = float(np.clip(r.total_sleep_h / in_bed_h, 0.0, 1.0))
+        else:
+            eff = 1.0
+        if eff <= 0:
+            eff = 1.0
+        intervals.append((pd.Timestamp(r.sleep_start), pd.Timestamp(r.sleep_end), eff))
+    return intervals
 
 
 def _series_from_rows(rows) -> pd.Series:

@@ -176,6 +176,27 @@ Verhältnis zum Monatsdurchschnitt ("Belastungsverhältnis"):
     σ < 0.5h → sehr konsistent, optimal für Erholung
     σ 0.5–1.0h → akzeptabel
     σ > 1.0h → inkonsistent, beeinträchtigt Schlafqualität und HRV
+  Stress-Score (0–100, Tageswert): Proxy aus der Herzfrequenz-Erhöhung über \
+der persönlichen Ruhe-Baseline (Workouts ausgeklammert), mit HRV kalibriert. \
+NICHT der Garmin/Firstbeat-Wert (kein RR-Intervall verfügbar) — nur relativ zur \
+eigenen Baseline interpretierbar.
+    < 25  → Ruhe
+    25–50 → niedrig
+    50–75 → mittel
+    > 75  → hoch
+    Ein hoher Tages-Score signalisiert anhaltende sympathische Aktivierung; \
+zusammen mit niedriger HRV/hoher RHR ein Erholungsdefizit.
+  Body Battery (0–100, Energiereserve): der Stress-Score über den Tag \
+aufintegriert — Stress und Workouts entladen, ruhige Wachphasen und vor allem \
+Schlaf laden. Baut auf demselben Herzfrequenz-Proxy auf (kein RR-Intervall) und \
+ist relativ zur eigenen Baseline zu lesen, nicht als Garmin-Wert. Der Schlaf \
+re-verankert den Akku jede Nacht (kein fester Reset), daher spiegelt der \
+Weckstand die Schlafqualität. Kennzahlen je Tag: Weckstand (womit du gestartet \
+bist), Hoch, Tief, geladen/entladen.
+    Tief ≤ 20   → Akku nahezu leer gefahren, Energiemangel
+    Weckstand niedrig → die Nacht hat nicht ausreichend aufgeladen
+    Ein tiefer Tiefpunkt bei hohem Stress-Score und niedriger HRV bestätigt ein \
+Erholungsdefizit von einer zweiten Seite.
 
 Korrelationen (Spearman r):
   |r| 0.25–0.40 → moderate Verbindung
@@ -223,6 +244,26 @@ monthly average (the "load ratio"):
     σ < 0.5h → very consistent, optimal for recovery
     σ 0.5–1.0h → acceptable
     σ > 1.0h → inconsistent, impairs sleep quality and HRV
+  Stress score (0–100, daily): a proxy from the heart-rate elevation above the \
+personal resting baseline (workouts excluded), HRV-calibrated. NOT the \
+Garmin/Firstbeat value (no RR intervals available) — interpret it only relative \
+to the person's own baseline.
+    < 25  → rest
+    25–50 → low
+    50–75 → medium
+    > 75  → high
+    A high daily score signals sustained sympathetic activation; together with \
+low HRV / high RHR it points to a recovery deficit.
+  Body Battery (0–100, energy reserve): the stress score integrated over the \
+day — stress and workouts drain it, calm wake rest and especially sleep charge \
+it. Built on the same heart-rate proxy (no RR intervals) and read relative to \
+the person's own baseline, not as a Garmin value. Sleep re-anchors the battery \
+each night (no fixed reset), so the wake level reflects sleep quality. Per-day \
+figures: wake level (what you started with), high, low, charged/drained.
+    low ≤ 20   → battery run nearly empty, energy depleted
+    low wake level → the night did not recharge enough
+    A deep trough alongside a high stress score and low HRV confirms a recovery \
+deficit from a second angle.
 
 Correlations (Spearman r):
   |r| 0.25–0.40 → moderate association
@@ -238,6 +279,9 @@ _CONNECTIONS: dict[str, str] = {
 ## Querverbindungen herstellen
   Recovery Alert + hohe Trainingsbelastung → Übertraining diskutieren
   Recovery Alert ohne hohe Belastung → mögliche Erkrankung oder Stress erwähnen
+  Hoher Stress-Score + niedrige HRV → autonome Dauerbelastung erklären
+  Niedrige Body Battery + hoher Stress → Energiereserve als Tagesbilanz einordnen
+  Niedriger Weckstand + schlechter Schlaf → unzureichendes nächtliches Aufladen
   Schlechter Schlaf + niedrige HRV → Schlaf als Erholungsbremse erklären
   Korrelation Trainingsbelastung → HRV/RHR → Erholungsverzögerung (Lag) erläutern\
 """,
@@ -245,6 +289,9 @@ _CONNECTIONS: dict[str, str] = {
 ## Cross-finding connections to make
   Recovery alert + high training load → discuss overtraining
   Recovery alert without high load → mention possible illness or life stress
+  High stress score + low HRV → explain sustained autonomic load
+  Low Body Battery + high stress → frame the energy reserve as the day's balance
+  Low wake level + poor sleep → insufficient overnight recharge
   Poor sleep + low HRV → explain sleep as recovery bottleneck
   Correlation training load → HRV/RHR → explain the recovery lag mechanism\
 """,
@@ -255,21 +302,23 @@ _STRUCTURE: dict[str, str] = {
 ## Berichtsstruktur
 1. Zusammenfassung (2–3 Sätze: was ist diese Woche das Wichtigste?)
 2. Anomalien & Warnungen (Zahl interpretieren + physiologische Erklärung)
-3. Training (Trainingszustand Fitness/Ermüdung/Form einordnen; \
+3. Stress & Erholung (Stress-Score- und Body-Battery-Tage benennen, mit HRV/RHR verknüpfen)
+4. Training (Trainingszustand Fitness/Ermüdung/Form einordnen; \
 Belastungsverhältnis-Zone benennen; Empfehlung geben)
-4. Schlaf (Konsistenz und Erholungsqualität)
-5. Korrelationen & Trends (nur bedeutsame, mit Erklärung des Mechanismus)
-6. Empfehlungen (2–3 konkrete, umsetzbare Maßnahmen für die kommende Woche)\
+5. Schlaf (Konsistenz und Erholungsqualität)
+6. Korrelationen & Trends (nur bedeutsame, mit Erklärung des Mechanismus)
+7. Empfehlungen (2–3 konkrete, umsetzbare Maßnahmen für die kommende Woche)\
 """,
     "en": """\
 ## Report structure
 1. Summary (2–3 sentences: what is most important this week?)
 2. Anomalies & Alerts (interpret the number + physiological explanation)
-3. Training (assess the training status fitness/fatigue/form; name the \
+3. Stress & Recovery (name high-stress-score and low-Body-Battery days, tie them to HRV/RHR)
+4. Training (assess the training status fitness/fatigue/form; name the \
 load-ratio zone; give a recommendation)
-4. Sleep (consistency and recovery quality)
-5. Correlations & Trends (only significant ones, with mechanism explanation)
-6. Recommendations (2–3 concrete, actionable steps for the coming week)\
+5. Sleep (consistency and recovery quality)
+6. Correlations & Trends (only significant ones, with mechanism explanation)
+7. Recommendations (2–3 concrete, actionable steps for the coming week)\
 """,
 }
 

@@ -226,15 +226,15 @@ expects.
 | Export format | **JSON** | CSV is **not** parsed |
 | Export version | **v2** | the parser targets HAE v2 payloads |
 | Aggregate Data | **on** | drastically reduces payload size |
-| Time grouping | **hourly** | the analysis runs on a daily grid, so sub-hourly detail isn't needed |
+| Time grouping | **minutes** | the daily analyses only need a daily grid, but the **Stress** timeline (§ Grafana) reads per-minute heart-rate buckets — hourly grouping gives it only ~24 points/day. Use hourly only if you don't want the intraday stress view |
 | Batch Requests | **off** | deltas are small; large one-offs go through the backfill CLI instead |
 | Date range | **Standard** | full previous day + today; catches data Apple finalises late (e.g. sleep stages written after waking). Server-side dedup makes the overlap safe |
 | Sync cadence | **every 1 hour** | plenty — the analysis runs nightly (`ANALYSIS_CRON`); 5-minute syncs work but are overkill |
 | *Use Localized Units* | **off** | HealthLog normalises units itself; localized units only get flagged |
 
-Make sure **Sleep Analysis**, **Heart Rate Variability** and **Resting Heart
-Rate** are among the selected metrics — they drive the sleep, consistency and
-recovery-alert findings.
+Make sure **Sleep Analysis**, **Heart Rate Variability**, **Resting Heart
+Rate** and **Heart Rate** are among the selected metrics — they drive the sleep,
+consistency, recovery-alert and stress findings.
 
 **Workouts (optional):** the Health-Metrics automation does not include workouts.
 To capture them, add a **second** REST API automation with the **same settings as
@@ -311,6 +311,52 @@ replay it from the raw archive once (idempotent):
 ```bash
 docker exec healthlog healthlog rederive-workout-hr
 ```
+
+## Stress score
+
+HealthLog derives a Garmin-style **stress score** (0–100) and intraday timeline
+from the heart-rate elevation above your personal resting baseline (workouts
+excluded), calibrated with HRV — visualised on the **Stress** Grafana dashboard.
+It is a *proxy* from the data Apple Health exports: HAE ships no beat-to-beat RR
+intervals, so it is **not** the Garmin/Firstbeat value and is only meaningful
+relative to your own baseline. It needs **Time grouping = minutes** on the
+Health-Metrics export (above) for a usable timeline.
+
+The nightly analysis recomputes a trailing window (`stress.window_days`, default
+90). Rebuild the full history — e.g. after the first backfill, or after switching
+the export to minute grouping — with (idempotent):
+
+```bash
+docker exec healthlog healthlog rederive-stress            # full history
+docker exec healthlog healthlog rederive-stress --days 30  # only the last 30 days
+```
+
+Tunables live under `stress.*` in `config.yaml` (zones, HRV weight, alert
+threshold — see `config.example.yaml`); set `stress.enabled: false` to turn it off.
+
+## Body Battery
+
+Building on the stress score, HealthLog derives a Garmin-style **Body Battery** — a
+0–100 **energy reserve** integrated over the day: stress and workouts drain it, calm
+rest and (above all) sleep charge it. It shares the Stress dashboard and the same
+**Time grouping = minutes** requirement, and it is a *proxy on a proxy* — read
+relative to your own baseline, **not** a Garmin value. There is no hard-coded
+overnight reset: sleep re-anchors the battery each night (clamped at 100), so the
+level you wake with reflects your sleep quality.
+
+The nightly analysis recomputes a trailing window (`body_battery.window_days`,
+default 90) right after the stress pass. Rebuild the full history — after a backfill
+or a config change — with (idempotent), running it **after** `rederive-stress`, since
+the battery reads the freshly recomputed stress timeline:
+
+```bash
+docker exec healthlog healthlog rederive-body-battery            # full history
+docker exec healthlog healthlog rederive-body-battery --days 30  # only the last 30 days
+```
+
+Tunables live under `body_battery.*` in `config.yaml` (charge/drain rates, neutral
+level, alert threshold — see `config.example.yaml`); set `body_battery.enabled: false`
+to turn it off.
 
 ## LLM narration
 

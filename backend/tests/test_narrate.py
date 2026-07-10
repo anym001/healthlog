@@ -677,3 +677,86 @@ def test_load_findings_labels_handwired_series(db):
     rows = load_findings(db, 7)
     row = next(r for r in rows if r["kind"] == "training_load")
     assert row["metric_a_label"] == "Training Load (TRIMP) — Running"
+
+
+# ---------------------------------------------------------------------------
+# Stress section + system prompt
+# ---------------------------------------------------------------------------
+
+
+def test_build_context_stress_shows_score_and_zone():
+    f = _finding(
+        "stress",
+        metric_a="stress",
+        metric_a_label="Stress",
+        severity=69.0,
+        note="elevated daily stress",
+        details={"score": 69.0, "high_min": 360, "rest_min": 180, "hrv_z": -1.66},
+    )
+    ctx = build_context([f], 7, _TODAY, language="en")
+    assert "=== STRESS ===" in ctx
+    assert "score=69 (medium)" in ctx
+    assert "high-stress min=360" in ctx
+    assert "HRV-z=-1.66" in ctx
+
+
+def test_build_context_stress_german():
+    f = _finding(
+        "stress",
+        metric_a="stress",
+        metric_a_label="Stress",
+        severity=80.0,
+        details={"score": 80.0, "high_min": 120},
+    )
+    ctx = build_context([f], 7, _TODAY, language="de")
+    assert "Score=80 (hoch)" in ctx
+    assert "Hochstress-Min=120" in ctx
+
+
+def test_build_context_stress_empty_placeholder():
+    ctx = build_context([], 7, _TODAY)
+    assert "=== STRESS ===" in ctx  # section always rendered, with a placeholder
+
+
+def test_system_prompt_documents_stress_both_languages():
+    assert "Stress-Score" in _system_prompt("de")
+    assert "Stress score" in _system_prompt("en")
+
+
+def test_build_context_body_battery_shows_levels_en():
+    f = _finding(
+        "body_battery",
+        metric_a="body_battery",
+        metric_a_label="Body Battery",
+        severity=12.0,
+        note="low energy reserve",
+        details={"low_level": 12, "high_level": 55, "wake_level": 40, "charged": 30.0, "drained": 70.0},
+    )
+    ctx = build_context([f], 7, _TODAY, language="en")
+    assert "=== BODY BATTERY ===" in ctx
+    assert "low=12" in ctx
+    assert "wake=40" in ctx
+    assert "drained=70" in ctx
+
+
+def test_build_context_body_battery_german():
+    f = _finding(
+        "body_battery",
+        metric_a="body_battery",
+        metric_a_label="Body Battery",
+        severity=8.0,
+        details={"low_level": 8, "wake_level": 25},
+    )
+    ctx = build_context([f], 7, _TODAY, language="de")
+    assert "Tief=8" in ctx
+    assert "Weckstand=25" in ctx
+
+
+def test_build_context_body_battery_empty_placeholder():
+    ctx = build_context([], 7, _TODAY)
+    assert "=== BODY BATTERY ===" in ctx  # section always rendered, with a placeholder
+
+
+def test_system_prompt_documents_body_battery_both_languages():
+    assert "Body Battery" in _system_prompt("de")
+    assert "Body Battery" in _system_prompt("en")

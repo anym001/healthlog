@@ -28,6 +28,11 @@ Findings (ARCHITECTURE.md §4.8), all derived, never medical advice:
 - training_status  descriptive CTL/ATL/TSB (fitness/fatigue/form) snapshot on
                  the aggregate daily load, written every run (a status like
                  consistency, not an alert); zones on TSB/CTL.
+- stress         alert-only high-stress day; the continuous intraday score +
+                 daily summary live in the stress tables (see stress.py, §4.9).
+- body_battery   alert-only low-battery day; the continuous 0-100 energy-reserve
+                 timeline + daily summary live in the body-battery tables (see
+                 body_battery.py, §4.10).
 """
 
 from __future__ import annotations
@@ -122,6 +127,7 @@ from .pure import (
     aggregate_workout_daily,
     annual_seasonality,
     banister_trimp,
+    body_battery_timeline,
     circular_bedtime_offset,
     decompose,
     edwards_trimp,
@@ -133,6 +139,10 @@ from .pure import (
     robust_z,
     rolling_mad_anomalies,
     spearman_lag,
+    stress_intraday_from_hr,
+    stress_state,
+    summarize_body_battery_day,
+    summarize_stress_day,
     training_status,
     trend_monotonicity,
     trend_slope,
@@ -215,6 +225,7 @@ __all__ = [
     "aggregate_workout_daily",
     "annual_seasonality",
     "banister_trimp",
+    "body_battery_timeline",
     "build_series",
     "build_workout_series",
     "circular_bedtime_offset",
@@ -236,6 +247,10 @@ __all__ = [
     "rolling_mad_anomalies",
     "run",
     "spearman_lag",
+    "stress_intraday_from_hr",
+    "stress_state",
+    "summarize_body_battery_day",
+    "summarize_stress_day",
     "training_status",
     "trend_monotonicity",
     "trend_slope",

@@ -124,6 +124,17 @@ def _acwr_zone(ratio: float, language: str) -> str:
     return "high overtraining risk" if language == "en" else "hohes Übertrainingsrisiko"
 
 
+def _stress_zone(score: float, language: str) -> str:
+    """Daily stress-score band (0-100), matching the system-prompt thresholds."""
+    if score < 25:
+        return "rest" if language == "en" else "Ruhe"
+    if score < 50:
+        return "low" if language == "en" else "niedrig"
+    if score < 75:
+        return "medium" if language == "en" else "mittel"
+    return "high" if language == "en" else "hoch"
+
+
 # ---------------------------------------------------------------------------
 # Per-section builders. Each takes the findings of its kind and returns the
 # section's lines (header + body, or a "–" placeholder); ``build_context``
@@ -170,6 +181,51 @@ def _section_recovery(alerts: list[dict], language: str) -> list[str]:
             parts.append("short sleep also present" if language == "en" else "kurzer Schlaf ebenfalls vorhanden")
         alert_note = f.get("note") or ""
         out.append(f"[{f['ref_date']}] {', '.join(parts)}" + (f" — {alert_note}" if alert_note else ""))
+    return out
+
+
+def _section_stress(alerts: list[dict], language: str) -> list[str]:
+    out = ["=== STRESS ==="]
+    if not alerts:
+        return [*out, "–"]
+    for f in alerts:
+        d = scrub_details("stress", f.get("details"))
+        score = d.get("score", f.get("severity"))
+        score_str = f"{score:.0f} ({_stress_zone(score, language)})" if score is not None else "n/a"
+        parts = [("score=" if language == "en" else "Score=") + score_str]
+        if d.get("high_min") is not None:
+            parts.append(("high-stress min=" if language == "en" else "Hochstress-Min=") + f"{d['high_min']}")
+        hrv_z = d.get("hrv_z")
+        if hrv_z is not None:
+            parts.append(f"HRV-z={hrv_z:.2f} ({_z_label(hrv_z, language)})")
+        note_str = f" — {f['note']}" if f.get("note") else ""
+        out.append(f"[{f['ref_date']}] {', '.join(parts)}{note_str}")
+    return out
+
+
+def _section_body_battery(alerts: list[dict], language: str) -> list[str]:
+    out = ["=== BODY BATTERY ==="]
+    if not alerts:
+        return [*out, "–"]
+    for f in alerts:
+        d = scrub_details("body_battery", f.get("details"))
+        low = d.get("low_level", f.get("severity"))
+        low_str = f"{low:.0f}" if low is not None else "n/a"
+        parts = [("low=" if language == "en" else "Tief=") + low_str]
+        wake = d.get("wake_level")
+        if wake is not None:
+            parts.append(("wake=" if language == "en" else "Weckstand=") + f"{wake:.0f}")
+        high = d.get("high_level")
+        if high is not None:
+            parts.append(("high=" if language == "en" else "Hoch=") + f"{high:.0f}")
+        drained = d.get("drained")
+        charged = d.get("charged")
+        if drained is not None:
+            parts.append(("drained=" if language == "en" else "entladen=") + f"{drained:.0f}")
+        if charged is not None:
+            parts.append(("charged=" if language == "en" else "geladen=") + f"{charged:.0f}")
+        note_str = f" — {f['note']}" if f.get("note") else ""
+        out.append(f"[{f['ref_date']}] {', '.join(parts)}{note_str}")
     return out
 
 
@@ -376,6 +432,8 @@ def build_context(
         header,
         _section_anomalies(by_kind.get("anomaly", []), language, lookback_days),
         _section_recovery(by_kind.get("recovery_alert", []), language),
+        _section_stress(by_kind.get("stress", []), language),
+        _section_body_battery(by_kind.get("body_battery", []), language),
         _section_training_load(by_kind.get("training_load", []), language),
         _section_training_status(by_kind.get("training_status", []), language),
         _section_correlations(by_kind.get("correlation", []), language, max_correlations),

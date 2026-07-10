@@ -63,6 +63,7 @@ Dashboards → New → Import → upload JSON file (repeat for each):
 | `dashboards/training.json` | Training & Recovery — TRIMP by sport, HRV, workouts table (30-day window) |
 | `dashboards/fitness.json` | Fitness — CTL/ATL/TSB performance management chart with finding annotations, ACWR gauge + history, training-load focus (90-day window + 14-day projection) |
 | `dashboards/workout-detail.json` | Workout Detail — single-session drill-down: intra-workout HR curve, KPIs, metadata |
+| `dashboards/stress.json` | Stress & Body Battery — Garmin-style daily score gauge, time-in-zone, intraday timeline, long-term trend, plus a Body-Battery reserve gauge, daily wake/high/low, intraday battery timeline and charged/drained bars (7-day window) |
 | `dashboards/metrics.json` | Metrics Explorer — raw values for any metric, Apple-Health-style (30-day window) |
 
 The **Fitness** dashboard is a performance-management view of the training load
@@ -119,6 +120,26 @@ Health Auto Export (Workouts → Datenart-Einstellungen → *Routendaten
 einschließen*); indoor sessions and pre-existing workouts exported without it show
 an empty map. Enabling the toggle affects future exports only — to add routes to
 past workouts, re-export that date range from HAE with the toggle on.
+
+The **Stress** dashboard reads the `stress_daily` / `stress_intraday` tables the
+nightly analysis fills (a Garmin-style proxy from the heart-rate elevation above
+your resting baseline, HRV-calibrated — see `docs/ARCHITECTURE.md` §4.9). For a
+usable **intraday timeline**, set Health Auto Export's **Time Grouping** to
+**Minute** (Gesundheitsmetriken → *Zeitgruppierung* → *Minute*): the default
+hourly grouping yields only ~24 heart-rate points per day, far too coarse for the
+timeline. The score is derived, not measured — Apple Health exports no
+beat-to-beat RR intervals — so read it relative to your own baseline, **not** as a
+Garmin-comparable number. After changing the grouping (or a bulk backfill),
+rebuild history with `healthlog rederive-stress`.
+
+The same dashboard also carries the **Body Battery** panels, fed by the
+`body_battery_daily` / `body_battery_intraday` tables (see `docs/ARCHITECTURE.md`
+§4.10). Body Battery integrates the stress timeline against recovery — stress and
+workouts drain the 0-100 reserve, calm rest and sleep recharge it — so it needs
+the same **Minute** grouping as the stress timeline. It is a proxy on that proxy,
+read relative to your own baseline, not a Garmin value. When rebuilding history,
+run `healthlog rederive-body-battery` **after** `rederive-stress` (the battery
+reads the freshly recomputed stress rows).
 
 ## Updating a dashboard
 
