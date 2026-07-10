@@ -159,6 +159,17 @@ class AnalysisConfig(BaseModel):
     # guards per-sport ratios for rarely-practised sports (a sparse series makes
     # the ratio jump on a single session).
     acwr_min_active_days: int = Field(default=8, ge=1, le=28)
+    # Training status (fitness/form): a descriptive CTL/ATL/TSB snapshot written
+    # every run (like consistency), not an alert. Zone bands sit on TSB/CTL —
+    # normalising by fitness keeps them scale-free, because absolute TSB
+    # thresholds only make sense on a calibrated load scale (TSS), not on the
+    # relative TRIMP estimate. Bands (ascending): below tsb_overreach_pct =
+    # overreaching risk, up to −tsb_fresh_pct = productive, within
+    # ±tsb_fresh_pct = neutral, above = fresh, above tsb_detraining_pct =
+    # detraining.
+    tsb_fresh_pct: float = Field(default=0.05, ge=0.0, le=1.0)
+    tsb_detraining_pct: float = Field(default=0.15, ge=0.0, le=1.0)
+    tsb_overreach_pct: float = Field(default=-0.30, ge=-1.0, le=0.0)
 
 
 class StressConfig(BaseModel):
@@ -303,6 +314,15 @@ class NarrateConfig(BaseModel):
     model: str = "qwen2.5:14b"
     # Report language. "en" = English, "de" = German.
     language: Literal["de", "en"] = "en"
+    # Audience the report is written for — selects a curated style block in the
+    # system prompt (prompts.py). Changes how much gets explained, never what
+    # is included: the findings context is identical at every level.
+    #   simple   → everyday words only, no jargon at all, analogies
+    #   standard → plain language, every technical term translated on first use
+    #   expert   → technical vocabulary and statistics used directly
+    audience: Literal["simple", "standard", "expert"] = "standard"
+    # Soft word budget the model is instructed to stay within.
+    max_words: int = Field(default=700, ge=100, le=3000)
     # How far back to look for ref_date-based findings (anomaly, recovery_alert,
     # training_load). Time-independent kinds (correlation, trend, seasonality,
     # consistency) are always included — they represent the current state.

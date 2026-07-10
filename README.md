@@ -374,6 +374,10 @@ docker exec healthlog healthlog narrate
 docker exec healthlog healthlog narrate --note "Focus on the HRV/training link."
 # German report, last 14 days:
 docker exec healthlog healthlog narrate --language de --lookback-days 14
+# One-off expert-level report (jargon and statistics unexplained):
+docker exec healthlog healthlog narrate --audience expert
+# One-off short summary:
+docker exec healthlog healthlog narrate --max-words 300
 # Inspect what the model would receive — no Ollama call, no report written:
 docker exec healthlog healthlog narrate --dry-run
 ```
@@ -386,6 +390,17 @@ The report is printed to stdout and written to `/config/narration/YYYY-MM-DD.md`
 correlation curation, included values, lookback window — and exits without
 contacting Ollama. It works even when `narrate.ollama_url` is unset, so you can
 verify the input deterministically before trusting the narrative.
+
+**How much the report explains** is set by `narrate.audience` (`simple` |
+`standard` | `expert`, default `standard`): `simple` uses everyday words only
+(no jargon at all), `standard` uses common fitness terms (HRV, resting heart
+rate) directly but translates statistics and model terms (ACWR, z-score) on
+first use, `expert` writes for a reader fluent in statistics and training
+terminology.
+The level changes the explanation depth, never the content — every level
+narrates the same findings. `narrate.max_words` (default 700) sets the word
+budget independently. All of it can be overridden per report (`--audience`,
+`--language`, `--max-words`).
 
 To keep the report focused, only the highest-priority correlations are narrated
 (cross-domain links — e.g. training load vs next-day respiratory rate — rank
@@ -475,8 +490,8 @@ It holds:
 
 - **`analysis`** — the nightly pipeline's tunables (correlation lag range and
   FDR alpha, anomaly window/threshold, trend/seasonality strengths, recovery and
-  consistency thresholds, ACWR load-spike/detraining bands). Retune without
-  rebuilding the image.
+  consistency thresholds, ACWR load-spike/detraining bands, training-status
+  form zones `tsb_*`). Retune without rebuilding the image.
 - **`profile`** — your `birth_year`/`sex` (and optional `hr_max`/`hr_rest`).
   Personal but not secret; sharpens the HR-based training load (see
   [`docs/workout-analysis.md`](https://github.com/anym001/healthlog/blob/HEAD/docs/workout-analysis.md)). Without it, HR_max is
@@ -486,8 +501,10 @@ It holds:
   default on). A `type_map` adds a per-sport load series per mapped type, so one
   sport's lagged effect is told apart from another's; unmapped workouts still feed
   the type-agnostic aggregate.
-- **`narrate`** — Ollama endpoint, model, report language, lookback, timeout and
-  `thinking` mode. Off until `ollama_url` is set (see [LLM narration](#llm-narration)).
+- **`narrate`** — Ollama endpoint, model, report language, `audience`
+  (explanation depth: `simple`/`standard`/`expert`), `max_words`, lookback,
+  timeout and `thinking` mode. Off until `ollama_url` is set (see
+  [LLM narration](#llm-narration)).
 - **`notify`** — push notifications (see below).
 
 Changes are **picked up automatically** — no restart needed (the file's mtime is

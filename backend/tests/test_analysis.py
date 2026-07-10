@@ -21,6 +21,7 @@ from app.analysis import (
     circular_bedtime_offset,
     decompose,
     edwards_trimp,
+    ewma,
     fdr_adjust,
     fill_zero_within_span,
     resolve_hr_max,
@@ -31,6 +32,7 @@ from app.analysis import (
     stress_state,
     summarize_body_battery_day,
     summarize_stress_day,
+    training_status,
     trend_slope,
 )
 from app.analysis.body_battery import compute_body_battery
@@ -1011,6 +1013,77 @@ def test_training_load_activity_guard_is_configurable():
     # Relaxing the guard lets the (genuine) spike through.
     relaxed = analysis._training_load_findings(series, dt.datetime.now(UTC), AnalysisConfig(acwr_min_active_days=1))
     assert [f.metric_a for f in relaxed] == ["workout_trimp_cycling"]
+
+
+# --- Training status (CTL/ATL/TSB) ------------------------------------------
+
+
+def test_ewma_matches_explicit_recursion():
+    rng = np.random.default_rng(7)
+    s = _daily(rng.uniform(0, 50, size=100))
+    out = ewma(s, 42.0)
+    y = 0.0
+    for x in s:
+        y += (x - y) / 42.0
+    assert abs(float(out.iloc[-1]) - y) < 1e-9
+    # zero-seeded: the first smoothed value is x_0 / tau, not x_0
+    assert abs(float(out.iloc[0]) - float(s.iloc[0]) / 42.0) < 1e-9
+
+
+def test_training_status_needs_history_and_load():
+    assert training_status(_daily([10.0] * 41)) is None  # < one CTL time constant
+    assert training_status(_daily([0.0] * 60)) is None  # no load -> no status
+
+
+def test_training_status_taper_turns_form_positive():
+    building = training_status(_daily([20.0] * 56 + [30.0] * 14))
+    tapering = training_status(_daily([20.0] * 56 + [0.0] * 14))
+    assert building is not None and tapering is not None
+    assert building.tsb < 0 < tapering.tsb  # hard block -> negative form; taper -> positive
+    assert tapering.atl < building.atl
+    assert abs(building.tsb_pct - building.tsb / building.ctl) < 1e-12
+
+
+def test_tsb_zone_bands():
+    from app.analysis.findings import _tsb_zone
+
+    cfg = AnalysisConfig()
+    assert _tsb_zone(0.20, cfg) == "detraining"
+    assert _tsb_zone(0.08, cfg) == "fresh"
+    assert _tsb_zone(0.0, cfg) == "neutral"
+    assert _tsb_zone(-0.15, cfg) == "productive"
+    assert _tsb_zone(-0.40, cfg) == "overreaching_risk"
+
+
+def test_training_status_finding_written_every_run():
+    # A steady load is not alert-worthy, but the status snapshot still exists.
+    findings = analysis._training_status_findings({"workout_trimp": _daily([20.0] * 90)}, dt.datetime.now(UTC))
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.kind == "training_status"
+    assert f.metric_a == "workout_trimp"
+    assert f.details["zone"] in ("neutral", "productive")  # warm-up keeps TSB mildly negative
+    assert f.details["ctl_trend"] == "rising"  # the base is still building from the zero seed
+    assert f.severity == abs(f.details["tsb_pct"])
+
+
+def test_training_status_finding_flags_overreach_zone():
+    findings = analysis._training_status_findings(
+        {"workout_trimp": _daily([10.0] * 56 + [30.0] * 14)}, dt.datetime.now(UTC)
+    )
+    assert len(findings) == 1
+    assert findings[0].details["zone"] == "overreaching_risk"
+    assert "overreaching" in findings[0].note
+
+
+def test_training_status_aggregate_only_prefers_trimp():
+    series = {
+        "workout_trimp": _daily([20.0] * 90),
+        "workout_load": _daily([300.0] * 90),
+        "workout_trimp_running": _daily([20.0] * 90),
+    }
+    findings = analysis._training_status_findings(series, dt.datetime.now(UTC))
+    assert [f.metric_a for f in findings] == ["workout_trimp"]  # one snapshot, aggregate, TRIMP preferred
 
 
 # --- Per-sport type mapping (Iteration 2) ----------------------------------

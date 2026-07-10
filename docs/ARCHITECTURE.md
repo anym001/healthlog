@@ -306,7 +306,7 @@ recomputable from the raw archive.
 ### 4.8 Pipeline findings (pure statistics, no LLM)
 
 ```sql
-findings (id, computed_at, kind TEXT,            -- correlation|anomaly|trend|seasonality|recovery_alert|consistency|training_load|stress
+findings (id, computed_at, kind TEXT,            -- correlation|anomaly|trend|seasonality|recovery_alert|consistency|training_load|training_status|stress|body_battery
           metric_a TEXT, metric_b TEXT,          -- metric_b only for correlation
           lag_days INT, coefficient DOUBLE PRECISION,
           p_value DOUBLE PRECISION, p_value_adj DOUBLE PRECISION,  -- FDR
@@ -370,6 +370,10 @@ hundred rows per day it needs no retention policy.
   (`workout_trimp`, HR-based via Banister; otherwise `workout_load` in kcal); only
   flagged on a load spike (overload) or detraining. Details see
   [`workout-analysis.md`](workout-analysis.md).
+- **training_status** — descriptive CTL/ATL/TSB (fitness/fatigue/form) snapshot on the
+  aggregate daily load, written **every** run (a status like consistency, not an
+  alert); zone classified on TSB/CTL. Feeds the narration's baseline. Details see
+  [`workout-analysis.md`](workout-analysis.md) §5.2.
 - **stress** — alert-only surfacing of a high-stress **day** (daily score ≥
   `stress.alert_score`, recent days only); the continuous score + timeline live in
   their own tables (§4.9), this only lets the narration mention notable days.

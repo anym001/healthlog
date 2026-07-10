@@ -336,8 +336,8 @@ class Finding(_FindingColumns, Base):
 
     Written as a fresh snapshot each run (the analysis deletes the previous
     batch). ``kind`` is one of: correlation, anomaly, trend, seasonality,
-    recovery_alert, consistency, training_load, stress, body_battery. Fields not
-    relevant to a kind stay NULL.
+    recovery_alert, consistency, training_load, training_status, stress,
+    body_battery. Fields not relevant to a kind stay NULL.
     """
 
     __tablename__ = "findings"

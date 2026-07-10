@@ -27,6 +27,7 @@ from .findings import (
     _recovery_findings,
     _stress_findings,
     _training_load_findings,
+    _training_status_findings,
     _trend_and_seasonality_findings,
     build_series,
 )
@@ -75,6 +76,7 @@ def run(db: Session, tz: str | None = None, config: AppConfig | None = None) -> 
     recovery = _guarded("recovery", lambda: _recovery_findings(series, computed_at, cfg), [])
     consistency = _guarded("consistency", lambda: _consistency_findings(db, tz, computed_at, cfg, sleep=sleep), [])
     training_load = _guarded("training_load", lambda: _training_load_findings(series, computed_at, cfg), [])
+    training_status = _guarded("training_status", lambda: _training_status_findings(series, computed_at, cfg), [])
 
     # Stress: compute the intraday timeline + daily summary into its own tables
     # (guarded so a failure can't sink the findings snapshot), then read the
@@ -108,6 +110,7 @@ def run(db: Session, tz: str | None = None, config: AppConfig | None = None) -> 
             *recovery,
             *consistency,
             *training_load,
+            *training_status,
             *stress,
             *body_battery,
         ]
@@ -130,6 +133,7 @@ def run(db: Session, tz: str | None = None, config: AppConfig | None = None) -> 
         recovery_alerts=len(recovery),
         consistency=len(consistency),
         training_load=len(training_load),
+        training_status=len(training_status),
         stress=len(stress),
         body_battery=len(body_battery),
     )

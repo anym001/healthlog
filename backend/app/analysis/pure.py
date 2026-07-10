@@ -22,12 +22,15 @@ from .constants import (
     ACWR_CHRONIC_DAYS,
     ANOMALY_THRESHOLD,
     ANOMALY_WINDOW,
+    ATL_DAYS,
     BODY_BATTERY_ACTIVE_DRAIN_RATE,
     BODY_BATTERY_CHARGE_RATE,
     BODY_BATTERY_DRAIN_RATE,
     BODY_BATTERY_NEUTRAL,
     BODY_BATTERY_SEED_LEVEL,
     BODY_BATTERY_SLEEP_CHARGE_RATE,
+    CTL_DAYS,
+    CTL_TREND_LOOKBACK_DAYS,
     FDR_ALPHA,
     HR_MAX_DATA_CEIL,
     HR_MAX_DATA_FLOOR,
@@ -726,3 +729,51 @@ def acute_chronic_ratio(s: pd.Series) -> tuple[float, float, float] | None:
     if chronic <= 0:
         return None
     return acute, chronic, acute / chronic
+
+
+def ewma(s: pd.Series, tau: float) -> pd.Series:
+    """Exponentially weighted moving average with time constant ``tau`` days:
+    ``y_t = y_{t-1} + (x_t − y_{t-1}) / tau``, seeded from zero load before the
+    series starts (``y_{-1} = 0``). The Banister impulse-response smoothing
+    behind CTL (tau=42) and ATL (tau=7). Expects a dense daily series (the
+    0-filled workout-load series); NaN rows are dropped."""
+    values = s.dropna()
+    if values.empty:
+        return values
+    # ewm(adjust=False) seeds y_0 = x_0; prepend an explicit 0 so the recursion
+    # starts from "no prior load" instead, then drop the seed row again.
+    seed = pd.Series([0.0], index=[values.index[0] - pd.Timedelta(days=1)])
+    return pd.concat([seed, values]).ewm(alpha=1.0 / tau, adjust=False).mean().iloc[1:]
+
+
+@dataclass(frozen=True)
+class TrainingStatus:
+    """Banister fitness/form snapshot on a daily load series (docs/workout-analysis.md §5.2)."""
+
+    ctl: float  # fitness: EWMA(load, 42d)
+    atl: float  # fatigue: EWMA(load, 7d)
+    tsb: float  # form: ctl − atl
+    tsb_pct: float  # tsb / ctl — the scale-free basis for the zone bands
+    ctl_ago: float | None  # ctl CTL_TREND_LOOKBACK_DAYS earlier (None: too little history)
+
+
+def training_status(s: pd.Series) -> TrainingStatus | None:
+    """CTL/ATL/TSB at the end of a dense daily load series.
+
+    Returns None when there is less than one CTL time constant (42 days) of
+    history — the EWMA would still be dominated by its warm-up — or when the
+    chronic load is zero (a normalised TSB is undefined, and with no training
+    there is no status to describe)."""
+    s = s.dropna()
+    if len(s) < CTL_DAYS:
+        return None
+    ctl_series = ewma(s, CTL_DAYS)
+    ctl = float(ctl_series.iloc[-1])
+    atl = float(ewma(s, ATL_DAYS).iloc[-1])
+    if ctl <= 0:
+        return None
+    ctl_ago = (
+        float(ctl_series.iloc[-1 - CTL_TREND_LOOKBACK_DAYS]) if len(ctl_series) > CTL_TREND_LOOKBACK_DAYS else None
+    )
+    tsb = ctl - atl
+    return TrainingStatus(ctl=ctl, atl=atl, tsb=tsb, tsb_pct=tsb / ctl, ctl_ago=ctl_ago)
