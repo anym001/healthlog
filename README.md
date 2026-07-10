@@ -334,6 +334,30 @@ docker exec healthlog healthlog rederive-stress --days 30  # only the last 30 da
 Tunables live under `stress.*` in `config.yaml` (zones, HRV weight, alert
 threshold — see `config.example.yaml`); set `stress.enabled: false` to turn it off.
 
+## Body Battery
+
+Building on the stress score, HealthLog derives a Garmin-style **Body Battery** — a
+0–100 **energy reserve** integrated over the day: stress and workouts drain it, calm
+rest and (above all) sleep charge it. It shares the Stress dashboard and the same
+**Time grouping = minutes** requirement, and it is a *proxy on a proxy* — read
+relative to your own baseline, **not** a Garmin value. There is no hard-coded
+overnight reset: sleep re-anchors the battery each night (clamped at 100), so the
+level you wake with reflects your sleep quality.
+
+The nightly analysis recomputes a trailing window (`body_battery.window_days`,
+default 90) right after the stress pass. Rebuild the full history — after a backfill
+or a config change — with (idempotent), running it **after** `rederive-stress`, since
+the battery reads the freshly recomputed stress timeline:
+
+```bash
+docker exec healthlog healthlog rederive-body-battery            # full history
+docker exec healthlog healthlog rederive-body-battery --days 30  # only the last 30 days
+```
+
+Tunables live under `body_battery.*` in `config.yaml` (charge/drain rates, neutral
+level, alert threshold — see `config.example.yaml`); set `body_battery.enabled: false`
+to turn it off.
+
 ## LLM narration
 
 HealthLog can turn the current findings snapshot into a written health report via a

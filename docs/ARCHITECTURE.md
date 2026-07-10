@@ -373,6 +373,10 @@ hundred rows per day it needs no retention policy.
 - **stress** — alert-only surfacing of a high-stress **day** (daily score ≥
   `stress.alert_score`, recent days only); the continuous score + timeline live in
   their own tables (§4.9), this only lets the narration mention notable days.
+- **body_battery** — alert-only surfacing of a low-reserve **day** (daily low level ≤
+  `body_battery.alert_level`, recent days only); the continuous 0-100 reserve +
+  timeline live in their own tables (§4.10), this only lets the narration flag a day
+  the tank ran near empty.
 
 The pure analysis math is DB-free and tested against synthetic series (known
 lag/anomaly/trend/yearly-season) with a fixed seed (§7); plus a DB end-to-end test.
@@ -410,6 +414,50 @@ rows idempotently; `healthlog rederive-stress [--all|--days N]` rebuilds the ful
 history (e.g. after a backfill or a config change). Grafana reads both tables
 (the **Stress** dashboard); a high-stress day also becomes a `stress` finding
 (§4.8) for the narration. All tunables live under `stress.*` in `config.yaml`.
+
+### 4.10 Body Battery (own tables)
+
+A Garmin-style **energy reserve** (0-100): the intraday stress timeline (§4.9)
+integrated against recovery. It is a **proxy on a proxy** — it builds on the stress
+score, which HAE cannot derive from beat-to-beat RR intervals — so it too tracks the
+user's **own baseline** and is **not comparable** to a Garmin number.
+
+```sql
+body_battery_intraday (ts TIMESTAMPTZ PK, level SMALLINT)                 -- one row per bucket
+body_battery_daily    (day DATE PK, wake_level, high_level, low_level SMALLINT,
+                       charged, drained REAL, computed_at)                -- one row per local day
+```
+
+**Model** (`app/analysis/body_battery.py` + pure helpers in `pure.py`,
+`body_battery_timeline` / `summarize_body_battery_day`): a **self-correcting rate
+integrator** over the window's `stress_intraday` buckets plus the sleep intervals.
+Each bucket contributes a balance rate (points/min), dwell-weighted like the stress
+summary: awake buckets **drain** above a `neutral` stress level
+(`−drain_rate·(stress−neutral)/(100−neutral)`) and **charge** at/below it
+(`+charge_rate·(neutral−stress)/neutral`); a bucket inside a sleep interval charges
+`+sleep_charge_rate·efficiency`; a workout bucket (`state="active"`) drains
+`−active_drain_rate`; an `unmeasurable` bucket holds (rate 0, invents nothing).
+Integrated as `level(t) = clamp(level(t−dwell) + rate·dwell, 0, 100)` from a neutral
+`seed_level` at the window's first bucket. Because the integrator is **continuous
+across day boundaries**, it is run once over the whole window and then sliced per
+local day for the summary (`wake_level` = the level at the end of the day's main
+sleep, i.e. what you started the day with).
+
+**Drift & the sleep re-anchor** — an accumulator's risk is unbounded drift. It is
+avoided *without* a hard-coded reset: sleep charges strongly and the level is clamped
+at 100, so a normal night pushes the battery back toward full and the `seed_level`
+washes out within a few days. The wake level is therefore an **emergent** function of
+sleep quality, not a fixed number — mirroring how Garmin's battery visibly re-charges
+overnight.
+
+**Storage & recompute** — dedicated tables, **never** written back into
+`metric_samples` (§4.1), mirroring the stress precedent. The nightly run recomputes a
+trailing window (`body_battery.window_days`) and replaces those rows idempotently,
+**after** the stress pass has flushed (it reads the fresh `stress_intraday`);
+`healthlog rederive-body-battery [--all|--days N]` rebuilds the full history — run it
+*after* `rederive-stress`. Grafana reads both tables (the **Stress** dashboard's Body
+Battery panels); a low-reserve day also becomes a `body_battery` finding (§4.8) for
+the narration. All tunables live under `body_battery.*` in `config.yaml`.
 
 ## 5. Ingestion contract
 

@@ -92,3 +92,16 @@ STRESS_BUCKET_MINUTES = 1.0
 # a longer silence means the watch was off/unworn -> the excess is
 # "unmeasurable", not held at the last state. Structural domain constant.
 STRESS_GAP_CAP_MINUTES = 10.0
+
+# --- Body Battery -----------------------------------------------------------
+# Mirrors of app/appconfig.py BodyBatteryConfig defaults, so the pure integrator
+# has back-compatible defaults when no config is threaded in. See ARCHITECTURE
+# §4.10. The battery integrates the stress timeline against recovery, so it
+# shares the stress bucket cadence and gap cap.
+_BODY_BATTERY_DEFAULTS = _DEFAULT_APP_CONFIG.body_battery
+BODY_BATTERY_NEUTRAL = _BODY_BATTERY_DEFAULTS.neutral  # energy-neutral stress level
+BODY_BATTERY_CHARGE_RATE = _BODY_BATTERY_DEFAULTS.charge_rate  # points/min at calm rest
+BODY_BATTERY_DRAIN_RATE = _BODY_BATTERY_DEFAULTS.drain_rate  # points/min at max stress
+BODY_BATTERY_SLEEP_CHARGE_RATE = _BODY_BATTERY_DEFAULTS.sleep_charge_rate  # points/min asleep
+BODY_BATTERY_ACTIVE_DRAIN_RATE = _BODY_BATTERY_DEFAULTS.active_drain_rate  # points/min in a workout
+BODY_BATTERY_SEED_LEVEL = _BODY_BATTERY_DEFAULTS.seed_level  # neutral seed at window start

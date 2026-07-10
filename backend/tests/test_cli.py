@@ -34,6 +34,8 @@ def test_every_subcommand_is_wired_to_a_runner():
         ["audit"],
         ["check-workout-hr"],
         ["rederive-workout-hr"],
+        ["rederive-stress"],
+        ["rederive-body-battery"],
         ["narrate"],
     ):
         args = parser.parse_args(argv)

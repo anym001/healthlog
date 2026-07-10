@@ -22,6 +22,12 @@ from .constants import (
     ACWR_CHRONIC_DAYS,
     ANOMALY_THRESHOLD,
     ANOMALY_WINDOW,
+    BODY_BATTERY_ACTIVE_DRAIN_RATE,
+    BODY_BATTERY_CHARGE_RATE,
+    BODY_BATTERY_DRAIN_RATE,
+    BODY_BATTERY_NEUTRAL,
+    BODY_BATTERY_SEED_LEVEL,
+    BODY_BATTERY_SLEEP_CHARGE_RATE,
     FDR_ALPHA,
     HR_MAX_DATA_CEIL,
     HR_MAX_DATA_FLOOR,
@@ -577,6 +583,133 @@ def summarize_stress_day(intraday: pd.DataFrame, gap_cap_minutes: float = STRESS
         "active_min": int(round(minutes["active"])),
         "unmeasurable_min": int(round(minutes["unmeasurable"])),
         "measured_min": int(round(measured)),
+    }
+
+
+# --- Body Battery -----------------------------------------------------------
+# A Garmin-style 0-100 energy reserve: the stress timeline integrated against
+# recovery. See docs/ARCHITECTURE.md §4.10 for the model, its self-correcting
+# sleep re-anchor, and the (shared with stress) RR-interval proxy caveat.
+
+
+def _sleep_efficiency_at(ts: pd.Timestamp, intervals: list[tuple[pd.Timestamp, pd.Timestamp, float]]) -> float | None:
+    """Sleep charge multiplier for a bucket, or ``None`` when awake.
+
+    Returns the efficiency (>0) of the sleep interval containing ``ts`` — used to
+    scale the sleep charge rate — or ``None`` if the bucket is not inside any
+    sleep interval. A missing/zero efficiency falls back to ``1.0``.
+    """
+    for start, end, eff in intervals:
+        if start <= ts < end:
+            return eff if eff and eff > 0 else 1.0
+    return None
+
+
+def body_battery_timeline(
+    intraday: pd.DataFrame,
+    sleep_intervals: list[tuple[pd.Timestamp, pd.Timestamp, float]] | None = None,
+    *,
+    neutral: float = BODY_BATTERY_NEUTRAL,
+    charge_rate: float = BODY_BATTERY_CHARGE_RATE,
+    drain_rate: float = BODY_BATTERY_DRAIN_RATE,
+    sleep_charge_rate: float = BODY_BATTERY_SLEEP_CHARGE_RATE,
+    active_drain_rate: float = BODY_BATTERY_ACTIVE_DRAIN_RATE,
+    seed_level: float = BODY_BATTERY_SEED_LEVEL,
+    gap_cap_minutes: float = STRESS_GAP_CAP_MINUTES,
+) -> pd.DataFrame:
+    """Integrate a stress timeline into a 0-100 Body-Battery ``level`` per bucket.
+
+    ``intraday`` is the per-bucket stress frame (index = bucket time, columns
+    ``stress`` 0-100/None and ``state`` rest/low/medium/high/active/unmeasurable),
+    as stored in ``stress_intraday``. ``sleep_intervals`` are ``(start, end,
+    efficiency)`` tuples. Each bucket contributes a balance *rate* (points/min),
+    weighted by its dwell (time to the next bucket, capped at ``gap_cap_minutes``
+    — the excess is a measurement gap that holds the level):
+
+    - inside a sleep interval → ``+sleep_charge_rate·efficiency`` (the nightly
+      re-anchor: a full night pushes the battery toward 100, clamped);
+    - ``state="active"`` (workout) → ``−active_drain_rate``;
+    - ``state="unmeasurable"`` / no stress → ``0`` (hold, invent nothing);
+    - otherwise a measured awake bucket → drain above ``neutral`` stress
+      (``−drain_rate·(stress−neutral)/(100−neutral)``), charge at/below it
+      (``+charge_rate·(neutral−stress)/neutral``).
+
+    Integrated as ``level(t) = clamp(level(t−dwell) + rate·dwell, 0, 100)`` from a
+    neutral ``seed_level`` at the first bucket; the seed washes out within days as
+    sleep re-anchors the battery, so the result is deterministic without any
+    cross-run carry-over. Returns a frame indexed by ``ts`` with a float
+    ``level``; empty in → empty out. Run once over the whole window (the
+    integrator is continuous across day boundaries), then slice per day.
+    """
+    if intraday.empty:
+        return pd.DataFrame({"level": pd.Series(dtype="float64")}, index=intraday.index[:0])
+
+    df = intraday.sort_index()
+    gap_min = df.index.to_series().diff().shift(-1).dt.total_seconds().to_numpy() / 60.0
+    states = df["state"].to_numpy()
+    stresses = df["stress"].to_numpy()
+    times = df.index
+    intervals = sleep_intervals or []
+
+    level = float(np.clip(seed_level, 0.0, 100.0))
+    levels: list[float] = []
+    for i in range(len(df)):
+        g = gap_min[i]
+        dwell = STRESS_BUCKET_MINUTES if np.isnan(g) else min(max(float(g), 0.0), gap_cap_minutes)
+
+        eff = _sleep_efficiency_at(times[i], intervals)
+        st = states[i]
+        val = stresses[i]
+        if eff is not None:
+            rate = sleep_charge_rate * eff
+        elif st == "active":
+            rate = -active_drain_rate
+        elif st == "unmeasurable" or val is None or pd.isna(val):
+            rate = 0.0
+        elif float(val) > neutral:
+            denom = 100.0 - neutral
+            rate = -drain_rate * ((float(val) - neutral) / denom if denom > 0 else 1.0)
+        else:
+            rate = charge_rate * ((neutral - float(val)) / neutral if neutral > 0 else 0.0)
+
+        level = float(np.clip(level + rate * dwell, 0.0, 100.0))
+        levels.append(level)
+
+    return pd.DataFrame({"level": levels}, index=df.index)
+
+
+def summarize_body_battery_day(timeline: pd.DataFrame, wake_ts: pd.Timestamp | None = None) -> dict:
+    """Aggregate a day's Body-Battery level series into a summary dict.
+
+    ``timeline`` is the day's slice of :func:`body_battery_timeline` (index =
+    bucket time, column ``level``). ``wake_ts`` is the end of the day's main sleep
+    (the longest sleep interval ending that day); the level at/just before it is
+    ``wake_level`` — what you started the day with. Returns ``wake_level``,
+    ``high_level``, ``low_level`` (0-100 ints or ``None``) plus ``charged`` /
+    ``drained`` (total points gained / lost across the day). Empty in → all
+    ``None`` / 0.
+    """
+    empty = {"wake_level": None, "high_level": None, "low_level": None, "charged": 0.0, "drained": 0.0}
+    if timeline.empty:
+        return empty
+
+    levels = timeline["level"].to_numpy(dtype=float)
+    diffs = np.diff(levels)
+    charged = float(diffs[diffs > 0].sum()) if diffs.size else 0.0
+    drained = float(-diffs[diffs < 0].sum()) if diffs.size else 0.0
+
+    wake_level = None
+    if wake_ts is not None:
+        mask = timeline.index <= wake_ts
+        if mask.any():
+            wake_level = int(round(float(levels[mask][-1])))
+
+    return {
+        "wake_level": wake_level,
+        "high_level": int(round(float(levels.max()))),
+        "low_level": int(round(float(levels.min()))),
+        "charged": round(charged, 1),
+        "drained": round(drained, 1),
     }
 
 

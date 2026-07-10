@@ -642,3 +642,42 @@ def test_build_context_stress_empty_placeholder():
 def test_system_prompt_documents_stress_both_languages():
     assert "Stress-Score" in _system_prompt("de")
     assert "Stress score" in _system_prompt("en")
+
+
+def test_build_context_body_battery_shows_levels_en():
+    f = _finding(
+        "body_battery",
+        metric_a="body_battery",
+        metric_a_label="Body Battery",
+        severity=12.0,
+        note="low energy reserve",
+        details={"low_level": 12, "high_level": 55, "wake_level": 40, "charged": 30.0, "drained": 70.0},
+    )
+    ctx = build_context([f], 7, _TODAY, language="en")
+    assert "=== BODY BATTERY ===" in ctx
+    assert "low=12" in ctx
+    assert "wake=40" in ctx
+    assert "drained=70" in ctx
+
+
+def test_build_context_body_battery_german():
+    f = _finding(
+        "body_battery",
+        metric_a="body_battery",
+        metric_a_label="Body Battery",
+        severity=8.0,
+        details={"low_level": 8, "wake_level": 25},
+    )
+    ctx = build_context([f], 7, _TODAY, language="de")
+    assert "Tief=8" in ctx
+    assert "Weckstand=25" in ctx
+
+
+def test_build_context_body_battery_empty_placeholder():
+    ctx = build_context([], 7, _TODAY)
+    assert "=== BODY BATTERY ===" in ctx  # section always rendered, with a placeholder
+
+
+def test_system_prompt_documents_body_battery_both_languages():
+    assert "Body Battery" in _system_prompt("de")
+    assert "Body Battery" in _system_prompt("en")

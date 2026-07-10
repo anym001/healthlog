@@ -207,6 +207,54 @@ class StressConfig(BaseModel):
         return self
 
 
+class BodyBatteryConfig(BaseModel):
+    """Body-Battery (energy-reserve) proxy knobs (see docs/ARCHITECTURE.md §4.10).
+
+    Body Battery integrates the intraday stress timeline (``stress_intraday``)
+    against recovery over the day: stress and activity drain it, calm rest and
+    sleep charge it, clamped to 0-100. Like the stress score it is a proxy on a
+    proxy — HAE exports no beat-to-beat RR intervals — so the numbers track
+    *your own* baseline over time, not a Garmin value. Drift is avoided by a
+    self-correcting rate integrator: sleep (clamped at 100) re-anchors the
+    battery each night, so the wake level is an emergent function of sleep
+    quality, not a hard-coded reset.
+
+    The charge/drain rates are points-per-minute; the defaults are calibrated so
+    a normal night refills the battery and a stressful day drains it noticeably.
+    Being a personal-relative proxy, the exact numbers are not critical — tune
+    them if your battery pins at 0 or 100.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    # Trailing days recomputed on each nightly run (full history on demand via
+    # `healthlog rederive-body-battery --all`). Old days rarely change.
+    window_days: int = Field(default=90, ge=1, le=3650)
+    # Stress level (0-100) that is energy-neutral: below it awake rest charges,
+    # above it drains. Defaults to the stress "rest/low" boundary.
+    neutral: float = Field(default=25.0, ge=0.0, le=100.0)
+    # Charge earned per minute of fully-calm wake rest (stress 0); scales down
+    # linearly toward `neutral`.
+    charge_rate: float = Field(default=0.03, ge=0.0)
+    # Drain per minute at maximum stress (100); scales down linearly toward
+    # `neutral`.
+    drain_rate: float = Field(default=0.2, ge=0.0)
+    # Charge per minute asleep (scaled by sleep efficiency when known). ~0.15
+    # refills a full night (8 h ~ +72), so the battery self-anchors at wake.
+    sleep_charge_rate: float = Field(default=0.15, ge=0.0)
+    # Drain per minute inside a workout (stress is NULL there, but exertion still
+    # costs energy).
+    active_drain_rate: float = Field(default=0.3, ge=0.0)
+    # Neutral seed at the recompute window's first bucket; washed out within a
+    # few days by the nightly sleep re-anchor, so its exact value is immaterial.
+    seed_level: float = Field(default=50.0, ge=0.0, le=100.0)
+    # Day whose lowest level reaches at/below this emits a low-battery alert
+    # finding; how recent a day must be to alert.
+    alert_level: float = Field(default=20.0, ge=0.0, le=100.0)
+    alert_recent_days: int = Field(default=14, ge=1)
+
+
 NotifyEvent = Literal["ingest", "analysis", "findings"]
 
 
@@ -281,6 +329,7 @@ class AppConfig(BaseModel):
     workouts: WorkoutConfig = Field(default_factory=WorkoutConfig)
     analysis: AnalysisConfig = Field(default_factory=AnalysisConfig)
     stress: StressConfig = Field(default_factory=StressConfig)
+    body_battery: BodyBatteryConfig = Field(default_factory=BodyBatteryConfig)
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
     narrate: NarrateConfig = Field(default_factory=NarrateConfig)
 

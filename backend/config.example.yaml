@@ -109,6 +109,33 @@
 #   alert_score: 60          # daily score at/above which a high-stress finding fires
 #   alert_recent_days: 14    # only alert on days this recent
 
+# --- Body Battery ----------------------------------------------------------
+# A Garmin-style energy-reserve score (0-100): the stress timeline above,
+# integrated against recovery -- stress and workouts drain it, calm rest and
+# sleep charge it. Builds on the stress proxy, so it needs the same "Time
+# Grouping = Minute" export setting. Same caveat: a proxy on a proxy (no RR
+# intervals), relative to your own baseline, not a Garmin value. Drift is
+# avoided by a self-correcting integrator -- a night's sleep (clamped at 100)
+# re-anchors the battery, so the wake level reflects sleep quality rather than a
+# fixed reset. Charge/drain rates are points-per-minute; tune them if your
+# battery pins at 0 or 100. Defaults shown.
+# body_battery:
+#   enabled: true
+#   window_days: 90          # trailing days recomputed each nightly run;
+#                            #   rebuild the full history with
+#                            #   `healthlog rederive-body-battery --all`
+#                            #   (run it after `rederive-stress --all`)
+#   neutral: 25              # stress level that is energy-neutral (below charges,
+#                            #   above drains); defaults to the rest/low edge
+#   charge_rate: 0.03        # points/min gained at fully calm wake rest
+#   drain_rate: 0.2          # points/min lost at maximum stress
+#   sleep_charge_rate: 0.15  # points/min gained asleep (~+72 over a full night)
+#   active_drain_rate: 0.3   # points/min lost inside a workout
+#   seed_level: 50           # neutral start at the window's first bucket (washed
+#                            #   out within days by the nightly sleep re-anchor)
+#   alert_level: 20          # day whose low reaches at/below this fires an alert
+#   alert_recent_days: 14    # only alert on days this recent
+
 # --- LLM narration ---------------------------------------------------------
 # On-demand health report from a local Ollama instance. Reads the current
 # findings snapshot and asks the model to narrate it as a weekly summary.

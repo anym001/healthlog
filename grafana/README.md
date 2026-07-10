@@ -62,7 +62,7 @@ Dashboards → New → Import → upload JSON file (repeat for each):
 | `dashboards/sleep.json` | Sleep — phases, efficiency, bedtime, overnight vitals (30-day window) |
 | `dashboards/training.json` | Training & Recovery — TRIMP by sport, HRV, workouts table (30-day window) |
 | `dashboards/workout-detail.json` | Workout Detail — single-session drill-down: intra-workout HR curve, KPIs, metadata |
-| `dashboards/stress.json` | Stress — Garmin-style daily score gauge, time-in-zone, intraday timeline, long-term trend (7-day window) |
+| `dashboards/stress.json` | Stress & Body Battery — Garmin-style daily score gauge, time-in-zone, intraday timeline, long-term trend, plus a Body-Battery reserve gauge, daily wake/high/low, intraday battery timeline and charged/drained bars (7-day window) |
 | `dashboards/metrics.json` | Metrics Explorer — raw values for any metric, Apple-Health-style (30-day window) |
 
 The **Metrics Explorer** is metric-agnostic: two cascading dropdowns at the top —
@@ -100,6 +100,15 @@ timeline. The score is derived, not measured — Apple Health exports no
 beat-to-beat RR intervals — so read it relative to your own baseline, **not** as a
 Garmin-comparable number. After changing the grouping (or a bulk backfill),
 rebuild history with `healthlog rederive-stress`.
+
+The same dashboard also carries the **Body Battery** panels, fed by the
+`body_battery_daily` / `body_battery_intraday` tables (see `docs/ARCHITECTURE.md`
+§4.10). Body Battery integrates the stress timeline against recovery — stress and
+workouts drain the 0-100 reserve, calm rest and sleep recharge it — so it needs
+the same **Minute** grouping as the stress timeline. It is a proxy on that proxy,
+read relative to your own baseline, not a Garmin value. When rebuilding history,
+run `healthlog rederive-body-battery` **after** `rederive-stress` (the battery
+reads the freshly recomputed stress rows).
 
 ## Updating a dashboard
 

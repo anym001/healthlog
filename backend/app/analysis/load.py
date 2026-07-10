@@ -217,6 +217,78 @@ def load_workout_intervals(
     return intervals
 
 
+def load_stress_intraday(db: Session, start: dt.datetime, end: dt.datetime) -> pd.DataFrame:
+    """The stored stress timeline in ``[start, end)`` as a frame.
+
+    Reads the freshly computed ``stress_intraday`` rows (``ts``, ``stress``,
+    ``state``) that the Body-Battery integrator drives off — so the body-battery
+    pass must run *after* the stress pass has flushed. Index is the tz-aware
+    bucket time; empty frame when the window has no rows.
+    """
+    rows = db.execute(
+        text(
+            """
+            SELECT ts, stress, state
+            FROM stress_intraday
+            WHERE ts >= :start AND ts < :end
+            ORDER BY ts
+            """
+        ),
+        {"start": start, "end": end},
+    ).all()
+    idx = pd.DatetimeIndex([r.ts for r in rows], name="ts")
+    return pd.DataFrame(
+        {
+            "stress": pd.array([r.stress for r in rows], dtype="object"),
+            "state": [r.state for r in rows],
+        },
+        index=idx,
+    )
+
+
+def load_sleep_intervals(
+    db: Session, start: dt.datetime, end: dt.datetime
+) -> list[tuple[pd.Timestamp, pd.Timestamp, float]]:
+    """``(sleep_start, sleep_end, efficiency)`` intervals overlapping ``[start, end)``.
+
+    The asleep windows that charge the Body-Battery timeline. ``efficiency`` (total
+    sleep / time in bed, clamped to ``(0, 1]``, defaulting to ``1.0`` when unknown)
+    scales the sleep charge rate; ``sleep_end`` falls back to ``in_bed_end`` and
+    the in-bed duration to the timestamp window (mirroring
+    :func:`load_sleep_frame`). Returns tz-aware Timestamp triples, sorted by start.
+    """
+    rows = db.execute(
+        text(
+            """
+            SELECT sleep_start,
+                   coalesce(sleep_end, in_bed_end) AS sleep_end,
+                   total_sleep_h, in_bed_h, in_bed_start, in_bed_end
+            FROM sleep_sessions
+            WHERE sleep_start IS NOT NULL
+              AND coalesce(sleep_end, in_bed_end, sleep_start) >= :start
+              AND sleep_start < :end
+            ORDER BY sleep_start
+            """
+        ),
+        {"start": start, "end": end},
+    ).all()
+    intervals: list[tuple[pd.Timestamp, pd.Timestamp, float]] = []
+    for r in rows:
+        if r.sleep_end is None:
+            continue
+        in_bed_h = r.in_bed_h
+        if (in_bed_h is None or in_bed_h <= 0) and r.in_bed_start is not None and r.in_bed_end is not None:
+            in_bed_h = (r.in_bed_end - r.in_bed_start).total_seconds() / 3600.0
+        if in_bed_h and in_bed_h > 0 and r.total_sleep_h is not None:
+            eff = float(np.clip(r.total_sleep_h / in_bed_h, 0.0, 1.0))
+        else:
+            eff = 1.0
+        if eff <= 0:
+            eff = 1.0
+        intervals.append((pd.Timestamp(r.sleep_start), pd.Timestamp(r.sleep_end), eff))
+    return intervals
+
+
 def _series_from_rows(rows) -> pd.Series:
     if not rows:
         return pd.Series(dtype="float64")

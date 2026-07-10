@@ -9,7 +9,7 @@ import datetime as dt
 
 import pytest
 
-from app.appconfig import AnalysisConfig, AppConfig, StressConfig, load_config
+from app.appconfig import AnalysisConfig, AppConfig, BodyBatteryConfig, StressConfig, load_config
 
 
 @pytest.fixture(autouse=True)
@@ -277,5 +277,45 @@ def test_stress_loaded_from_yaml(tmp_path):
 def test_stress_rejects_unknown_key(tmp_path):
     p = tmp_path / "config.yaml"
     p.write_text("stress:\n  bogus: 1\n")
+    with pytest.raises(ValueError):
+        load_config(p)
+
+
+# --- Body Battery config ---------------------------------------------------
+
+
+def test_body_battery_defaults():
+    cfg = AppConfig().body_battery
+    assert cfg.enabled is True
+    assert cfg.window_days == 90
+    assert cfg.neutral == 25.0
+    assert cfg.charge_rate == 0.03
+    assert cfg.drain_rate == 0.2
+    assert cfg.sleep_charge_rate == 0.15
+    assert cfg.active_drain_rate == 0.3
+    assert cfg.seed_level == 50.0
+    assert cfg.alert_level == 20.0
+    assert cfg.alert_recent_days == 14
+
+
+def test_body_battery_rejects_out_of_range(tmp_path):
+    with pytest.raises(ValueError):
+        BodyBatteryConfig(neutral=150.0)  # neutral is a 0-100 stress level
+    with pytest.raises(ValueError):
+        BodyBatteryConfig(drain_rate=-0.1)  # rates are non-negative
+
+
+def test_body_battery_loaded_from_yaml(tmp_path):
+    p = tmp_path / "config.yaml"
+    p.write_text("body_battery:\n  enabled: false\n  window_days: 30\n  drain_rate: 0.4\n")
+    cfg = load_config(p).body_battery
+    assert cfg.enabled is False
+    assert cfg.window_days == 30
+    assert cfg.drain_rate == 0.4
+
+
+def test_body_battery_rejects_unknown_key(tmp_path):
+    p = tmp_path / "config.yaml"
+    p.write_text("body_battery:\n  bogus: 1\n")
     with pytest.raises(ValueError):
         load_config(p)

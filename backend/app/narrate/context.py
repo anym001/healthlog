@@ -182,6 +182,32 @@ def _section_stress(alerts: list[dict], language: str) -> list[str]:
     return out
 
 
+def _section_body_battery(alerts: list[dict], language: str) -> list[str]:
+    out = ["=== BODY BATTERY ==="]
+    if not alerts:
+        return [*out, "–"]
+    for f in alerts:
+        d = scrub_details("body_battery", f.get("details"))
+        low = d.get("low_level", f.get("severity"))
+        low_str = f"{low:.0f}" if low is not None else "n/a"
+        parts = [("low=" if language == "en" else "Tief=") + low_str]
+        wake = d.get("wake_level")
+        if wake is not None:
+            parts.append(("wake=" if language == "en" else "Weckstand=") + f"{wake:.0f}")
+        high = d.get("high_level")
+        if high is not None:
+            parts.append(("high=" if language == "en" else "Hoch=") + f"{high:.0f}")
+        drained = d.get("drained")
+        charged = d.get("charged")
+        if drained is not None:
+            parts.append(("drained=" if language == "en" else "entladen=") + f"{drained:.0f}")
+        if charged is not None:
+            parts.append(("charged=" if language == "en" else "geladen=") + f"{charged:.0f}")
+        note_str = f" — {f['note']}" if f.get("note") else ""
+        out.append(f"[{f['ref_date']}] {', '.join(parts)}{note_str}")
+    return out
+
+
 def _section_training_load(tload: list[dict], language: str) -> list[str]:
     out = ["=== TRAININGSBELASTUNG ==="] if language == "de" else ["=== TRAINING LOAD ==="]
     if not tload:
@@ -351,6 +377,7 @@ def build_context(
         _section_anomalies(by_kind.get("anomaly", []), language, lookback_days),
         _section_recovery(by_kind.get("recovery_alert", []), language),
         _section_stress(by_kind.get("stress", []), language),
+        _section_body_battery(by_kind.get("body_battery", []), language),
         _section_training_load(by_kind.get("training_load", []), language),
         _section_correlations(by_kind.get("correlation", []), language, max_correlations),
         _section_trends(by_kind.get("trend", []), language),

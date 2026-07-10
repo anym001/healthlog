@@ -43,7 +43,7 @@ LEFT JOIN metric_registry ra ON ra.metric = f.metric_a
 LEFT JOIN metric_registry rb ON rb.metric = f.metric_b
 WHERE
     (
-        f.kind IN ('anomaly', 'recovery_alert', 'training_load', 'stress')
+        f.kind IN ('anomaly', 'recovery_alert', 'training_load', 'stress', 'body_battery')
         AND f.ref_date >= :cutoff
     )
     OR f.kind IN ('correlation', 'trend', 'seasonality', 'consistency')
@@ -65,6 +65,7 @@ _HANDWIRED_LABELS = {
     "bedtime": "Bedtime",
     "recovery": "Recovery",
     "stress": "Stress",
+    "body_battery": "Body Battery",
 }
 # Per-sport variants: "workout_trimp_running" -> "Training Load (TRIMP) — Running".
 _HANDWIRED_PREFIXES = ("workout_trimp_", "workout_load_", "workout_edwards_")

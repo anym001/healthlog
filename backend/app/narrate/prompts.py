@@ -54,6 +54,17 @@ eigenen Baseline interpretierbar.
     > 75  → hoch
     Ein hoher Tages-Score signalisiert anhaltende sympathische Aktivierung; \
 zusammen mit niedriger HRV/hoher RHR ein Erholungsdefizit.
+  Body Battery (0–100, Energiereserve): der Stress-Score über den Tag \
+aufintegriert — Stress und Workouts entladen, ruhige Wachphasen und vor allem \
+Schlaf laden. Baut auf demselben Herzfrequenz-Proxy auf (kein RR-Intervall) und \
+ist relativ zur eigenen Baseline zu lesen, nicht als Garmin-Wert. Der Schlaf \
+re-verankert den Akku jede Nacht (kein fester Reset), daher spiegelt der \
+Weckstand die Schlafqualität. Kennzahlen je Tag: Weckstand (womit du gestartet \
+bist), Hoch, Tief, geladen/entladen.
+    Tief ≤ 20   → Akku nahezu leer gefahren, Energiemangel
+    Weckstand niedrig → die Nacht hat nicht ausreichend aufgeladen
+    Ein tiefer Tiefpunkt bei hohem Stress-Score und niedriger HRV bestätigt ein \
+Erholungsdefizit von einer zweiten Seite.
 
 Korrelationen (Spearman r):
   |r| 0.25–0.40 → moderate Verbindung
@@ -66,13 +77,15 @@ Korrelationen (Spearman r):
   Recovery Alert + hohe Trainingsbelastung → Übertraining diskutieren
   Recovery Alert ohne hohe Belastung → mögliche Erkrankung oder Stress erwähnen
   Hoher Stress-Score + niedrige HRV → autonome Dauerbelastung erklären
+  Niedrige Body Battery + hoher Stress → Energiereserve als Tagesbilanz einordnen
+  Niedriger Weckstand + schlechter Schlaf → unzureichendes nächtliches Aufladen
   Schlechter Schlaf + niedrige HRV → Schlaf als Erholungsbremse erklären
   Korrelation Trainingsbelastung → HRV/RHR → Erholungsverzögerung (Lag) erläutern
 
 ## Berichtsstruktur
 1. Zusammenfassung (2–3 Sätze: was ist diese Woche das Wichtigste?)
 2. Anomalien & Warnungen (Zahl interpretieren + physiologische Erklärung)
-3. Stress & Erholung (Stress-Score-Tage benennen, mit HRV/RHR verknüpfen)
+3. Stress & Erholung (Stress-Score- und Body-Battery-Tage benennen, mit HRV/RHR verknüpfen)
 4. Training (ACWR-Zone benennen, Bedeutung erklären, Empfehlung geben)
 5. Schlaf (Konsistenz und Erholungsqualität)
 6. Korrelationen & Trends (nur bedeutsame, mit Erklärung des Mechanismus)
@@ -129,6 +142,16 @@ to the person's own baseline.
     > 75  → high
     A high daily score signals sustained sympathetic activation; together with \
 low HRV / high RHR it points to a recovery deficit.
+  Body Battery (0–100, energy reserve): the stress score integrated over the \
+day — stress and workouts drain it, calm wake rest and especially sleep charge \
+it. Built on the same heart-rate proxy (no RR intervals) and read relative to \
+the person's own baseline, not as a Garmin value. Sleep re-anchors the battery \
+each night (no fixed reset), so the wake level reflects sleep quality. Per-day \
+figures: wake level (what you started with), high, low, charged/drained.
+    low ≤ 20   → battery run nearly empty, energy depleted
+    low wake level → the night did not recharge enough
+    A deep trough alongside a high stress score and low HRV confirms a recovery \
+deficit from a second angle.
 
 Correlations (Spearman r):
   |r| 0.25–0.40 → moderate association
@@ -141,13 +164,15 @@ Correlations (Spearman r):
   Recovery alert + high training load → discuss overtraining
   Recovery alert without high load → mention possible illness or life stress
   High stress score + low HRV → explain sustained autonomic load
+  Low Body Battery + high stress → frame the energy reserve as the day's balance
+  Low wake level + poor sleep → insufficient overnight recharge
   Poor sleep + low HRV → explain sleep as recovery bottleneck
   Correlation training load → HRV/RHR → explain the recovery lag mechanism
 
 ## Report structure
 1. Summary (2–3 sentences: what is most important this week?)
 2. Anomalies & Alerts (interpret the number + physiological explanation)
-3. Stress & Recovery (name high-stress-score days, tie them to HRV/RHR)
+3. Stress & Recovery (name high-stress-score and low-Body-Battery days, tie them to HRV/RHR)
 4. Training (name the ACWR zone, explain its meaning, give a recommendation)
 5. Sleep (consistency and recovery quality)
 6. Correlations & Trends (only significant ones, with mechanism explanation)

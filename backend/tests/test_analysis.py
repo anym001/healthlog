@@ -17,6 +17,7 @@ from app.analysis import (
     aggregate_workout_daily,
     annual_seasonality,
     banister_trimp,
+    body_battery_timeline,
     circular_bedtime_offset,
     decompose,
     edwards_trimp,
@@ -28,12 +29,16 @@ from app.analysis import (
     spearman_lag,
     stress_intraday_from_hr,
     stress_state,
+    summarize_body_battery_day,
     summarize_stress_day,
     trend_slope,
 )
+from app.analysis.body_battery import compute_body_battery
 from app.analysis.stress import compute_stress
-from app.appconfig import AnalysisConfig, AppConfig, ProfileConfig, StressConfig, WorkoutConfig
+from app.appconfig import AnalysisConfig, AppConfig, BodyBatteryConfig, ProfileConfig, StressConfig, WorkoutConfig
 from app.models import (
+    BodyBatteryDaily,
+    BodyBatteryIntraday,
     Finding,
     FindingHistory,
     MetricSample,
@@ -1470,3 +1475,158 @@ def test_compute_stress_dedupes_multi_source_buckets(db):
     hr = {r.ts: r.hr for r in db.execute(select(StressIntraday)).scalars()}
     assert len(hr) == 120
     assert next(iter(hr.values())) == 85.0  # (80 + 90) / 2
+
+
+# --- Body Battery (pure) ---------------------------------------------------
+
+
+def _bb_frame(rows, start="2026-03-16 08:00") -> pd.DataFrame:
+    """Build a per-minute stress-intraday frame from (stress, state) tuples."""
+    idx = pd.date_range(start, periods=len(rows), freq="min", tz="UTC")
+    return pd.DataFrame({"stress": [r[0] for r in rows], "state": [r[1] for r in rows]}, index=idx)
+
+
+def test_body_battery_drains_on_stress_and_charges_on_rest():
+    high = body_battery_timeline(_bb_frame([(100, "high")] * 60), seed_level=50.0, drain_rate=0.2)
+    assert high["level"].iloc[-1] < 50.0
+    assert high["level"].is_monotonic_decreasing
+
+    rest = body_battery_timeline(_bb_frame([(0, "rest")] * 60), seed_level=50.0, charge_rate=0.1)
+    assert rest["level"].iloc[-1] > 50.0
+    assert rest["level"].is_monotonic_increasing
+
+
+def test_body_battery_clamps_to_0_and_100():
+    drain = body_battery_timeline(_bb_frame([(100, "high")] * 600), seed_level=50.0, drain_rate=0.2)
+    assert drain["level"].min() == 0.0
+    charge = body_battery_timeline(_bb_frame([(0, "rest")] * 2000), seed_level=50.0, charge_rate=0.1)
+    assert charge["level"].max() == 100.0
+
+
+def test_body_battery_sleep_charges_more_than_awake_rest():
+    start = pd.Timestamp("2026-03-16 23:00", tz="UTC")
+    frame = _bb_frame([(0, "rest")] * 480, start="2026-03-16 23:00")
+    sleep = [(start, start + pd.Timedelta(minutes=480), 1.0)]
+    asleep = body_battery_timeline(frame, sleep, seed_level=20.0)["level"].iloc[-1]
+    awake = body_battery_timeline(frame, [], seed_level=20.0)["level"].iloc[-1]
+    assert asleep > awake > 20.0
+    assert asleep >= 90.0  # 20 + ~480*0.15 sleep charge
+
+
+def test_body_battery_active_drains_and_unmeasurable_holds():
+    active = body_battery_timeline(_bb_frame([(None, "active")] * 60), seed_level=50.0, active_drain_rate=0.3)
+    assert active["level"].iloc[-1] < 50.0
+    hold = body_battery_timeline(_bb_frame([(None, "unmeasurable")] * 60), seed_level=50.0)
+    assert (hold["level"] == 50.0).all()
+
+
+def test_body_battery_seed_washes_out_after_full_sleep():
+    start = pd.Timestamp("2026-03-16 22:00", tz="UTC")
+    frame = _bb_frame([(0, "rest")] * 800, start="2026-03-16 22:00")
+    sleep = [(start, start + pd.Timedelta(minutes=800), 1.0)]
+    from_empty = body_battery_timeline(frame, sleep, seed_level=0.0)["level"].iloc[-1]
+    from_full = body_battery_timeline(frame, sleep, seed_level=100.0)["level"].iloc[-1]
+    assert from_empty == from_full == 100.0
+
+
+def test_body_battery_timeline_empty():
+    empty = pd.DataFrame({"stress": [], "state": []}, index=pd.DatetimeIndex([], name="ts"))
+    assert body_battery_timeline(empty).empty
+
+
+def test_summarize_body_battery_day():
+    idx = pd.date_range("2026-03-16 06:00", periods=5, freq="h", tz="UTC")
+    tl = pd.DataFrame({"level": [50.0, 60.0, 55.0, 80.0, 70.0]}, index=idx)
+    summ = summarize_body_battery_day(tl, wake_ts=idx[1])
+    assert summ["high_level"] == 80
+    assert summ["low_level"] == 50
+    assert summ["wake_level"] == 60  # level at/just before the wake timestamp
+    assert summ["charged"] == 35.0  # (+10) + (+25)
+    assert summ["drained"] == 15.0  # (-5) + (-10)
+
+
+def test_summarize_body_battery_day_empty():
+    summ = summarize_body_battery_day(pd.DataFrame({"level": []}))
+    assert summ["wake_level"] is None and summ["charged"] == 0.0 and summ["low_level"] is None
+
+
+# --- Body Battery (DB end-to-end) ------------------------------------------
+
+
+def _seed_body_battery_history(db):
+    """The stress seed plus a sleep session ending in-window on the last two days."""
+    _seed_stress_history(db)
+    base = dt.date(2026, 3, 1)
+    for d in (38, 39):
+        wake_day = base + dt.timedelta(days=d)
+        prev = wake_day - dt.timedelta(days=1)
+        s_start = dt.datetime(prev.year, prev.month, prev.day, 23, tzinfo=UTC)
+        s_end = dt.datetime(wake_day.year, wake_day.month, wake_day.day, 8, 30, tzinfo=UTC)
+        db.add(
+            SleepSession(
+                sleep_start=s_start,
+                sleep_end=s_end,
+                in_bed_start=s_start,
+                in_bed_end=s_end,
+                source="",
+                sleep_date=wake_day,
+                total_sleep_h=9.0,
+                in_bed_h=9.5,
+            )
+        )
+    db.flush()
+
+
+def test_compute_body_battery_writes_tables_and_is_idempotent(db):
+    _seed_body_battery_history(db)
+    compute_stress(db, "Europe/Vienna", StressConfig(), ProfileConfig(), since_days=90)
+    db.flush()
+    cfg = BodyBatteryConfig()
+    res1 = compute_body_battery(db, "Europe/Vienna", cfg, since_days=cfg.window_days)
+    assert res1.days == 3 and res1.buckets == 1800
+    daily = {r.day: r for r in db.execute(select(BodyBatteryDaily)).scalars()}
+    assert len(daily) == 3
+    for r in daily.values():
+        assert 0 <= r.low_level <= r.high_level <= 100
+        assert r.charged >= 0 and r.drained >= 0
+    # A day whose main sleep ends inside the measured window carries a wake level.
+    assert daily[dt.date(2026, 4, 9)].wake_level is not None
+    assert db.execute(select(func.count()).select_from(BodyBatteryIntraday)).scalar_one() == 1800
+
+    # Idempotent: a re-run over the same stress timeline replaces the window.
+    res2 = compute_body_battery(db, "Europe/Vienna", cfg, since_days=cfg.window_days)
+    assert res2.days == 3 and res2.buckets == 1800
+    assert db.execute(select(func.count()).select_from(BodyBatteryIntraday)).scalar_one() == 1800
+    assert db.execute(select(func.count()).select_from(BodyBatteryDaily)).scalar_one() == 3
+
+
+def test_run_emits_body_battery_alert_for_drained_day(db):
+    # A baseline plus one day of sustained high HR drains the battery to empty.
+    base = dt.date(2026, 3, 1)
+    for d in range(40):
+        day = base + dt.timedelta(days=d)
+        at4 = dt.datetime(day.year, day.month, day.day, 4, tzinfo=UTC)
+        db.add(MetricSample(time=at4, metric="resting_heart_rate", source="", qty=55.0))
+    day = base + dt.timedelta(days=39)
+    for m in range(600):
+        ts = dt.datetime(day.year, day.month, day.day, 8, tzinfo=UTC) + dt.timedelta(minutes=m)
+        db.add(MetricSample(time=ts, metric="heart_rate", source="", vavg=150.0))
+    db.flush()
+
+    result = analysis.run(db)
+    assert result.body_battery >= 1
+    alert = db.execute(select(Finding).where(Finding.kind == "body_battery")).scalars().first()
+    assert alert is not None
+    assert alert.metric_a == "body_battery"
+    assert alert.ref_date == dt.date(2026, 4, 9)
+    assert alert.severity <= BodyBatteryConfig().alert_level
+    assert alert.details["low_level"] <= BodyBatteryConfig().alert_level
+
+
+def test_compute_body_battery_disabled_writes_nothing(db):
+    _seed_body_battery_history(db)
+    compute_stress(db, "Europe/Vienna", StressConfig(), ProfileConfig(), since_days=90)
+    db.flush()
+    res = compute_body_battery(db, "Europe/Vienna", BodyBatteryConfig(enabled=False), since_days=90)
+    assert res.days == 0 and res.buckets == 0
+    assert db.execute(select(func.count()).select_from(BodyBatteryDaily)).scalar_one() == 0

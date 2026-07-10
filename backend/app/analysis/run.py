@@ -15,10 +15,12 @@ from ..appconfig import AppConfig, load_config
 from ..cli_support import bootstrap, db_session
 from ..config import get_settings
 from ..models import FINDING_FIELDS, Finding, FindingHistory
+from .body_battery import run_body_battery
 from .constants import _DEFAULT_APP_CONFIG, log
 from .findings import (
     AnalysisResult,
     _anomaly_findings,
+    _body_battery_findings,
     _consistency_findings,
     _correlation_findings,
     _decompose_all,
@@ -85,8 +87,31 @@ def run(db: Session, tz: str | None = None, config: AppConfig | None = None) -> 
     db.flush()
     stress = _guarded("stress", lambda: _stress_findings(db, computed_at, app_cfg.stress), [])
 
+    # Body Battery: integrate the fresh stress_intraday timeline into the 0-100
+    # energy-reserve tables (guarded), then read body_battery_daily back for the
+    # alert-only finding. Runs after the stress flush — it reads those rows.
+    _guarded(
+        "body-battery-compute",
+        lambda: run_body_battery(db, tz, app_cfg.body_battery, app_cfg.body_battery.window_days),
+        None,
+    )
+    db.flush()
+    body_battery = _guarded("body_battery", lambda: _body_battery_findings(db, computed_at, app_cfg.body_battery), [])
+
     db.execute(delete(Finding))  # snapshot: replace the previous run
-    db.add_all([*correlations, *anomalies, *trends, *seasons, *recovery, *consistency, *training_load, *stress])
+    db.add_all(
+        [
+            *correlations,
+            *anomalies,
+            *trends,
+            *seasons,
+            *recovery,
+            *consistency,
+            *training_load,
+            *stress,
+            *body_battery,
+        ]
+    )
     db.flush()
     # Archive this snapshot (append-only) before the next run replaces it, so
     # findings stay queryable over time; computed_at is the per-run key.
@@ -106,6 +131,7 @@ def run(db: Session, tz: str | None = None, config: AppConfig | None = None) -> 
         consistency=len(consistency),
         training_load=len(training_load),
         stress=len(stress),
+        body_battery=len(body_battery),
     )
 
 

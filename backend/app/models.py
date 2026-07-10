@@ -239,6 +239,42 @@ class StressDaily(Base):
     computed_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class BodyBatteryIntraday(Base):
+    """One intraday Body-Battery bucket (ARCHITECTURE.md §4.10).
+
+    Derived per run by integrating the ``stress_intraday`` timeline against
+    recovery: stress and workouts drain the battery, calm rest and sleep charge
+    it, clamped to 0-100. A dedicated table (like ``stress_intraday``), never
+    written back into ``metric_samples``. ``ts`` is the bucket time; ``level``
+    is the 0-100 reserve. Recomputed idempotently (upsert on ``ts``); the nightly
+    run refreshes a trailing window, ``rederive-body-battery --all`` the full
+    history."""
+
+    __tablename__ = "body_battery_intraday"
+
+    ts: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class BodyBatteryDaily(Base):
+    """Per-local-day Body-Battery summary (ARCHITECTURE.md §4.10).
+
+    Mirrors Garmin's day view: ``wake_level`` (battery at the end of the main
+    sleep — what you started the day with), ``high_level`` / ``low_level`` (the
+    day's peak and trough), ``charged`` / ``drained`` (total points gained / lost
+    over the day). Upserted on ``day``."""
+
+    __tablename__ = "body_battery_daily"
+
+    day: Mapped[dt.date] = mapped_column(Date, primary_key=True)
+    wake_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    high_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    low_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    charged: Mapped[float] = mapped_column(Float, default=0.0)
+    drained: Mapped[float] = mapped_column(Float, default=0.0)
+    computed_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class MetricRegistry(Base):
     """Per-metric behaviour as data: canonical unit, daily aggregate, tier."""
 
@@ -300,8 +336,8 @@ class Finding(_FindingColumns, Base):
 
     Written as a fresh snapshot each run (the analysis deletes the previous
     batch). ``kind`` is one of: correlation, anomaly, trend, seasonality,
-    recovery_alert, consistency, training_load, stress. Fields not relevant to a
-    kind stay NULL.
+    recovery_alert, consistency, training_load, stress, body_battery. Fields not
+    relevant to a kind stay NULL.
     """
 
     __tablename__ = "findings"

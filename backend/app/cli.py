@@ -14,6 +14,8 @@ instead of a module path::
     healthlog rederive-workout-hr           # backfill HR samples from the archive
     healthlog rederive-stress               # recompute the stress timeline (full history)
     healthlog rederive-stress --days 30     # recompute only the trailing 30 days
+    healthlog rederive-body-battery         # recompute the Body-Battery timeline (full history)
+    healthlog rederive-body-battery --days 30  # recompute only the trailing 30 days
 
 New operator commands are added as further subparsers here. The installed
 console script (see ``pyproject.toml``) maps ``healthlog`` to ``main``;
@@ -25,7 +27,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import audit, backfill, diagnostics, narrate, rederive, stress_backfill
+from . import audit, backfill, body_battery_backfill, diagnostics, narrate, rederive, stress_backfill
 
 
 def _run_analyze(_args: argparse.Namespace) -> int:
@@ -62,6 +64,12 @@ def build_parser() -> argparse.ArgumentParser:
     rst = sub.add_parser("rederive-stress", help="recompute the stress timeline from stored heart-rate history")
     stress_backfill.add_arguments(rst)
     rst.set_defaults(func=stress_backfill.run)
+
+    rbb = sub.add_parser(
+        "rederive-body-battery", help="recompute the Body-Battery timeline from the stored stress history"
+    )
+    body_battery_backfill.add_arguments(rbb)
+    rbb.set_defaults(func=body_battery_backfill.run)
 
     nar = sub.add_parser("narrate", help="generate a weekly health report via Ollama")
     narrate.add_arguments(nar)
