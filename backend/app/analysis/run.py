@@ -23,11 +23,13 @@ from .findings import (
     _correlation_findings,
     _decompose_all,
     _recovery_findings,
+    _stress_findings,
     _training_load_findings,
     _trend_and_seasonality_findings,
     build_series,
 )
 from .load import load_sleep_frame
+from .stress import run_stress
 
 
 def _guarded(kind: str, build, empty):
@@ -72,8 +74,19 @@ def run(db: Session, tz: str | None = None, config: AppConfig | None = None) -> 
     consistency = _guarded("consistency", lambda: _consistency_findings(db, tz, computed_at, cfg, sleep=sleep), [])
     training_load = _guarded("training_load", lambda: _training_load_findings(series, computed_at, cfg), [])
 
+    # Stress: compute the intraday timeline + daily summary into its own tables
+    # (guarded so a failure can't sink the findings snapshot), then read the
+    # fresh stress_daily back for the alert-only finding.
+    _guarded(
+        "stress-compute",
+        lambda: run_stress(db, tz, app_cfg.stress, app_cfg.profile, app_cfg.stress.window_days),
+        None,
+    )
+    db.flush()
+    stress = _guarded("stress", lambda: _stress_findings(db, computed_at, app_cfg.stress), [])
+
     db.execute(delete(Finding))  # snapshot: replace the previous run
-    db.add_all([*correlations, *anomalies, *trends, *seasons, *recovery, *consistency, *training_load])
+    db.add_all([*correlations, *anomalies, *trends, *seasons, *recovery, *consistency, *training_load, *stress])
     db.flush()
     # Archive this snapshot (append-only) before the next run replaces it, so
     # findings stay queryable over time; computed_at is the per-run key.
@@ -92,6 +105,7 @@ def run(db: Session, tz: str | None = None, config: AppConfig | None = None) -> 
         recovery_alerts=len(recovery),
         consistency=len(consistency),
         training_load=len(training_load),
+        stress=len(stress),
     )
 
 

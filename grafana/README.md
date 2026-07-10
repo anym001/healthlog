@@ -62,6 +62,7 @@ Dashboards → New → Import → upload JSON file (repeat for each):
 | `dashboards/sleep.json` | Sleep — phases, efficiency, bedtime, overnight vitals (30-day window) |
 | `dashboards/training.json` | Training & Recovery — TRIMP by sport, HRV, workouts table (30-day window) |
 | `dashboards/workout-detail.json` | Workout Detail — single-session drill-down: intra-workout HR curve, KPIs, metadata |
+| `dashboards/stress.json` | Stress — Garmin-style daily score gauge, time-in-zone, intraday timeline, long-term trend (7-day window) |
 | `dashboards/metrics.json` | Metrics Explorer — raw values for any metric, Apple-Health-style (30-day window) |
 
 The **Metrics Explorer** is metric-agnostic: two cascading dropdowns at the top —
@@ -88,6 +89,17 @@ Health Auto Export (Workouts → Datenart-Einstellungen → *Routendaten
 einschließen*); indoor sessions and pre-existing workouts exported without it show
 an empty map. Enabling the toggle affects future exports only — to add routes to
 past workouts, re-export that date range from HAE with the toggle on.
+
+The **Stress** dashboard reads the `stress_daily` / `stress_intraday` tables the
+nightly analysis fills (a Garmin-style proxy from the heart-rate elevation above
+your resting baseline, HRV-calibrated — see `docs/ARCHITECTURE.md` §4.9). For a
+usable **intraday timeline**, set Health Auto Export's **Time Grouping** to
+**Minute** (Gesundheitsmetriken → *Zeitgruppierung* → *Minute*): the default
+hourly grouping yields only ~24 heart-rate points per day, far too coarse for the
+timeline. The score is derived, not measured — Apple Health exports no
+beat-to-beat RR intervals — so read it relative to your own baseline, **not** as a
+Garmin-comparable number. After changing the grouping (or a bulk backfill),
+rebuild history with `healthlog rederive-stress`.
 
 ## Updating a dashboard
 

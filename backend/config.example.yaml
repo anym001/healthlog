@@ -85,6 +85,30 @@
 #   acwr_low: 0.8             # below => detraining flagged
 #   acwr_min_active_days: 8   # min training days in 28 before a (per-sport) ratio is trusted
 
+# --- Stress proxy ----------------------------------------------------------
+# A Garmin-style intraday stress score (0-100) + time-in-zone, derived from the
+# heart-rate elevation above your personal resting baseline (workouts excluded),
+# optionally modulated by HRV. NOTE: this is a proxy from the data Apple Health
+# exports — NOT the RR-interval-based Garmin/Firstbeat value — so it tracks your
+# own baseline over time and is not comparable to a Garmin number. For a usable
+# intraday timeline, set Health Auto Export's "Time Grouping" to Minute (hourly
+# grouping yields only ~24 points/day). Defaults shown.
+# stress:
+#   enabled: true
+#   window_days: 90          # trailing days recomputed each nightly run;
+#                            #   rebuild the full history with
+#                            #   `healthlog rederive-stress --all`
+#   reserve_full: 0.5        # fraction of HR reserve (HR_max - HR_rest) mapped
+#                            #   to a stress of 100 (lower = more sensitive)
+#   hrv_weight: 0.3          # 0 = heart-rate only; higher lets the day's HRV-z
+#                            #   shift the score (low HRV -> higher stress)
+#   zone_low: 25             # 0-100 zone edges: rest < low < medium < high
+#   zone_medium: 50
+#   zone_high: 75
+#   min_measured_min: 60     # min measured minutes/day before a score is stored
+#   alert_score: 60          # daily score at/above which a high-stress finding fires
+#   alert_recent_days: 14    # only alert on days this recent
+
 # --- LLM narration ---------------------------------------------------------
 # On-demand health report from a local Ollama instance. Reads the current
 # findings snapshot and asks the model to narrate it as a weekly summary.

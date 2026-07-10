@@ -1,8 +1,10 @@
 """Finding builders and series assembly.
 
 Builds the analysis series (core metrics + derived sleep + workout-load) and the
-six finding kinds (correlation, anomaly, trend, seasonality, recovery_alert,
-consistency, training_load) on top of the pure helpers and DB loaders.
+finding kinds (correlation, anomaly, trend, seasonality, recovery_alert,
+consistency, training_load, stress) on top of the pure helpers and DB loaders.
+The stress finding is alert-only; its continuous score/timeline live in the
+stress tables (see ``stress.py``).
 """
 
 from __future__ import annotations
@@ -13,7 +15,7 @@ from dataclasses import dataclass, fields
 import pandas as pd
 from sqlalchemy.orm import Session
 
-from ..appconfig import AnalysisConfig, ProfileConfig, WorkoutConfig
+from ..appconfig import AnalysisConfig, ProfileConfig, StressConfig, WorkoutConfig
 from ..models import Finding
 from ..registry import METRIC_REGISTRY
 from ..workout_types import canonical_workout_type
@@ -46,6 +48,7 @@ from .pure import (
     trend_monotonicity,
     trend_slope,
 )
+from .stress import load_stress_daily
 
 
 @dataclass
@@ -57,6 +60,7 @@ class AnalysisResult:
     recovery_alerts: int = 0
     consistency: int = 0
     training_load: int = 0
+    stress: int = 0
 
     def counts(self) -> list[tuple[str, int]]:
         """The (category, count) pairs in declaration order — the single source
@@ -676,6 +680,47 @@ def _recovery_findings(
                     },
                 )
             )
+    return findings
+
+
+def _stress_findings(db: Session, computed_at: dt.datetime, cfg: StressConfig | None = None) -> list[Finding]:
+    """High-stress days as alert-only findings (mirrors ``_recovery_findings``).
+
+    The continuous stress score lives in ``stress_daily`` (for Grafana); this
+    surfaces only the recent days whose score reaches ``cfg.alert_score`` as a
+    ``kind="stress"`` finding, so the narration can mention them. A calm day
+    produces no row.
+    """
+    cfg = cfg or StressConfig()
+    if not cfg.enabled:
+        return []
+    daily = load_stress_daily(db, since_days=cfg.alert_recent_days)
+    if daily.empty:
+        return []
+    findings: list[Finding] = []
+    for ts, row in daily.iterrows():
+        score = row["score"]
+        if score is None or pd.isna(score) or score < cfg.alert_score:
+            continue
+        findings.append(
+            Finding(
+                computed_at=computed_at,
+                kind="stress",
+                metric_a="stress",
+                ref_date=ts.date(),
+                severity=round(float(score), 4),
+                note="elevated daily stress",
+                details={
+                    "score": round(float(score), 1),
+                    "high_min": int(row["high_min"]),
+                    "medium_min": int(row["medium_min"]),
+                    "rest_min": int(row["rest_min"]),
+                    "hrv_z": round(float(row["hrv_z"]), 4)
+                    if row["hrv_z"] is not None and not pd.isna(row["hrv_z"])
+                    else None,
+                },
+            )
+        )
     return findings
 
 

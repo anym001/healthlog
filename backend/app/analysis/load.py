@@ -7,6 +7,7 @@ daily index so lag shifts stay calendar-correct.
 
 from __future__ import annotations
 
+import datetime as dt
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -155,6 +156,65 @@ def load_workout_hr_samples(db: Session) -> dict[str, pd.DataFrame]:
         frame["ts"] = pd.to_datetime(frame["ts"])
         out[hid] = frame
     return out
+
+
+def load_intraday_hr(db: Session, start: dt.datetime, end: dt.datetime) -> pd.Series:
+    """Per-bucket representative heart rate in ``[start, end)`` (bpm).
+
+    The all-day ``heart_rate`` buckets at their native (sub-daily) resolution —
+    ``COALESCE(vavg, qty)`` handles both HAE shapes. Buckets from multiple
+    sources at the same instant are averaged, so the index is unique (the
+    downstream ``stress_intraday`` keys on ``ts`` alone). Index is the tz-aware
+    bucket time; feeds the intraday stress model. Uses the ``(metric, time)`` index.
+    """
+    rows = db.execute(
+        text(
+            """
+            SELECT time, avg(coalesce(vavg, qty)) AS bpm
+            FROM metric_samples
+            WHERE metric = 'heart_rate' AND time >= :start AND time < :end
+              AND coalesce(vavg, qty) IS NOT NULL
+            GROUP BY time
+            ORDER BY time
+            """
+        ),
+        {"start": start, "end": end},
+    ).all()
+    if not rows:
+        return pd.Series(dtype="float64")
+    idx = pd.DatetimeIndex([r.time for r in rows])
+    return pd.Series([float(r.bpm) for r in rows], index=idx, dtype="float64")
+
+
+def load_workout_intervals(
+    db: Session, start: dt.datetime, end: dt.datetime
+) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
+    """``(start, end)`` intervals of workouts overlapping ``[start, end)``.
+
+    ``end_time`` falls back to ``start_time + duration_s`` when absent. Used to
+    exclude workout minutes from the stress timeline (Garmin's grey "active"
+    band). Returns tz-aware Timestamp pairs, sorted by start.
+    """
+    rows = db.execute(
+        text(
+            """
+            SELECT start_time,
+                   coalesce(end_time, start_time + make_interval(secs => duration_s)) AS end_time
+            FROM workouts
+            WHERE start_time IS NOT NULL
+              AND coalesce(end_time, start_time + make_interval(secs => duration_s), start_time) >= :start
+              AND start_time < :end
+            ORDER BY start_time
+            """
+        ),
+        {"start": start, "end": end},
+    ).all()
+    intervals: list[tuple[pd.Timestamp, pd.Timestamp]] = []
+    for r in rows:
+        if r.end_time is None:
+            continue
+        intervals.append((pd.Timestamp(r.start_time), pd.Timestamp(r.end_time)))
+    return intervals
 
 
 def _series_from_rows(rows) -> pd.Series:

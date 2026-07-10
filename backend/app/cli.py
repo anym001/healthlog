@@ -12,6 +12,8 @@ instead of a module path::
     healthlog narrate --dry-run             # print the model context only (no Ollama call)
     healthlog check-workout-hr              # is intra-workout HR in the archive?
     healthlog rederive-workout-hr           # backfill HR samples from the archive
+    healthlog rederive-stress               # recompute the stress timeline (full history)
+    healthlog rederive-stress --days 30     # recompute only the trailing 30 days
 
 New operator commands are added as further subparsers here. The installed
 console script (see ``pyproject.toml``) maps ``healthlog`` to ``main``;
@@ -23,7 +25,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import audit, backfill, diagnostics, narrate, rederive
+from . import audit, backfill, diagnostics, narrate, rederive, stress_backfill
 
 
 def _run_analyze(_args: argparse.Namespace) -> int:
@@ -56,6 +58,10 @@ def build_parser() -> argparse.ArgumentParser:
     rwh = sub.add_parser("rederive-workout-hr", help="backfill intra-workout HR samples from the raw archive")
     rederive.add_arguments(rwh)
     rwh.set_defaults(func=rederive.run)
+
+    rst = sub.add_parser("rederive-stress", help="recompute the stress timeline from stored heart-rate history")
+    stress_backfill.add_arguments(rst)
+    rst.set_defaults(func=stress_backfill.run)
 
     nar = sub.add_parser("narrate", help="generate a weekly health report via Ollama")
     narrate.add_arguments(nar)

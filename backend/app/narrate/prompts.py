@@ -44,6 +44,16 @@ das physiologische Zusammenspiel (autonomes Nervensystem unter Last).
     σ < 0.5h → sehr konsistent, optimal für Erholung
     σ 0.5–1.0h → akzeptabel
     σ > 1.0h → inkonsistent, beeinträchtigt Schlafqualität und HRV
+  Stress-Score (0–100, Tageswert): Proxy aus der Herzfrequenz-Erhöhung über \
+der persönlichen Ruhe-Baseline (Workouts ausgeklammert), mit HRV kalibriert. \
+NICHT der Garmin/Firstbeat-Wert (kein RR-Intervall verfügbar) — nur relativ zur \
+eigenen Baseline interpretierbar.
+    < 25  → Ruhe
+    25–50 → niedrig
+    50–75 → mittel
+    > 75  → hoch
+    Ein hoher Tages-Score signalisiert anhaltende sympathische Aktivierung; \
+zusammen mit niedriger HRV/hoher RHR ein Erholungsdefizit.
 
 Korrelationen (Spearman r):
   |r| 0.25–0.40 → moderate Verbindung
@@ -55,16 +65,18 @@ Korrelationen (Spearman r):
 ## Querverbindungen herstellen
   Recovery Alert + hohe Trainingsbelastung → Übertraining diskutieren
   Recovery Alert ohne hohe Belastung → mögliche Erkrankung oder Stress erwähnen
+  Hoher Stress-Score + niedrige HRV → autonome Dauerbelastung erklären
   Schlechter Schlaf + niedrige HRV → Schlaf als Erholungsbremse erklären
   Korrelation Trainingsbelastung → HRV/RHR → Erholungsverzögerung (Lag) erläutern
 
 ## Berichtsstruktur
 1. Zusammenfassung (2–3 Sätze: was ist diese Woche das Wichtigste?)
 2. Anomalien & Warnungen (Zahl interpretieren + physiologische Erklärung)
-3. Training (ACWR-Zone benennen, Bedeutung erklären, Empfehlung geben)
-4. Schlaf (Konsistenz und Erholungsqualität)
-5. Korrelationen & Trends (nur bedeutsame, mit Erklärung des Mechanismus)
-6. Empfehlungen (2–3 konkrete, umsetzbare Maßnahmen für die kommende Woche)
+3. Stress & Erholung (Stress-Score-Tage benennen, mit HRV/RHR verknüpfen)
+4. Training (ACWR-Zone benennen, Bedeutung erklären, Empfehlung geben)
+5. Schlaf (Konsistenz und Erholungsqualität)
+6. Korrelationen & Trends (nur bedeutsame, mit Erklärung des Mechanismus)
+7. Empfehlungen (2–3 konkrete, umsetzbare Maßnahmen für die kommende Woche)
 
 Regeln:
   Sachlich und präzise, kein alarmistischer Ton — aber klar wenn etwas auffällig ist.
@@ -107,6 +119,16 @@ physiological interplay (autonomic nervous system under load).
     σ < 0.5h → very consistent, optimal for recovery
     σ 0.5–1.0h → acceptable
     σ > 1.0h → inconsistent, impairs sleep quality and HRV
+  Stress score (0–100, daily): a proxy from the heart-rate elevation above the \
+personal resting baseline (workouts excluded), HRV-calibrated. NOT the \
+Garmin/Firstbeat value (no RR intervals available) — interpret it only relative \
+to the person's own baseline.
+    < 25  → rest
+    25–50 → low
+    50–75 → medium
+    > 75  → high
+    A high daily score signals sustained sympathetic activation; together with \
+low HRV / high RHR it points to a recovery deficit.
 
 Correlations (Spearman r):
   |r| 0.25–0.40 → moderate association
@@ -118,16 +140,18 @@ Correlations (Spearman r):
 ## Cross-finding connections to make
   Recovery alert + high training load → discuss overtraining
   Recovery alert without high load → mention possible illness or life stress
+  High stress score + low HRV → explain sustained autonomic load
   Poor sleep + low HRV → explain sleep as recovery bottleneck
   Correlation training load → HRV/RHR → explain the recovery lag mechanism
 
 ## Report structure
 1. Summary (2–3 sentences: what is most important this week?)
 2. Anomalies & Alerts (interpret the number + physiological explanation)
-3. Training (name the ACWR zone, explain its meaning, give a recommendation)
-4. Sleep (consistency and recovery quality)
-5. Correlations & Trends (only significant ones, with mechanism explanation)
-6. Recommendations (2–3 concrete, actionable steps for the coming week)
+3. Stress & Recovery (name high-stress-score days, tie them to HRV/RHR)
+4. Training (name the ACWR zone, explain its meaning, give a recommendation)
+5. Sleep (consistency and recovery quality)
+6. Correlations & Trends (only significant ones, with mechanism explanation)
+7. Recommendations (2–3 concrete, actionable steps for the coming week)
 
 Rules:
   Be factual and precise; avoid alarmist language — but be clear when something is notable.

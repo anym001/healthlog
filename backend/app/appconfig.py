@@ -161,6 +161,52 @@ class AnalysisConfig(BaseModel):
     acwr_min_active_days: int = Field(default=8, ge=1, le=28)
 
 
+class StressConfig(BaseModel):
+    """Intraday stress-proxy knobs (see docs/ARCHITECTURE.md §4.9).
+
+    Stress is derived, not measured: HAE does not export the beat-to-beat RR
+    intervals a Garmin/Firstbeat score needs, so this is a proxy built from the
+    heart-rate elevation above a personal resting baseline (workouts excluded),
+    optionally modulated by the day's HRV. The numbers track *your own* baseline
+    over time; they are NOT comparable to a Garmin stress value.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    # Trailing days recomputed on each nightly run. The full history is rebuilt
+    # on demand with `healthlog rederive-stress --all` (e.g. after a backfill);
+    # old days rarely change, so the nightly job only revisits the recent window.
+    window_days: int = Field(default=90, ge=1, le=3650)
+    # Fraction of heart-rate reserve (HR_max - HR_rest) mapped to a stress of
+    # 100. Non-exercise sympathetic activation rarely exceeds ~half the reserve,
+    # so 0.5 saturates the scale sensibly; lower = more sensitive.
+    reserve_full: float = Field(default=0.5, gt=0.0, le=1.0)
+    # HRV modulation weight. 0 = pure heart-rate model (Stufe 2); higher lets the
+    # day's HRV-z shift the score (low HRV → higher stress, Stufe 3). The
+    # multiplier is clamped to [1 - hrv_weight, 1 + hrv_weight].
+    hrv_weight: float = Field(default=0.3, ge=0.0, le=1.0)
+    # Zone boundaries on the 0-100 stress scale (Garmin-style rest/low/medium/
+    # high). A minute's state is rest < zone_low <= low < zone_medium <=
+    # medium < zone_high <= high.
+    zone_low: float = Field(default=25.0, ge=0.0, le=100.0)
+    zone_medium: float = Field(default=50.0, ge=0.0, le=100.0)
+    zone_high: float = Field(default=75.0, ge=0.0, le=100.0)
+    # Minimum measured (non-active, non-gap) minutes in a day before a daily
+    # score is stored; a mostly-unworn day yields no row (gap, not a zero).
+    min_measured_min: int = Field(default=60, ge=0)
+    # Daily score at/above which a high-stress alert finding is emitted, and how
+    # recent a day must be to alert (mirrors the recovery early-warning).
+    alert_score: float = Field(default=60.0, ge=0.0, le=100.0)
+    alert_recent_days: int = Field(default=14, ge=1)
+
+    @model_validator(mode="after")
+    def _check(self) -> StressConfig:
+        if not (self.zone_low < self.zone_medium < self.zone_high):
+            raise ValueError("stress zones must be strictly ascending: zone_low < zone_medium < zone_high")
+        return self
+
+
 NotifyEvent = Literal["ingest", "analysis", "findings"]
 
 
@@ -234,6 +280,7 @@ class AppConfig(BaseModel):
     profile: ProfileConfig = Field(default_factory=ProfileConfig)
     workouts: WorkoutConfig = Field(default_factory=WorkoutConfig)
     analysis: AnalysisConfig = Field(default_factory=AnalysisConfig)
+    stress: StressConfig = Field(default_factory=StressConfig)
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
     narrate: NarrateConfig = Field(default_factory=NarrateConfig)
 

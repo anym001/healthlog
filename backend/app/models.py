@@ -195,6 +195,50 @@ class WorkoutRoutePoint(Base):
     speed_mps: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
+class StressIntraday(Base):
+    """One intraday stress-proxy bucket (ARCHITECTURE.md §4.9).
+
+    Derived per run from the all-day per-minute heart-rate buckets in
+    ``metric_samples`` (elevation above the personal resting baseline, workouts
+    excluded, optionally HRV-modulated) — a dedicated table, never written back
+    into ``metric_samples`` (which stays a replayable mirror of the raw archive).
+    ``ts`` is the bucket time; ``stress`` is 0-100 (NULL when the minute is
+    inside a workout or has no HR sample); ``state`` is one of
+    rest/low/medium/high/active/unmeasurable. Recomputed idempotently
+    (upsert on ``ts``); the nightly run refreshes a trailing window,
+    ``rederive-stress --all`` the full history."""
+
+    __tablename__ = "stress_intraday"
+
+    ts: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    stress: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    hr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    state: Mapped[str] = mapped_column(String(16))
+
+
+class StressDaily(Base):
+    """Per-local-day stress summary (ARCHITECTURE.md §4.9).
+
+    The Garmin-style day view: an overall ``score`` (0-100, time-weighted mean of
+    the measured non-active minutes) plus minutes-in-zone. A day with fewer than
+    ``stress.min_measured_min`` measured minutes yields no row (a gap, not a
+    zero). ``hrv_z`` records the day's HRV modulation input. Upserted on
+    ``day``."""
+
+    __tablename__ = "stress_daily"
+
+    day: Mapped[dt.date] = mapped_column(Date, primary_key=True)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rest_min: Mapped[int] = mapped_column(Integer, default=0)
+    low_min: Mapped[int] = mapped_column(Integer, default=0)
+    medium_min: Mapped[int] = mapped_column(Integer, default=0)
+    high_min: Mapped[int] = mapped_column(Integer, default=0)
+    active_min: Mapped[int] = mapped_column(Integer, default=0)
+    unmeasurable_min: Mapped[int] = mapped_column(Integer, default=0)
+    hrv_z: Mapped[float | None] = mapped_column(Float, nullable=True)
+    computed_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class MetricRegistry(Base):
     """Per-metric behaviour as data: canonical unit, daily aggregate, tier."""
 
@@ -256,7 +300,8 @@ class Finding(_FindingColumns, Base):
 
     Written as a fresh snapshot each run (the analysis deletes the previous
     batch). ``kind`` is one of: correlation, anomaly, trend, seasonality,
-    recovery_alert, consistency. Fields not relevant to a kind stay NULL.
+    recovery_alert, consistency, training_load, stress. Fields not relevant to a
+    kind stay NULL.
     """
 
     __tablename__ = "findings"

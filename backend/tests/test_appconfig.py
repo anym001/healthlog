@@ -9,7 +9,7 @@ import datetime as dt
 
 import pytest
 
-from app.appconfig import AnalysisConfig, AppConfig, load_config
+from app.appconfig import AnalysisConfig, AppConfig, StressConfig, load_config
 
 
 @pytest.fixture(autouse=True)
@@ -245,3 +245,37 @@ def test_get_app_config_broken_first_load_raises(_fresh_config_cache):
     path.write_text("narrate:\n  language: [broken\n")
     with pytest.raises(ValueError):
         get_app_config()
+
+
+# --- Stress config ---------------------------------------------------------
+
+
+def test_stress_defaults():
+    cfg = AppConfig().stress
+    assert cfg.enabled is True
+    assert cfg.window_days == 90
+    assert cfg.reserve_full == 0.5
+    assert cfg.hrv_weight == 0.3
+    assert (cfg.zone_low, cfg.zone_medium, cfg.zone_high) == (25.0, 50.0, 75.0)
+    assert cfg.alert_score == 60.0
+
+
+def test_stress_zones_must_be_ascending():
+    with pytest.raises(ValueError):
+        StressConfig(zone_low=60, zone_medium=50, zone_high=75)
+
+
+def test_stress_loaded_from_yaml(tmp_path):
+    p = tmp_path / "config.yaml"
+    p.write_text("stress:\n  enabled: false\n  window_days: 30\n  reserve_full: 0.4\n")
+    cfg = load_config(p).stress
+    assert cfg.enabled is False
+    assert cfg.window_days == 30
+    assert cfg.reserve_full == 0.4
+
+
+def test_stress_rejects_unknown_key(tmp_path):
+    p = tmp_path / "config.yaml"
+    p.write_text("stress:\n  bogus: 1\n")
+    with pytest.raises(ValueError):
+        load_config(p)

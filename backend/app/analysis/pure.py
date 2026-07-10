@@ -33,6 +33,13 @@ from .constants import (
     SEASONAL_MIN_PEAK_TROUGH_GAP,
     SEASONAL_MIN_SHARED_MONTHS,
     SEASONAL_PERIOD,
+    STRESS_BUCKET_MINUTES,
+    STRESS_GAP_CAP_MINUTES,
+    STRESS_HRV_WEIGHT,
+    STRESS_RESERVE_FULL,
+    STRESS_ZONE_HIGH,
+    STRESS_ZONE_LOW,
+    STRESS_ZONE_MEDIUM,
     WEEK_PERIOD,
     log,
 )
@@ -453,6 +460,124 @@ def aggregate_workout_daily(
         count=("count", "sum"),
         intensity=("intensity", "mean"),
     )
+
+
+# --- Stress proxy -----------------------------------------------------------
+# All 0-100. Intraday score from the heart-rate elevation above the personal
+# resting baseline (workouts excluded), optionally modulated by HRV. See
+# docs/ARCHITECTURE.md §4.9 for the model and its RR-interval caveat.
+
+STRESS_STATES: tuple[str, ...] = ("rest", "low", "medium", "high", "active", "unmeasurable")
+MEASURED_STRESS_STATES: frozenset[str] = frozenset({"rest", "low", "medium", "high"})
+
+
+def stress_state(stress: float, zone_low: float, zone_medium: float, zone_high: float) -> str:
+    """Garmin-style zone label for a 0-100 stress value."""
+    if stress < zone_low:
+        return "rest"
+    if stress < zone_medium:
+        return "low"
+    if stress < zone_high:
+        return "medium"
+    return "high"
+
+
+def stress_intraday_from_hr(
+    hr: pd.Series,
+    hr_rest_day: float,
+    hr_max: float,
+    workout_intervals: list[tuple[pd.Timestamp, pd.Timestamp]] | None = None,
+    hrv_z: float | None = None,
+    *,
+    reserve_full: float = STRESS_RESERVE_FULL,
+    hrv_weight: float = STRESS_HRV_WEIGHT,
+    zone_low: float = STRESS_ZONE_LOW,
+    zone_medium: float = STRESS_ZONE_MEDIUM,
+    zone_high: float = STRESS_ZONE_HIGH,
+) -> pd.DataFrame:
+    """Per-bucket stress (0-100) + state from a day's heart-rate buckets.
+
+    ``hr`` is the day's representative HR per bucket (index = bucket time, values
+    bpm). Stress scales the heart-rate reserve above the personal resting
+    baseline: ``HRr = clamp((hr - hr_rest) / (reserve_full·(hr_max - hr_rest)),
+    0, 1)`` → ``100·HRr``. A low-HRV day (negative ``hrv_z``) multiplies the
+    score up (Stufe 3); the multiplier is clamped to ``[1 - hrv_weight,
+    1 + hrv_weight]``. Buckets inside a workout interval are ``state="active"``
+    with NULL stress (Garmin's grey band); buckets with no usable HR or a
+    degenerate reserve are ``"unmeasurable"``. Returns a frame indexed by ``ts``
+    with ``stress`` (int or None), ``hr``, ``state``; empty in → empty out.
+    """
+    intervals = workout_intervals or []
+    reserve = hr_max - hr_rest_day
+    modifier = 1.0
+    if hrv_z is not None and hrv_weight > 0:
+        modifier = float(np.clip(1.0 - hrv_weight * hrv_z, 1.0 - hrv_weight, 1.0 + hrv_weight))
+
+    rows: list[tuple] = []
+    for ts, bpm in hr.items():
+        in_workout = any(start <= ts < end for start, end in intervals)
+        bpm_val = float(bpm) if bpm is not None and not pd.isna(bpm) else None
+        if in_workout:
+            rows.append((ts, None, bpm_val, "active"))
+        elif bpm_val is None or reserve <= 0:
+            rows.append((ts, None, bpm_val, "unmeasurable"))
+        else:
+            hrr = float(np.clip((bpm_val - hr_rest_day) / (reserve_full * reserve), 0.0, 1.0))
+            stress = float(np.clip(100.0 * hrr * modifier, 0.0, 100.0))
+            rows.append((ts, int(round(stress)), bpm_val, stress_state(stress, zone_low, zone_medium, zone_high)))
+    return pd.DataFrame(rows, columns=["ts", "stress", "hr", "state"]).set_index("ts")
+
+
+def summarize_stress_day(intraday: pd.DataFrame, gap_cap_minutes: float = STRESS_GAP_CAP_MINUTES) -> dict:
+    """Aggregate a day's per-bucket stress frame into a summary dict.
+
+    Each reading covers the time until the next one (capped at
+    ``gap_cap_minutes``; the excess is unmeasurable), so minutes-in-zone weight
+    each bucket by its dwell — mirroring the interval attribution in
+    :func:`edwards_trimp`. ``score`` is the dwell-weighted mean stress over the
+    measured (non-active, non-gap) minutes, or ``None`` when nothing was
+    measured. Returns ``score`` and ``{rest,low,medium,high,active,unmeasurable,
+    measured}_min`` (integer minutes). Empty in → all-zero, score ``None``.
+    """
+    empty = {f"{s}_min": 0 for s in STRESS_STATES} | {"measured_min": 0, "score": None}
+    if intraday.empty:
+        return empty
+
+    df = intraday.sort_index()
+    gap_min = df.index.to_series().diff().shift(-1).dt.total_seconds().to_numpy() / 60.0
+    states = df["state"].to_numpy()
+    stresses = df["stress"].to_numpy()
+
+    minutes = {s: 0.0 for s in STRESS_STATES}
+    weighted_sum = 0.0
+    weight = 0.0
+    for i in range(len(df)):
+        g = gap_min[i]
+        if np.isnan(g):
+            dwell, extra = STRESS_BUCKET_MINUTES, 0.0
+        else:
+            g = max(float(g), 0.0)
+            dwell, extra = min(g, gap_cap_minutes), max(g - gap_cap_minutes, 0.0)
+        st = states[i]
+        minutes[st] += dwell
+        if extra > 0:
+            minutes["unmeasurable"] += extra
+        val = stresses[i]
+        if st in MEASURED_STRESS_STATES and val is not None and not pd.isna(val):
+            weighted_sum += float(val) * dwell
+            weight += dwell
+
+    measured = sum(minutes[s] for s in MEASURED_STRESS_STATES)
+    return {
+        "score": round(weighted_sum / weight, 1) if weight > 0 else None,
+        "rest_min": int(round(minutes["rest"])),
+        "low_min": int(round(minutes["low"])),
+        "medium_min": int(round(minutes["medium"])),
+        "high_min": int(round(minutes["high"])),
+        "active_min": int(round(minutes["active"])),
+        "unmeasurable_min": int(round(minutes["unmeasurable"])),
+        "measured_min": int(round(measured)),
+    }
 
 
 def acute_chronic_ratio(s: pd.Series) -> tuple[float, float, float] | None:

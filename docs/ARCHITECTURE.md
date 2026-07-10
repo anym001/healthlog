@@ -306,7 +306,7 @@ recomputable from the raw archive.
 ### 4.8 Pipeline findings (pure statistics, no LLM)
 
 ```sql
-findings (id, computed_at, kind TEXT,            -- correlation|anomaly|trend|seasonality|recovery_alert|consistency|training_load
+findings (id, computed_at, kind TEXT,            -- correlation|anomaly|trend|seasonality|recovery_alert|consistency|training_load|stress
           metric_a TEXT, metric_b TEXT,          -- metric_b only for correlation
           lag_days INT, coefficient DOUBLE PRECISION,
           p_value DOUBLE PRECISION, p_value_adj DOUBLE PRECISION,  -- FDR
@@ -370,9 +370,46 @@ hundred rows per day it needs no retention policy.
   (`workout_trimp`, HR-based via Banister; otherwise `workout_load` in kcal); only
   flagged on a load spike (overload) or detraining. Details see
   [`workout-analysis.md`](workout-analysis.md).
+- **stress** — alert-only surfacing of a high-stress **day** (daily score ≥
+  `stress.alert_score`, recent days only); the continuous score + timeline live in
+  their own tables (§4.9), this only lets the narration mention notable days.
 
 The pure analysis math is DB-free and tested against synthetic series (known
 lag/anomaly/trend/yearly-season) with a fixed seed (§7); plus a DB end-to-end test.
+
+### 4.9 Stress proxy (own tables)
+
+A Garmin-style **stress score** derived from the data Apple Health actually
+exports. It is explicitly **not** the Garmin/Firstbeat value: that needs
+beat-to-beat **RR intervals**, which HAE does not export (heart rate arrives only
+as per-minute `{Min,Avg,Max}` buckets or a `{qty}`). So the score is a *proxy*
+that tracks the user's **own baseline** over time and is **not comparable** to a
+Garmin number.
+
+```sql
+stress_intraday (ts TIMESTAMPTZ PK, stress SMALLINT, hr REAL, state TEXT)  -- one row per HR bucket
+stress_daily    (day DATE PK, score REAL, {rest,low,medium,high,active,unmeasurable}_min INT,
+                 hrv_z REAL, computed_at)                                   -- one row per local day
+```
+
+**Model** (`app/analysis/stress.py` + pure helpers in `pure.py`,
+`stress_intraday_from_hr` / `summarize_stress_day`): for each non-workout
+heart-rate bucket, stress scales the reserve above the personal resting baseline —
+`HRr = clamp((hr − HR_rest) / (reserve_full·(HR_max − HR_rest)), 0, 1)` → `100·HRr`
+— reusing the same `HR_rest`/`HR_max` resolution as the training load
+([`workout-analysis.md`](workout-analysis.md) §3.1). A low-HRV day (negative
+`hrv_z`) multiplies the score up (the HRV calibration); workout minutes are
+excluded (`state="active"`, Garmin's grey band) and gaps are `"unmeasurable"`.
+The daily `score` is the dwell-weighted mean over measured minutes; a day below
+`stress.min_measured_min` measured minutes yields no row (a gap, not a zero).
+
+**Storage & recompute** — dedicated tables, **never** written back into
+`metric_samples` (which stays a replayable mirror of the raw archive, §4.1). The
+nightly run recomputes a trailing window (`stress.window_days`) and replaces those
+rows idempotently; `healthlog rederive-stress [--all|--days N]` rebuilds the full
+history (e.g. after a backfill or a config change). Grafana reads both tables
+(the **Stress** dashboard); a high-stress day also becomes a `stress` finding
+(§4.8) for the narration. All tunables live under `stress.*` in `config.yaml`.
 
 ## 5. Ingestion contract
 

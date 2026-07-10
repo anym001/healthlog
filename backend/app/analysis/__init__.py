@@ -25,6 +25,8 @@ Findings (ARCHITECTURE.md §4.8), all derived, never medical advice:
 - training_load  ACWR (acute:chronic workload ratio) on daily workout load,
                  overall and per sport; flagged on a load spike or detraining
                  (Banister TRIMP / kcal).
+- stress         alert-only high-stress day; the continuous intraday score +
+                 daily summary live in the stress tables (see stress.py, §4.9).
 """
 
 from __future__ import annotations
@@ -127,6 +129,9 @@ from .pure import (
     robust_z,
     rolling_mad_anomalies,
     spearman_lag,
+    stress_intraday_from_hr,
+    stress_state,
+    summarize_stress_day,
     trend_monotonicity,
     trend_slope,
 )
@@ -226,6 +231,9 @@ __all__ = [
     "rolling_mad_anomalies",
     "run",
     "spearman_lag",
+    "stress_intraday_from_hr",
+    "stress_state",
+    "summarize_stress_day",
     "trend_monotonicity",
     "trend_slope",
 ]
