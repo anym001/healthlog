@@ -186,6 +186,35 @@ def load_intraday_hr(db: Session, start: dt.datetime, end: dt.datetime) -> pd.Se
     return pd.Series([float(r.bpm) for r in rows], index=idx, dtype="float64")
 
 
+def load_intraday_steps(db: Session, start: dt.datetime, end: dt.datetime) -> pd.Series:
+    """Per-bucket step count in ``[start, end)``.
+
+    The all-day ``step_count`` buckets at their native resolution; buckets from
+    multiple sources at the same instant take the maximum (summing would double-
+    count the same walk seen by watch *and* phone). Index is the tz-aware bucket
+    time. Feeds the stress model's step-based activity gating — the caller must
+    check the cadence is fine enough (per-minute) before using it, since an
+    hourly step total would spuriously gate single buckets.
+    """
+    rows = db.execute(
+        text(
+            """
+            SELECT time, max(qty) AS steps
+            FROM metric_samples
+            WHERE metric = 'step_count' AND time >= :start AND time < :end
+              AND qty IS NOT NULL
+            GROUP BY time
+            ORDER BY time
+            """
+        ),
+        {"start": start, "end": end},
+    ).all()
+    if not rows:
+        return pd.Series(dtype="float64")
+    idx = pd.DatetimeIndex([r.time for r in rows])
+    return pd.Series([float(r.steps) for r in rows], index=idx, dtype="float64")
+
+
 def load_workout_intervals(
     db: Session, start: dt.datetime, end: dt.datetime
 ) -> list[tuple[pd.Timestamp, pd.Timestamp]]:

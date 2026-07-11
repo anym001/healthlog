@@ -197,6 +197,15 @@ class StressConfig(BaseModel):
     # day's HRV-z shift the score (low HRV → higher stress, Stufe 3). The
     # multiplier is clamped to [1 - hrv_weight, 1 + hrv_weight].
     hrv_weight: float = Field(default=0.3, ge=0.0, le=1.0)
+    # Step-based activity gating. A bucket with at least this many steps per
+    # minute is classified "active" (like a workout minute) instead of scored:
+    # everyday movement — a brisk walk, stairs — elevates the heart rate without
+    # being psychological stress, mirroring Garmin's accelerometer gating.
+    # Requires per-minute step_count buckets in the export; with coarser step
+    # data the gate self-disables. ~100 steps/min is a normal walking cadence,
+    # so 60 catches sustained movement while ignoring pacing around a room.
+    # 0 disables the gate (pre-gating behaviour).
+    active_steps_per_min: float = Field(default=60.0, ge=0.0)
     # Zone boundaries on the 0-100 stress scale (Garmin-style rest/low/medium/
     # high). A minute's state is rest < zone_low <= low < zone_medium <=
     # medium < zone_high <= high.

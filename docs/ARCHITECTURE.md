@@ -411,13 +411,26 @@ excluded (`state="active"`, Garmin's grey band) and gaps are `"unmeasurable"`.
 The daily `score` is the dwell-weighted mean over measured minutes; a day below
 `stress.min_measured_min` measured minutes yields no row (a gap, not a zero).
 
+**Movement gating** — Garmin gates activity out via the accelerometer; the proxy
+approximates that with per-minute **step counts**: a bucket at/above
+`stress.active_steps_per_min` (default 60 — a normal walking cadence is ~100
+steps/min) is classified `"active"` like a workout minute, so a brisk walk or a
+stair climb elevates the heart rate without registering as stress. The gate needs
+per-minute `step_count` buckets and **self-disables** on coarser data (median
+step-bucket gap > 2 min — an hourly step total would spuriously gate the single
+co-timed bucket); `0` turns it off.
+
 **Storage & recompute** — dedicated tables, **never** written back into
 `metric_samples` (which stays a replayable mirror of the raw archive, §4.1). The
 nightly run recomputes a trailing window (`stress.window_days`) and replaces those
 rows idempotently; `healthlog rederive-stress [--all|--days N]` rebuilds the full
-history (e.g. after a backfill or a config change). Grafana reads both tables
-(the **Stress** dashboard); a high-stress day also becomes a `stress` finding
-(§4.8) for the narration. All tunables live under `stress.*` in `config.yaml`.
+history (e.g. after a backfill or a config change). In between, the hourly
+**intraday refresh** (`app/analysis/refresh.py`, scheduled via `INTRADAY_CRON`)
+recomputes just the trailing two days of stress + Body Battery — no findings, no
+notifications — so today's timeline stays current between nightly runs. Grafana
+reads both tables (the **Stress** dashboard); a high-stress day also becomes a
+`stress` finding (§4.8) for the narration. All tunables live under `stress.*` in
+`config.yaml`.
 
 ### 4.10 Body Battery (own tables)
 

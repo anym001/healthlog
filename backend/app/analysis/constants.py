@@ -91,6 +91,7 @@ STRESS_HRV_WEIGHT = _STRESS_DEFAULTS.hrv_weight  # 0 => HR-only; higher => stron
 STRESS_ZONE_LOW = _STRESS_DEFAULTS.zone_low  # 0-100 stress-scale zone edges (rest/low/medium/high)
 STRESS_ZONE_MEDIUM = _STRESS_DEFAULTS.zone_medium
 STRESS_ZONE_HIGH = _STRESS_DEFAULTS.zone_high
+STRESS_ACTIVE_STEPS_PER_MIN = _STRESS_DEFAULTS.active_steps_per_min  # steps/min gating a bucket as "active"
 # Intraday bucket cadence: HAE ships heart-rate as ~per-minute buckets, so a
 # minute is the natural resolution of the stress timeline (used to convert a
 # bucket's dwell time into minutes-in-zone). Structural, not an operator knob.

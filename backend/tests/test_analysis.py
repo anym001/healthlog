@@ -36,6 +36,7 @@ from app.analysis import (
     trend_slope,
 )
 from app.analysis.body_battery import compute_body_battery
+from app.analysis.refresh import run_refresh
 from app.analysis.stress import compute_stress
 from app.appconfig import AnalysisConfig, AppConfig, BodyBatteryConfig, ProfileConfig, StressConfig, WorkoutConfig
 from app.models import (
@@ -1397,6 +1398,36 @@ def test_stress_workout_minutes_are_active_not_scored():
     assert pd.isna(df["stress"].iloc[1]) and pd.isna(df["stress"].iloc[2])
 
 
+def test_stress_step_active_buckets_are_gated():
+    # A brisk walk (>= active_steps_per_min steps in a bucket) elevates HR but is
+    # movement, not stress: those buckets go "active" like workout minutes.
+    hr = _minute_hr([60, 120, 120, 60])
+    steps = pd.Series([0.0, 80.0, 90.0, 5.0], index=hr.index)
+    df = stress_intraday_from_hr(hr, 55.0, 155.0, steps=steps, active_steps_per_min=60.0)
+    assert list(df["state"]) == ["rest", "active", "active", "rest"]
+    assert pd.isna(df["stress"].iloc[1]) and pd.isna(df["stress"].iloc[2])
+
+
+def test_stress_step_gating_disabled_with_zero_threshold():
+    hr = _minute_hr([120])
+    steps = pd.Series([200.0], index=hr.index)
+    df = stress_intraday_from_hr(hr, 55.0, 155.0, steps=steps, active_steps_per_min=0.0)
+    assert df["state"].iloc[0] != "active"
+
+
+def test_stress_overlapping_workout_intervals_merge():
+    # Overlapping intervals (e.g. a multisport session logged twice) must not
+    # confuse the vectorised membership test.
+    hr = _minute_hr([150, 150, 150, 150])
+    t0 = hr.index[0]
+    intervals = [
+        (t0, t0 + pd.Timedelta(minutes=3)),
+        (t0 + pd.Timedelta(minutes=1), t0 + pd.Timedelta(minutes=2)),
+    ]
+    df = stress_intraday_from_hr(hr, 55.0, 155.0, workout_intervals=intervals)
+    assert list(df["state"]) == ["active", "active", "active", "high"]
+
+
 def test_stress_hrv_modulation_raises_on_low_hrv():
     hr = _minute_hr([90, 90])
     base = stress_intraday_from_hr(hr, 55.0, 155.0, hrv_z=None, hrv_weight=0.3)["stress"].iloc[0]
@@ -1548,6 +1579,51 @@ def test_compute_stress_dedupes_multi_source_buckets(db):
     hr = {r.ts: r.hr for r in db.execute(select(StressIntraday)).scalars()}
     assert len(hr) == 120
     assert next(iter(hr.values())) == 85.0  # (80 + 90) / 2
+
+
+def test_compute_stress_gates_step_active_minutes(db):
+    # Per-minute steps during elevated HR (a brisk walk) turn those buckets
+    # "active" instead of high-stress.
+    base = dt.date(2026, 3, 1)
+    for d in range(40):
+        day = base + dt.timedelta(days=d)
+        at4 = dt.datetime(day.year, day.month, day.day, 4, tzinfo=UTC)
+        db.add(MetricSample(time=at4, metric="resting_heart_rate", source="", qty=55.0))
+    day = base + dt.timedelta(days=39)
+    for m in range(120):
+        ts = dt.datetime(day.year, day.month, day.day, 8, tzinfo=UTC) + dt.timedelta(minutes=m)
+        walking = 30 <= m < 60
+        db.add(MetricSample(time=ts, metric="heart_rate", source="", vavg=110.0 if walking else 58.0))
+        db.add(MetricSample(time=ts, metric="step_count", source="", qty=110.0 if walking else 0.0))
+    db.flush()
+
+    compute_stress(db, "Europe/Vienna", StressConfig(min_measured_min=1), ProfileConfig(), since_days=90)
+    states = {r.ts: r.state for r in db.execute(select(StressIntraday)).scalars()}
+    assert states[dt.datetime(day.year, day.month, day.day, 8, 40, tzinfo=UTC)] == "active"
+    daily = db.execute(select(StressDaily)).scalars().one()
+    assert daily.active_min == 30
+
+
+def test_compute_stress_ignores_coarse_step_buckets(db):
+    # Hourly step totals must not gate single co-timed buckets: the cadence
+    # guard self-disables the gate on coarse step data.
+    base = dt.date(2026, 3, 1)
+    for d in range(40):
+        day = base + dt.timedelta(days=d)
+        at4 = dt.datetime(day.year, day.month, day.day, 4, tzinfo=UTC)
+        db.add(MetricSample(time=at4, metric="resting_heart_rate", source="", qty=55.0))
+    day = base + dt.timedelta(days=39)
+    for m in range(120):
+        ts = dt.datetime(day.year, day.month, day.day, 8, tzinfo=UTC) + dt.timedelta(minutes=m)
+        db.add(MetricSample(time=ts, metric="heart_rate", source="", vavg=58.0))
+    for h in (8, 9):
+        ts = dt.datetime(day.year, day.month, day.day, h, tzinfo=UTC)
+        db.add(MetricSample(time=ts, metric="step_count", source="", qty=3000.0))
+    db.flush()
+
+    compute_stress(db, "Europe/Vienna", StressConfig(min_measured_min=1), ProfileConfig(), since_days=90)
+    states = [r.state for r in db.execute(select(StressIntraday)).scalars()]
+    assert "active" not in states
 
 
 # --- Body Battery (pure) ---------------------------------------------------
@@ -1733,3 +1809,14 @@ def test_compute_body_battery_disabled_writes_nothing(db):
     res = compute_body_battery(db, "Europe/Vienna", BodyBatteryConfig(enabled=False), since_days=90)
     assert res.days == 0 and res.buckets == 0
     assert db.execute(select(func.count()).select_from(BodyBatteryDaily)).scalar_one() == 0
+
+
+def test_run_refresh_recomputes_last_two_days(db):
+    # The hourly intraday refresh recomputes only the trailing two local days of
+    # stress + Body Battery (no findings) so today's timeline stays current.
+    _seed_body_battery_history(db)
+    run_refresh(db, "Europe/Vienna", AppConfig())
+    stress_days = {r.day for r in db.execute(select(StressDaily)).scalars()}
+    bb_days = {r.day for r in db.execute(select(BodyBatteryDaily)).scalars()}
+    assert stress_days == {dt.date(2026, 4, 8), dt.date(2026, 4, 9)}
+    assert bb_days == {dt.date(2026, 4, 8), dt.date(2026, 4, 9)}

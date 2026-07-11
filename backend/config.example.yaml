@@ -113,6 +113,10 @@
 #   zone_low: 25             # 0-100 zone edges: rest < low < medium < high
 #   zone_medium: 50
 #   zone_high: 75
+#   active_steps_per_min: 60 # buckets with at least this many steps/min count as
+#                            #   "active" (movement, not stress) like workout
+#                            #   minutes; needs per-minute step_count buckets
+#                            #   (self-disables on coarser data); 0 turns it off
 #   min_measured_min: 60     # min measured minutes/day before a score is stored
 #   alert_score: 60          # daily score at/above which a high-stress finding fires
 #   alert_recent_days: 14    # only alert on days this recent

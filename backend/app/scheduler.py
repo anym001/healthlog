@@ -36,6 +36,7 @@ from .logging_config import configure_logging
 log = logging.getLogger("healthlog.scheduler")
 
 DEFAULT_CRON = "30 3 * * *"
+DEFAULT_INTRADAY_CRON = "15 * * * *"
 
 # A slot that fires late (scheduler blocked, clock jump) still runs within
 # this window; older misfires collapse into the startup catch-up instead.
@@ -44,6 +45,12 @@ MISFIRE_GRACE_S = 3600
 # Hard ceiling for one analysis run. Years of history finish in minutes, so
 # hitting this means a wedged run (DB lock, hung connection), not a slow one.
 ANALYSIS_TIMEOUT_S = 4 * 3600
+
+# The intraday refresh covers two days of buckets — seconds of work. A missed
+# hourly slot needs no catch-up (the next one covers the same window), so its
+# misfires simply skip, and a wedged run is killed well before the next slot.
+INTRADAY_MISFIRE_GRACE_S = 300
+INTRADAY_TIMEOUT_S = 15 * 60
 
 
 def run_analysis() -> None:
@@ -73,10 +80,36 @@ def run_analysis() -> None:
     write_last_run(last_run_marker(get_settings()), dt.datetime.now(dt.UTC))
 
 
+def run_intraday_refresh() -> None:
+    """Launch the intraday stress/Body-Battery refresh as a subprocess.
+
+    Never raises (same containment rationale as :func:`run_analysis`); a failed
+    refresh only delays today's dashboard timeline until the next slot or the
+    nightly run, so it logs instead of alerting.
+    """
+    log.info("intraday refresh trigger fired")
+    try:
+        subprocess.run([sys.executable, "-m", "app.analysis.refresh"], check=True, timeout=INTRADAY_TIMEOUT_S)
+    except Exception as exc:
+        log.error("intraday refresh subprocess failed: %s", exc)
+
+
 def build_trigger(settings: Settings) -> CronTrigger:
     """Schedule from the ANALYSIS_CRON 5-field expression (in local_tz).
     An empty value falls back to the default daily 03:30."""
     cron = settings.analysis_cron.strip() or DEFAULT_CRON
+    return CronTrigger.from_crontab(cron, timezone=settings.local_tz)
+
+
+def build_intraday_trigger(settings: Settings) -> CronTrigger | None:
+    """Schedule from the INTRADAY_CRON 5-field expression (in local_tz).
+
+    An empty value falls back to the default hourly :15; the literal ``off``
+    (case-insensitive) disables the refresh entirely (returns ``None``).
+    """
+    cron = settings.intraday_cron.strip() or DEFAULT_INTRADAY_CRON
+    if cron.lower() == "off":
+        return None
     return CronTrigger.from_crontab(cron, timezone=settings.local_tz)
 
 
@@ -142,9 +175,19 @@ def main() -> None:
         coalesce=True,
         misfire_grace_time=MISFIRE_GRACE_S,
     )
+    intraday_trigger = build_intraday_trigger(settings)
+    if intraday_trigger is not None:
+        scheduler.add_job(
+            run_intraday_refresh,
+            intraday_trigger,
+            id="intraday_refresh",
+            coalesce=True,
+            misfire_grace_time=INTRADAY_MISFIRE_GRACE_S,
+        )
     log.info(
-        "scheduler started: nightly analysis cron='%s' %s",
+        "scheduler started: nightly analysis cron='%s', intraday refresh cron='%s', tz=%s",
         settings.analysis_cron.strip() or DEFAULT_CRON,
+        (settings.intraday_cron.strip() or DEFAULT_INTRADAY_CRON) if intraday_trigger is not None else "off",
         settings.local_tz,
     )
     scheduler.start()

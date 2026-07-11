@@ -257,6 +257,7 @@ def test_stress_defaults():
     assert cfg.reserve_full == 0.5
     assert cfg.hrv_weight == 0.3
     assert (cfg.zone_low, cfg.zone_medium, cfg.zone_high) == (25.0, 50.0, 75.0)
+    assert cfg.active_steps_per_min == 60.0
     assert cfg.alert_score == 60.0
 
 
