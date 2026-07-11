@@ -139,8 +139,11 @@
 #                            #   rebuild the full history with
 #                            #   `healthlog rederive-body-battery --all`
 #                            #   (run it after `rederive-stress --all`)
-#   neutral: 25              # stress level that is energy-neutral (below charges,
-#                            #   above drains); defaults to the rest/low edge
+#   neutral:                 # stress level that is energy-neutral (below charges,
+#                            #   above drains). Empty = auto (default): calibrated
+#                            #   each run from your own stress distribution, so the
+#                            #   battery doesn't pin at 0/100 just because your
+#                            #   baseline sits low or high; set a number to pin it
 #   charge_rate: 0.03        # points/min gained at fully calm wake rest
 #   drain_rate: 0.2          # points/min lost at maximum stress
 #   sleep_charge_rate: 0.15  # points/min gained asleep (~+72 over a full night)

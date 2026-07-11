@@ -290,7 +290,7 @@ def test_body_battery_defaults():
     cfg = AppConfig().body_battery
     assert cfg.enabled is True
     assert cfg.window_days == 90
-    assert cfg.neutral == 25.0
+    assert cfg.neutral is None  # unset = auto-calibrated from the personal distribution
     assert cfg.charge_rate == 0.03
     assert cfg.drain_rate == 0.2
     assert cfg.sleep_charge_rate == 0.15
@@ -310,11 +310,12 @@ def test_body_battery_rejects_out_of_range(tmp_path):
 
 def test_body_battery_loaded_from_yaml(tmp_path):
     p = tmp_path / "config.yaml"
-    p.write_text("body_battery:\n  enabled: false\n  window_days: 30\n  drain_rate: 0.4\n")
+    p.write_text("body_battery:\n  enabled: false\n  window_days: 30\n  drain_rate: 0.4\n  neutral: 18\n")
     cfg = load_config(p).body_battery
     assert cfg.enabled is False
     assert cfg.window_days == 30
     assert cfg.drain_rate == 0.4
+    assert cfg.neutral == 18.0  # an explicit number pins the neutral (no auto-calibration)
 
 
 def test_body_battery_rejects_unknown_key(tmp_path):

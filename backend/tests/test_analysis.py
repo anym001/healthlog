@@ -16,6 +16,7 @@ from app.analysis import (
     acute_chronic_ratio,
     aggregate_workout_daily,
     annual_seasonality,
+    auto_neutral,
     banister_trimp,
     body_battery_timeline,
     circular_bedtime_offset,
@@ -35,9 +36,10 @@ from app.analysis import (
     training_status,
     trend_slope,
 )
-from app.analysis.body_battery import compute_body_battery
+from app.analysis.body_battery import _resolve_neutral, compute_body_battery
+from app.analysis.constants import BODY_BATTERY_NEUTRAL
 from app.analysis.refresh import run_refresh
-from app.analysis.stress import compute_stress
+from app.analysis.stress import compute_stress, hr_window_bounds
 from app.appconfig import AnalysisConfig, AppConfig, BodyBatteryConfig, ProfileConfig, StressConfig, WorkoutConfig
 from app.models import (
     BodyBatteryDaily,
@@ -1699,6 +1701,34 @@ def test_summarize_body_battery_day_empty():
     assert summ["wake_level"] is None and summ["charged"] == 0.0 and summ["low_level"] is None
 
 
+def test_auto_neutral_percentile_and_clamps():
+    # 2000 awake minutes uniformly 0..99: the 40th percentile of the personal
+    # distribution (≈39.6) becomes the neutral level.
+    value = auto_neutral(_bb_frame([(v % 100, "rest") for v in range(2000)]))
+    assert value is not None and 39.0 <= value <= 40.0
+
+    # Floor: an all-zero distribution must not disable awake charging entirely.
+    assert auto_neutral(_bb_frame([(0, "rest")] * 1500)) == 5.0
+    # Ceiling: a high distribution must not mark half the scale energy-neutral.
+    assert auto_neutral(_bb_frame([(90, "high")] * 1500)) == 50.0
+
+
+def test_auto_neutral_excludes_sleep_minutes():
+    # Half the minutes are near-zero sleep stress; unmasked they would drag the
+    # percentile to the floor. Only the awake half may calibrate the neutral.
+    start = pd.Timestamp("2026-03-16 00:00", tz="UTC")
+    frame = _bb_frame([(0, "rest")] * 1500 + [(30, "low")] * 1500, start="2026-03-16 00:00")
+    sleep = [(start, start + pd.Timedelta(minutes=1500), 1.0)]
+    assert auto_neutral(frame, sleep) == 30.0
+    assert auto_neutral(frame) == 5.0  # without the mask: 40th pct 0 → clamped to the floor
+
+
+def test_auto_neutral_needs_enough_data():
+    assert auto_neutral(_bb_frame([(20, "rest")] * 100)) is None
+    empty = pd.DataFrame({"stress": [], "state": []}, index=pd.DatetimeIndex([], name="ts"))
+    assert auto_neutral(empty) is None
+
+
 # --- Body Battery (DB end-to-end) ------------------------------------------
 
 
@@ -1837,6 +1867,34 @@ def test_body_battery_daily_gated_by_measured_minutes(db):
     assert sparse_day not in days
     # The sparse day's intraday levels are still stored (630 buckets total).
     assert db.execute(select(func.count()).select_from(BodyBatteryIntraday)).scalar_one() == 630
+
+
+def test_compute_body_battery_auto_neutral_uses_personal_distribution(db):
+    # With `neutral` unset (the default) the run derives the energy-neutral
+    # level from the trailing personal stress distribution: it must equal a run
+    # explicitly pinned to that derived value, and differ from the historical
+    # fixed default — proving the auto path is wired in, not decorative.
+    _seed_body_battery_history(db)
+    compute_stress(db, "Europe/Vienna", StressConfig(), ProfileConfig(), since_days=90)
+    db.flush()
+
+    _start, end, _first = hr_window_bounds(db, "Europe/Vienna", 90)
+    derived = _resolve_neutral(db, BodyBatteryConfig(), end)
+    assert derived != BODY_BATTERY_NEUTRAL  # this seed's calm distribution sits below the fixed 25
+
+    compute_body_battery(db, "Europe/Vienna", BodyBatteryConfig(), since_days=90)
+    db.flush()
+    auto_rows = {r.ts: r.level for r in db.execute(select(BodyBatteryIntraday)).scalars()}
+
+    compute_body_battery(db, "Europe/Vienna", BodyBatteryConfig(neutral=derived), since_days=90)
+    db.flush()
+    pinned_rows = {r.ts: r.level for r in db.execute(select(BodyBatteryIntraday)).scalars()}
+    assert pinned_rows == auto_rows
+
+    compute_body_battery(db, "Europe/Vienna", BodyBatteryConfig(neutral=BODY_BATTERY_NEUTRAL), since_days=90)
+    db.flush()
+    fixed_rows = {r.ts: r.level for r in db.execute(select(BodyBatteryIntraday)).scalars()}
+    assert fixed_rows != auto_rows
 
 
 def test_run_refresh_recomputes_last_two_days(db):

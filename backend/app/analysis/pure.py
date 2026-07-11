@@ -27,6 +27,10 @@ from .constants import (
     BODY_BATTERY_CHARGE_RATE,
     BODY_BATTERY_DRAIN_RATE,
     BODY_BATTERY_NEUTRAL,
+    BODY_BATTERY_NEUTRAL_CEIL,
+    BODY_BATTERY_NEUTRAL_FLOOR,
+    BODY_BATTERY_NEUTRAL_MIN_MINUTES,
+    BODY_BATTERY_NEUTRAL_PERCENTILE,
     BODY_BATTERY_SEED_LEVEL,
     BODY_BATTERY_SLEEP_CHARGE_RATE,
     CTL_DAYS,
@@ -636,6 +640,39 @@ def summarize_stress_day(intraday: pd.DataFrame, gap_cap_minutes: float = STRESS
 # A Garmin-style 0-100 energy reserve: the stress timeline integrated against
 # recovery. See docs/ARCHITECTURE.md §4.10 for the model, its self-correcting
 # sleep re-anchor, and the (shared with stress) RR-interval proxy caveat.
+
+
+def auto_neutral(
+    intraday: pd.DataFrame,
+    sleep_intervals: list[tuple[pd.Timestamp, pd.Timestamp, float]] | None = None,
+    *,
+    percentile: float = BODY_BATTERY_NEUTRAL_PERCENTILE,
+    min_minutes: int = BODY_BATTERY_NEUTRAL_MIN_MINUTES,
+) -> float | None:
+    """Derive the energy-neutral stress level from the personal distribution.
+
+    The stress score is relative to the personal resting baseline, so a fixed
+    neutral threshold sits wrong for most people — a calm baseline keeps every
+    day below it and the battery pins at 100 (and vice versa). Instead, take
+    ``percentile`` of the *measured awake* stress values in ``intraday`` (the
+    trailing stress timeline): "your typical calm waking level". Sleep buckets
+    are excluded (their near-zero stress would drag the percentile down);
+    active/unmeasurable buckets carry no stress and drop out on their own. The
+    result is clamped to ``[BODY_BATTERY_NEUTRAL_FLOOR,
+    BODY_BATTERY_NEUTRAL_CEIL]`` so a degenerate distribution can never disable
+    charging or drain half the scale. Returns ``None`` with fewer than
+    ``min_minutes`` usable values (too little history to calibrate — the caller
+    falls back to the fixed default).
+    """
+    if intraday.empty:
+        return None
+    stresses = pd.to_numeric(intraday["stress"], errors="coerce").to_numpy(dtype="float64")
+    asleep = _in_intervals(intraday.index, [(s, e) for s, e, _eff in sleep_intervals or []])
+    values = stresses[~np.isnan(stresses) & ~asleep]
+    if len(values) < min_minutes:
+        return None
+    value = round(float(np.percentile(values, percentile)), 1)
+    return float(np.clip(value, BODY_BATTERY_NEUTRAL_FLOOR, BODY_BATTERY_NEUTRAL_CEIL))
 
 
 def body_battery_timeline(

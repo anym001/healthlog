@@ -252,8 +252,15 @@ class BodyBatteryConfig(BaseModel):
     # `healthlog rederive-body-battery --all`). Old days rarely change.
     window_days: int = Field(default=90, ge=1, le=3650)
     # Stress level (0-100) that is energy-neutral: below it awake rest charges,
-    # above it drains. Defaults to the stress "rest/low" boundary.
-    neutral: float = Field(default=25.0, ge=0.0, le=100.0)
+    # above it drains. Empty (the default) = auto-calibrated each run from the
+    # personal stress distribution — a percentile of the trailing weeks'
+    # measured awake minutes (see analysis/constants.py for the derivation
+    # constants; falls back to the stress "rest/low" boundary with under a day
+    # of data). The stress score is baseline-relative, so a fixed threshold
+    # sits wrong for most people (a calm baseline pins the battery at 100, a
+    # high one at 0); auto keeps the neutral point aligned with the personal
+    # distribution. Set a number to pin it explicitly.
+    neutral: float | None = Field(default=None, ge=0.0, le=100.0)
     # Charge earned per minute of fully-calm wake rest (stress 0); scales down
     # linearly toward `neutral`.
     charge_rate: float = Field(default=0.03, ge=0.0)

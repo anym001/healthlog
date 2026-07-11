@@ -463,6 +463,25 @@ sleep, i.e. what you started the day with). A day with fewer than
 a barely-worn day's level merely *holds*, so a summary would feign knowledge
 (mirroring `stress.min_measured_min`); the intraday timeline is stored regardless.
 
+**Auto-calibrated neutral** — the stress score is relative to the personal resting
+baseline (§4.9), so a *fixed* energy-neutral level sits wrong for most people: with a
+calm baseline every day scores below it and the battery pins at 100 (a high baseline
+pins it at 0). By default (`body_battery.neutral` unset) each run therefore derives
+the neutral level from the personal distribution: the
+`BODY_BATTERY_NEUTRAL_PERCENTILE`th percentile of the measured *awake* stress minutes
+over the trailing `BODY_BATTERY_NEUTRAL_LOOKBACK_DAYS` (sleep buckets excluded — their
+near-zero stress would drag the percentile down), clamped to
+`[BODY_BATTERY_NEUTRAL_FLOOR, BODY_BATTERY_NEUTRAL_CEIL]` (pure helper
+`auto_neutral`). The lookback is anchored at the recompute window's *end*, not at the
+window itself, so the nightly, hourly-refresh and full-rederive runs of the same data
+agree on one neutral and windowed recomputes still reproduce full-history rows. Under
+`BODY_BATTERY_NEUTRAL_MIN_MINUTES` of usable data the run falls back to the fixed
+default (`BODY_BATTERY_NEUTRAL`); either way the value in effect is logged. Setting
+`body_battery.neutral` to a number pins it and skips the derivation. The derived
+neutral tracks the baseline as it drifts (like the stress baseline itself), which is
+the point — absolute levels months apart are comparable only in the proxy-relative
+sense both scores already carry.
+
 **Drift & the sleep re-anchor** — an accumulator's risk is unbounded drift. It is
 avoided *without* a hard-coded reset: sleep charges strongly and the level is clamped
 at 100, so a normal night pushes the battery back toward full and the `seed_level`

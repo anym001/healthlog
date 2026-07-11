@@ -381,6 +381,12 @@ docker exec healthlog healthlog rederive-body-battery            # full history
 docker exec healthlog healthlog rederive-body-battery --days 30  # only the last 30 days
 ```
 
+The energy-neutral stress level — below it awake rest charges, above it drains — is
+**auto-calibrated** by default: each run derives it from your own stress distribution
+over the trailing weeks (the derived value is logged), so the battery doesn't pin at
+0 or 100 just because your personal baseline sits low or high. Set `body_battery.neutral`
+to a number to pin it explicitly.
+
 Tunables live under `body_battery.*` in `config.yaml` (charge/drain rates, neutral
 level, alert threshold — see `config.example.yaml`); set `body_battery.enabled: false`
 to turn it off. It requires `stress.enabled` (the battery integrates the stress
