@@ -197,6 +197,15 @@ class StressConfig(BaseModel):
     # day's HRV-z shift the score (low HRV → higher stress, Stufe 3). The
     # multiplier is clamped to [1 - hrv_weight, 1 + hrv_weight].
     hrv_weight: float = Field(default=0.3, ge=0.0, le=1.0)
+    # Step-based activity gating. A bucket with at least this many steps per
+    # minute is classified "active" (like a workout minute) instead of scored:
+    # everyday movement — a brisk walk, stairs — elevates the heart rate without
+    # being psychological stress, mirroring Garmin's accelerometer gating.
+    # Requires per-minute step_count buckets in the export; with coarser step
+    # data the gate self-disables. ~100 steps/min is a normal walking cadence,
+    # so 60 catches sustained movement while ignoring pacing around a room.
+    # 0 disables the gate (pre-gating behaviour).
+    active_steps_per_min: float = Field(default=60.0, ge=0.0)
     # Zone boundaries on the 0-100 stress scale (Garmin-style rest/low/medium/
     # high). A minute's state is rest < zone_low <= low < zone_medium <=
     # medium < zone_high <= high.
@@ -260,6 +269,12 @@ class BodyBatteryConfig(BaseModel):
     # Neutral seed at the recompute window's first bucket; washed out within a
     # few days by the nightly sleep re-anchor, so its exact value is immaterial.
     seed_level: float = Field(default=50.0, ge=0.0, le=100.0)
+    # Minimum informative stress buckets (≈ minutes at the per-minute cadence)
+    # in a local day before a daily summary row is stored — a barely-worn day
+    # would otherwise show a flat "held" battery as if it were measured.
+    # Mirrors stress.min_measured_min; the intraday timeline is always stored.
+    # 0 disables the gate.
+    min_measured_min: int = Field(default=60, ge=0)
     # Day whose lowest level reaches at/below this emits a low-battery alert
     # finding; how recent a day must be to alert.
     alert_level: float = Field(default=20.0, ge=0.0, le=100.0)
@@ -352,6 +367,18 @@ class AppConfig(BaseModel):
     body_battery: BodyBatteryConfig = Field(default_factory=BodyBatteryConfig)
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
     narrate: NarrateConfig = Field(default_factory=NarrateConfig)
+
+    @model_validator(mode="after")
+    def _check(self) -> AppConfig:
+        # Body Battery integrates the stress_intraday timeline; with stress off
+        # that pass would silently compute nothing (and clear its window). Fail
+        # fast with a clear message instead.
+        if self.body_battery.enabled and not self.stress.enabled:
+            raise ValueError(
+                "body_battery.enabled requires stress.enabled (Body Battery integrates "
+                "the stress timeline); set body_battery.enabled: false as well, or re-enable stress"
+            )
+        return self
 
 
 def load_config(path: str | Path) -> AppConfig:

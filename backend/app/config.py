@@ -48,6 +48,12 @@ class Settings(BaseSettings):
     # When the nightly analysis runs (in local_tz), as a 5-field cron
     # expression. Default: 03:30 every day.
     analysis_cron: str = Field(default="30 3 * * *", alias="ANALYSIS_CRON")
+    # When the lightweight intraday refresh runs (stress + Body Battery over
+    # the last two days, so today's timeline appears on the dashboard without
+    # waiting for the nightly run). 5-field cron in local_tz; default hourly
+    # at :15 (HAE's hourly sync has usually landed by then). The literal "off"
+    # disables it; an empty value falls back to the default.
+    intraday_cron: str = Field(default="15 * * * *", alias="INTRADAY_CRON")
 
     # --- Logging -----------------------------------------------------------
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")

@@ -5,9 +5,10 @@ against recovery — stress and workouts drain the battery, calm rest and sleep
 charge it, clamped to 0-100 — and writes the result into the dedicated
 ``body_battery_intraday`` / ``body_battery_daily`` tables. The math lives in
 ``pure.py`` (DB-free, unit-tested); this module is the DB glue: load the window's
-stress timeline + sleep intervals, integrate once across the whole window (the
-accumulator is continuous over day boundaries), summarise per local day, and
-replace the window's rows idempotently.
+stress timeline + sleep intervals (plus a warm-up margin before a bounded window,
+so the neutral seed never reaches the stored rows), integrate once across the
+whole window (the accumulator is continuous over day boundaries), summarise per
+local day, and replace the window's rows idempotently.
 
 Body Battery is a *proxy on a proxy*: it builds on the stress score, which HAE
 cannot derive from beat-to-beat RR intervals, so the numbers track your own
@@ -24,15 +25,16 @@ import datetime as dt
 from dataclasses import dataclass
 from zoneinfo import ZoneInfo
 
+import pandas as pd
 from sqlalchemy import delete, insert, select
 from sqlalchemy.orm import Session
 
 from ..appconfig import BodyBatteryConfig
 from ..models import BodyBatteryDaily, BodyBatteryIntraday
-from .constants import log
+from .constants import BODY_BATTERY_WARMUP_DAYS, log
 from .load import load_sleep_intervals, load_stress_intraday
 from .pure import body_battery_timeline, summarize_body_battery_day
-from .stress import _window_bounds
+from .stress import hr_window_bounds
 
 
 @dataclass
@@ -56,26 +58,35 @@ def compute_body_battery(
     span. The window's existing rows are replaced (delete + insert) so the pass is
     fully idempotent — a re-run over the same stress timeline reproduces identical
     rows.
+
+    A windowed recompute integrates ``BODY_BATTERY_WARMUP_DAYS`` extra days
+    *before* the stored range: a day's last write happens on the run where it is
+    the window's first day, so without the margin every archived day would keep
+    the seed-influenced computation. The warm-up lets the nightly sleep re-anchor
+    wash the seed out before the first stored bucket; only ``[start, end)`` is
+    stored.
     """
     if not cfg.enabled:
         return BodyBatteryResult()
 
-    bounds = _window_bounds(db, tz, since_days)
+    bounds = hr_window_bounds(db, tz, since_days)
     if bounds is None:
         return BodyBatteryResult()
     start, end, first_day = bounds
+    warm_start = start - dt.timedelta(days=BODY_BATTERY_WARMUP_DAYS) if since_days is not None else start
 
-    intraday = load_stress_intraday(db, start, end)
+    intraday = load_stress_intraday(db, warm_start, end)
     if intraday.empty:
         _replace_window(db, start, end, first_day, [], [])
         return BodyBatteryResult()
     if intraday.index.tz is None:
         intraday.index = intraday.index.tz_localize(dt.UTC)
 
-    sleep_intervals = load_sleep_intervals(db, start, end)
+    sleep_intervals = load_sleep_intervals(db, warm_start, end)
 
-    # Integrate once over the whole window: the battery is a continuous
-    # accumulator, so unlike the stress summary it must not restart each day.
+    # Integrate once over the whole window (warm-up included): the battery is a
+    # continuous accumulator, so unlike the stress summary it must not restart
+    # each day.
     timeline = body_battery_timeline(
         intraday,
         sleep_intervals,
@@ -86,6 +97,11 @@ def compute_body_battery(
         active_drain_rate=cfg.active_drain_rate,
         seed_level=cfg.seed_level,
     )
+    # Drop the warm-up rows — they only exist to settle the integrator.
+    timeline = timeline[timeline.index >= start]
+    if timeline.empty:
+        _replace_window(db, start, end, first_day, [], [])
+        return BodyBatteryResult()
 
     zone = ZoneInfo(tz)
     wake_by_day = _wake_ends_by_day(sleep_intervals, zone)
@@ -94,8 +110,17 @@ def compute_body_battery(
         {"ts": ts.to_pydatetime(), "level": int(round(float(level)))} for ts, level in timeline["level"].items()
     ]
 
+    # Daily-row gate: a barely-worn day's timeline is almost entirely
+    # "unmeasurable" — the level just holds, and a summary row would feign
+    # knowledge. Count informative buckets (≈ minutes at the per-minute
+    # cadence) per local day; the intraday rows are stored regardless.
+    informative = pd.Series(intraday["state"].to_numpy() != "unmeasurable", index=intraday.index)
+    informative_min = informative.groupby(informative.index.tz_convert(zone).date).sum()
+
     daily_rows: list[dict] = []
     for day, sub in timeline.groupby(timeline.index.tz_convert(zone).date):
+        if int(informative_min.get(day, 0)) < cfg.min_measured_min:
+            continue
         summ = summarize_body_battery_day(sub, wake_by_day.get(day))
         daily_rows.append(
             {
@@ -149,14 +174,12 @@ def _replace_window(
         db.execute(insert(BodyBatteryDaily), daily_rows)
 
 
-def load_body_battery_daily(db: Session, since_days: int | None = None):
+def load_body_battery_daily(db: Session, since_days: int | None = None) -> pd.DataFrame:
     """Recent ``body_battery_daily`` rows as a frame (for the alert-finding builder).
 
     ``since_days`` filters to days at least that recent (relative to the latest
     stored day). Empty frame when the table is empty.
     """
-    import pandas as pd
-
     rows = db.execute(select(BodyBatteryDaily).order_by(BodyBatteryDaily.day)).scalars().all()
     if not rows:
         return pd.DataFrame()

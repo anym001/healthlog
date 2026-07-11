@@ -26,7 +26,7 @@ from ..appconfig import ProfileConfig, StressConfig
 from ..models import StressDaily, StressIntraday
 from ..registry import METRIC_REGISTRY
 from .constants import log
-from .load import load_daily_series, load_intraday_hr, load_workout_intervals
+from .load import load_daily_series, load_intraday_hr, load_intraday_steps, load_workout_intervals
 from .pure import resolve_hr_max, resolve_hr_rest, robust_z, stress_intraday_from_hr, summarize_stress_day
 
 
@@ -38,7 +38,7 @@ class StressResult:
     buckets: int = 0
 
 
-def _window_bounds(db: Session, tz: str, since_days: int | None) -> tuple[dt.datetime, dt.datetime, dt.date] | None:
+def hr_window_bounds(db: Session, tz: str, since_days: int | None) -> tuple[dt.datetime, dt.datetime, dt.date] | None:
     """Resolve the recompute window ``[start, end)`` and its first local day.
 
     Anchored on the newest heart-rate sample (not wall-clock now, so historical
@@ -62,6 +62,21 @@ def _window_bounds(db: Session, tz: str, since_days: int | None) -> tuple[dt.dat
     return start, end, first_day
 
 
+def _minute_cadence(steps: pd.Series) -> bool:
+    """True when the step buckets are fine-grained enough for per-minute gating.
+
+    An hourly-grouped export delivers one bucket per hour whose step total would
+    spuriously gate the single co-timed HR bucket; gate only when the typical
+    gap between step buckets is (near-)minute. Steps arrive in bursts (no bucket
+    while sitting still), so the *median* gap is the cadence signal — a fine
+    export has runs of consecutive minutes that dominate the median.
+    """
+    if len(steps) < 2:
+        return False
+    gaps = steps.index.to_series().diff().dt.total_seconds().dropna()
+    return float(gaps.median()) <= 120.0
+
+
 def compute_stress(
     db: Session,
     tz: str,
@@ -78,7 +93,7 @@ def compute_stress(
     if not cfg.enabled:
         return StressResult()
 
-    bounds = _window_bounds(db, tz, since_days)
+    bounds = hr_window_bounds(db, tz, since_days)
     if bounds is None:
         return StressResult()
     start, end, first_day = bounds
@@ -100,6 +115,16 @@ def compute_stress(
     hrv_z_series = robust_z(hrv_daily.dropna()) if not hrv_daily.dropna().empty else pd.Series(dtype="float64")
 
     intervals = load_workout_intervals(db, start, end)
+
+    # Step-based activity gating: only usable with per-minute step buckets — an
+    # hourly step total would spuriously gate single buckets, so the gate
+    # self-disables on coarse data (see _minute_cadence).
+    steps = load_intraday_steps(db, start, end) if cfg.active_steps_per_min > 0 else pd.Series(dtype="float64")
+    if not _minute_cadence(steps):
+        steps = pd.Series(dtype="float64")
+    elif steps.index.tz is None:
+        steps.index = steps.index.tz_localize(dt.UTC)
+
     day_keys = hr.index.tz_convert(zone).date
 
     intraday_rows: list[dict] = []
@@ -125,15 +150,18 @@ def compute_stress(
             zone_low=cfg.zone_low,
             zone_medium=cfg.zone_medium,
             zone_high=cfg.zone_high,
+            steps=steps,
+            active_steps_per_min=cfg.active_steps_per_min,
         )
-        for ts, r in frame.iterrows():
-            stress = r["stress"]
+        for ts, stress, bpm, state in zip(
+            frame.index, frame["stress"].to_numpy(), frame["hr"].to_numpy(), frame["state"].to_numpy(), strict=True
+        ):
             intraday_rows.append(
                 {
                     "ts": ts.to_pydatetime(),
                     "stress": int(stress) if stress is not None and not pd.isna(stress) else None,
-                    "hr": float(r["hr"]) if r["hr"] is not None and not pd.isna(r["hr"]) else None,
-                    "state": r["state"],
+                    "hr": float(bpm) if bpm is not None and not pd.isna(bpm) else None,
+                    "state": state,
                 }
             )
 

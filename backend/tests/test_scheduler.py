@@ -8,11 +8,12 @@ import subprocess
 from apscheduler.triggers.cron import CronTrigger
 
 from app import config, scheduler
-from app.scheduler import build_trigger, missed_run, read_last_run, write_last_run
+from app.scheduler import build_intraday_trigger, build_trigger, missed_run, read_last_run, write_last_run
 
 
 def _settings(monkeypatch, **env) -> config.Settings:
     monkeypatch.delenv("ANALYSIS_CRON", raising=False)
+    monkeypatch.delenv("INTRADAY_CRON", raising=False)
     monkeypatch.setenv("TZ", "Europe/Vienna")
     for key, value in env.items():
         monkeypatch.setenv(key, value)
@@ -45,6 +46,39 @@ def test_build_trigger_empty_falls_back_to_default(monkeypatch):
         trigger = build_trigger(_settings(monkeypatch, ANALYSIS_CRON="   "))
         assert "hour='3'" in str(trigger)
         assert "minute='30'" in str(trigger)
+    finally:
+        config.get_settings.cache_clear()
+
+
+def test_build_intraday_trigger_default_is_hourly_at_15(monkeypatch):
+    try:
+        trigger = build_intraday_trigger(_settings(monkeypatch))
+        assert isinstance(trigger, CronTrigger)
+        assert "minute='15'" in str(trigger)
+    finally:
+        config.get_settings.cache_clear()
+
+
+def test_build_intraday_trigger_off_disables(monkeypatch):
+    try:
+        assert build_intraday_trigger(_settings(monkeypatch, INTRADAY_CRON="off")) is None
+        assert build_intraday_trigger(_settings(monkeypatch, INTRADAY_CRON="OFF")) is None
+    finally:
+        config.get_settings.cache_clear()
+
+
+def test_build_intraday_trigger_empty_falls_back_to_default(monkeypatch):
+    try:
+        trigger = build_intraday_trigger(_settings(monkeypatch, INTRADAY_CRON="   "))
+        assert "minute='15'" in str(trigger)
+    finally:
+        config.get_settings.cache_clear()
+
+
+def test_build_intraday_trigger_uses_custom_cron(monkeypatch):
+    try:
+        trigger = build_intraday_trigger(_settings(monkeypatch, INTRADAY_CRON="*/30 * * * *"))
+        assert "minute='*/30'" in str(trigger)
     finally:
         config.get_settings.cache_clear()
 

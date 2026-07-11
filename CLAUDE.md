@@ -22,7 +22,8 @@ local LLM. Everything runs on the user's own hardware — no external calls.
     builders), `stress.py` (intraday stress-proxy timeline + daily summary → own
     tables), `body_battery.py` (0-100 energy-reserve timeline + daily summary → own
     tables, integrating the stress timeline), `run.py` (orchestration),
-    `constants.py` (tunables). `__init__.py`
+    `refresh.py` (hourly two-day stress/body-battery refresh, `python -m
+    app.analysis.refresh`), `constants.py` (tunables). `__init__.py`
     re-exports the flat public API; `python -m app.analysis` runs it as an isolated
     subprocess via the scheduler.
   - `narrate/` — LLM narration, split by role: `prompts.py` (per-language system

@@ -101,7 +101,8 @@
 # intraday timeline, set Health Auto Export's "Time Grouping" to Minute (hourly
 # grouping yields only ~24 points/day). Defaults shown.
 # stress:
-#   enabled: true
+#   enabled: true            # disabling stress also requires
+#                            #   body_battery.enabled: false (it builds on stress)
 #   window_days: 90          # trailing days recomputed each nightly run;
 #                            #   rebuild the full history with
 #                            #   `healthlog rederive-stress --all`
@@ -112,6 +113,10 @@
 #   zone_low: 25             # 0-100 zone edges: rest < low < medium < high
 #   zone_medium: 50
 #   zone_high: 75
+#   active_steps_per_min: 60 # buckets with at least this many steps/min count as
+#                            #   "active" (movement, not stress) like workout
+#                            #   minutes; needs per-minute step_count buckets
+#                            #   (self-disables on coarser data); 0 turns it off
 #   min_measured_min: 60     # min measured minutes/day before a score is stored
 #   alert_score: 60          # daily score at/above which a high-stress finding fires
 #   alert_recent_days: 14    # only alert on days this recent
@@ -127,7 +132,9 @@
 # fixed reset. Charge/drain rates are points-per-minute; tune them if your
 # battery pins at 0 or 100. Defaults shown.
 # body_battery:
-#   enabled: true
+#   enabled: true            # requires stress.enabled (the battery integrates the
+#                            #   stress timeline); disabling only stress is
+#                            #   rejected at config load
 #   window_days: 90          # trailing days recomputed each nightly run;
 #                            #   rebuild the full history with
 #                            #   `healthlog rederive-body-battery --all`
@@ -140,6 +147,9 @@
 #   active_drain_rate: 0.3   # points/min lost inside a workout
 #   seed_level: 50           # neutral start at the window's first bucket (washed
 #                            #   out within days by the nightly sleep re-anchor)
+#   min_measured_min: 60     # min informative stress minutes/day before a daily
+#                            #   row is stored (a barely-worn day is a gap, not a
+#                            #   flat battery); the intraday timeline always stays
 #   alert_level: 20          # day whose low reaches at/below this fires an alert
 #   alert_recent_days: 14    # only alert on days this recent
 

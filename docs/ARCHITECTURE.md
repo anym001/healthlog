@@ -411,13 +411,26 @@ excluded (`state="active"`, Garmin's grey band) and gaps are `"unmeasurable"`.
 The daily `score` is the dwell-weighted mean over measured minutes; a day below
 `stress.min_measured_min` measured minutes yields no row (a gap, not a zero).
 
+**Movement gating** — Garmin gates activity out via the accelerometer; the proxy
+approximates that with per-minute **step counts**: a bucket at/above
+`stress.active_steps_per_min` (default 60 — a normal walking cadence is ~100
+steps/min) is classified `"active"` like a workout minute, so a brisk walk or a
+stair climb elevates the heart rate without registering as stress. The gate needs
+per-minute `step_count` buckets and **self-disables** on coarser data (median
+step-bucket gap > 2 min — an hourly step total would spuriously gate the single
+co-timed bucket); `0` turns it off.
+
 **Storage & recompute** — dedicated tables, **never** written back into
 `metric_samples` (which stays a replayable mirror of the raw archive, §4.1). The
 nightly run recomputes a trailing window (`stress.window_days`) and replaces those
 rows idempotently; `healthlog rederive-stress [--all|--days N]` rebuilds the full
-history (e.g. after a backfill or a config change). Grafana reads both tables
-(the **Stress** dashboard); a high-stress day also becomes a `stress` finding
-(§4.8) for the narration. All tunables live under `stress.*` in `config.yaml`.
+history (e.g. after a backfill or a config change). In between, the hourly
+**intraday refresh** (`app/analysis/refresh.py`, scheduled via `INTRADAY_CRON`)
+recomputes just the trailing two days of stress + Body Battery — no findings, no
+notifications — so today's timeline stays current between nightly runs. Grafana
+reads both tables (the **Stress** dashboard); a high-stress day also becomes a
+`stress` finding (§4.8) for the narration. All tunables live under `stress.*` in
+`config.yaml`.
 
 ### 4.10 Body Battery (own tables)
 
@@ -445,7 +458,10 @@ Integrated as `level(t) = clamp(level(t−dwell) + rate·dwell, 0, 100)` from a 
 `seed_level` at the window's first bucket. Because the integrator is **continuous
 across day boundaries**, it is run once over the whole window and then sliced per
 local day for the summary (`wake_level` = the level at the end of the day's main
-sleep, i.e. what you started the day with).
+sleep, i.e. what you started the day with). A day with fewer than
+`body_battery.min_measured_min` informative stress minutes stores no daily row —
+a barely-worn day's level merely *holds*, so a summary would feign knowledge
+(mirroring `stress.min_measured_min`); the intraday timeline is stored regardless.
 
 **Drift & the sleep re-anchor** — an accumulator's risk is unbounded drift. It is
 avoided *without* a hard-coded reset: sleep charges strongly and the level is clamped
@@ -453,6 +469,13 @@ at 100, so a normal night pushes the battery back toward full and the `seed_leve
 washes out within a few days. The wake level is therefore an **emergent** function of
 sleep quality, not a fixed number — mirroring how Garmin's battery visibly re-charges
 overnight.
+
+**Warm-up margin** — a day's *last* write happens on the nightly run where it is the
+trailing window's first day; storing that run's values verbatim would permanently
+keep the seed-influenced computation for every archived day. A bounded recompute
+therefore integrates `BODY_BATTERY_WARMUP_DAYS` (7) extra days *before* the stored
+range — enough sleep re-anchors to settle the integrator — and stores only the
+requested window, so the archived levels match what a full-history run would produce.
 
 **Storage & recompute** — dedicated tables, **never** written back into
 `metric_samples` (§4.1), mirroring the stress precedent. The nightly run recomputes a

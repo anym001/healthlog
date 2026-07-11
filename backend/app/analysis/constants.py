@@ -91,6 +91,7 @@ STRESS_HRV_WEIGHT = _STRESS_DEFAULTS.hrv_weight  # 0 => HR-only; higher => stron
 STRESS_ZONE_LOW = _STRESS_DEFAULTS.zone_low  # 0-100 stress-scale zone edges (rest/low/medium/high)
 STRESS_ZONE_MEDIUM = _STRESS_DEFAULTS.zone_medium
 STRESS_ZONE_HIGH = _STRESS_DEFAULTS.zone_high
+STRESS_ACTIVE_STEPS_PER_MIN = _STRESS_DEFAULTS.active_steps_per_min  # steps/min gating a bucket as "active"
 # Intraday bucket cadence: HAE ships heart-rate as ~per-minute buckets, so a
 # minute is the natural resolution of the stress timeline (used to convert a
 # bucket's dwell time into minutes-in-zone). Structural, not an operator knob.
@@ -113,3 +114,10 @@ BODY_BATTERY_DRAIN_RATE = _BODY_BATTERY_DEFAULTS.drain_rate  # points/min at max
 BODY_BATTERY_SLEEP_CHARGE_RATE = _BODY_BATTERY_DEFAULTS.sleep_charge_rate  # points/min asleep
 BODY_BATTERY_ACTIVE_DRAIN_RATE = _BODY_BATTERY_DEFAULTS.active_drain_rate  # points/min in a workout
 BODY_BATTERY_SEED_LEVEL = _BODY_BATTERY_DEFAULTS.seed_level  # neutral seed at window start
+# Warm-up margin for windowed recomputes. A day's *last* write happens on the
+# run where it is the window's first day, so without a margin every archived day
+# would permanently keep the computation with the seed at its own start.
+# Integrating this many extra days before the stored range lets the nightly
+# sleep re-anchor wash the seed out before the first stored bucket. Structural
+# domain constant, not an operator knob.
+BODY_BATTERY_WARMUP_DAYS = 7
