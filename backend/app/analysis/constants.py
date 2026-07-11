@@ -108,7 +108,23 @@ STRESS_GAP_CAP_MINUTES = 10.0
 # §4.10. The battery integrates the stress timeline against recovery, so it
 # shares the stress bucket cadence and gap cap.
 _BODY_BATTERY_DEFAULTS = _DEFAULT_APP_CONFIG.body_battery
-BODY_BATTERY_NEUTRAL = _BODY_BATTERY_DEFAULTS.neutral  # energy-neutral stress level
+# Energy-neutral stress level used as the pure integrator's back-compatible
+# default and as the fallback when `body_battery.neutral` is auto (unset, the
+# config default) but the trailing window holds too little data to derive one.
+# 25 = the stress rest/low boundary (the historical fixed default).
+BODY_BATTERY_NEUTRAL = 25.0
+# Auto-neutral derivation (ARCHITECTURE §4.10). The stress score is relative to
+# the personal resting baseline, so a fixed neutral sits wrong for most people
+# (a calm baseline pins the battery at 100, a high one at 0). When
+# `body_battery.neutral` is unset, each run derives it as a percentile of the
+# measured awake stress minutes over a trailing lookback — "your typical calm
+# waking level" — clamped to a sane band. Structural domain constants; the
+# operator knob is `body_battery.neutral` itself (a number pins it).
+BODY_BATTERY_NEUTRAL_PERCENTILE = 40.0
+BODY_BATTERY_NEUTRAL_LOOKBACK_DAYS = 60
+BODY_BATTERY_NEUTRAL_MIN_MINUTES = 1440  # ≈ a full day of awake measured minutes
+BODY_BATTERY_NEUTRAL_FLOOR = 5.0
+BODY_BATTERY_NEUTRAL_CEIL = 50.0
 BODY_BATTERY_CHARGE_RATE = _BODY_BATTERY_DEFAULTS.charge_rate  # points/min at calm rest
 BODY_BATTERY_DRAIN_RATE = _BODY_BATTERY_DEFAULTS.drain_rate  # points/min at max stress
 BODY_BATTERY_SLEEP_CHARGE_RATE = _BODY_BATTERY_DEFAULTS.sleep_charge_rate  # points/min asleep

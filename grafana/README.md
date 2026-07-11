@@ -1,7 +1,15 @@
 # Grafana Dashboards
 
-Six pre-built Grafana dashboards for HealthLog. Import them once via the
-Grafana UI — no provisioning required.
+Seven pre-built Grafana dashboards for HealthLog. Two ways to get them into
+Grafana:
+
+- **[Option A — manual import](#option-a--manual-import):** click through the
+  UI once. Lowest friction to try things out, but every dashboard update means
+  re-importing the JSON by hand.
+- **[Option B — provisioning](#option-b--provisioning-recommended) (recommended
+  for long-term use):** Grafana reads the datasource and the dashboards from
+  this repo's files. Updates arrive with a `git pull`, and the datasource UID
+  can never be wrong.
 
 ## Prerequisites
 
@@ -31,7 +39,7 @@ GRANT SELECT ON ALL TABLES IN SCHEMA public TO grafana_ro;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO grafana_ro;
 ```
 
-## Setup
+## Option A — manual import
 
 **1. Add the datasource in Grafana**
 
@@ -65,6 +73,48 @@ Dashboards → New → Import → upload JSON file (repeat for each):
 | `dashboards/workout-detail.json` | Workout Detail — single-session drill-down: intra-workout HR curve, KPIs, metadata |
 | `dashboards/stress.json` | Stress & Body Battery — Garmin-style daily score gauge, time-in-zone, intraday timeline, long-term trend, plus a Body-Battery reserve gauge, daily wake/high/low, intraday battery timeline and charged/drained bars (7-day window) |
 | `dashboards/metrics.json` | Metrics Explorer — raw values for any metric, Apple-Health-style (30-day window) |
+
+## Option B — provisioning (recommended)
+
+Instead of clicking the datasource together and importing JSONs, let Grafana
+read both from this repo (a checkout on the Docker host). Two mounts and one
+environment variable on the **Grafana** container do it — the
+[prerequisites](#prerequisites) (network + `grafana_ro` user) are the same:
+
+```bash
+docker run -d \
+  --name grafana \
+  --network health \
+  -p 3000:3000 \
+  -e GF_SECURITY_ADMIN_PASSWORD=change-me \
+  -e GF_SERVER_ROOT_URL=http://YOUR-UNRAID-IP:3000 \
+  -e GRAFANA_RO_PASSWORD=change-me-grafana-ro \
+  -v /mnt/user/appdata/grafana:/var/lib/grafana \
+  -v /path/to/healthlog/grafana/provisioning:/etc/grafana/provisioning:ro \
+  -v /path/to/healthlog/grafana/dashboards:/var/lib/grafana/dashboards/healthlog:ro \
+  --restart unless-stopped \
+  grafana/grafana:11.5.2
+```
+
+`GRAFANA_RO_PASSWORD` is the `grafana_ro` password from the prerequisites — the
+provisioning file reads it from the environment, so no secret lands in the repo.
+On startup Grafana creates the `healthlog-db` datasource (with the exact UID the
+dashboards expect) and loads every dashboard into a **HealthLog** folder. It
+keeps watching the mounted files: after a release, `git pull` in the checkout is
+all it takes — the dashboards refresh within ~30 seconds, no re-import.
+
+Two things to know:
+
+- **Provisioned dashboards are read-only in the UI** — the repo files are the
+  source of truth. To customise one, use *Save as* under a new title into
+  another folder (your copy, never overwritten), or export the JSON and commit
+  it.
+- Provisioning only manages its own folder and datasource; an existing Grafana
+  with other dashboards is not touched, and previously hand-imported HealthLog
+  dashboards simply remain next to the provisioned folder (delete the manual
+  copies to avoid confusion).
+
+## The dashboards in detail
 
 The **Fitness** dashboard is a performance-management view of the training load
 (the classic CTL/ATL/TSB "fitness & form" chart known from Garmin/TrainingPeaks):
@@ -143,4 +193,7 @@ reads the freshly recomputed stress rows).
 
 ## Updating a dashboard
 
-Edit the JSON file, then re-import it in Grafana (Import → overwrite existing).
+- **Provisioned (Option B):** update the checkout (`git pull` — or edit the
+  JSON); Grafana picks the change up within ~30 seconds.
+- **Manually imported (Option A):** edit/update the JSON file, then re-import
+  it in Grafana (Import → overwrite existing).

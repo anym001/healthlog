@@ -42,7 +42,7 @@ local LLM. Everything runs on the user's own hardware — no external calls.
     `stress_backfill.py`, `body_battery_backfill.py`, `backfill.py`, `scheduler.py`
 - `backend/migrations/versions/` — Alembic migrations (the schema is migrations-only)
 - `backend/tests/` — pytest (parser, idempotency, analysis math, registry, …)
-- `grafana/` — provisioned dashboards
+- `grafana/` — dashboards (JSON) + optional Grafana provisioning (`provisioning/`: datasource + dashboard-provider YAML)
 - `root/etc/s6-overlay/` — s6 service definitions (uvicorn, scheduler, one-shot migrate)
 - `docs/` — architecture & design
 

@@ -31,9 +31,9 @@ from sqlalchemy.orm import Session
 
 from ..appconfig import BodyBatteryConfig
 from ..models import BodyBatteryDaily, BodyBatteryIntraday
-from .constants import BODY_BATTERY_WARMUP_DAYS, log
+from .constants import BODY_BATTERY_NEUTRAL, BODY_BATTERY_NEUTRAL_LOOKBACK_DAYS, BODY_BATTERY_WARMUP_DAYS, log
 from .load import load_sleep_intervals, load_stress_intraday
-from .pure import body_battery_timeline, summarize_body_battery_day
+from .pure import auto_neutral, body_battery_timeline, summarize_body_battery_day
 from .stress import hr_window_bounds
 
 
@@ -83,6 +83,7 @@ def compute_body_battery(
         intraday.index = intraday.index.tz_localize(dt.UTC)
 
     sleep_intervals = load_sleep_intervals(db, warm_start, end)
+    neutral = _resolve_neutral(db, cfg, end)
 
     # Integrate once over the whole window (warm-up included): the battery is a
     # continuous accumulator, so unlike the stress summary it must not restart
@@ -90,7 +91,7 @@ def compute_body_battery(
     timeline = body_battery_timeline(
         intraday,
         sleep_intervals,
-        neutral=cfg.neutral,
+        neutral=neutral,
         charge_rate=cfg.charge_rate,
         drain_rate=cfg.drain_rate,
         sleep_charge_rate=cfg.sleep_charge_rate,
@@ -135,6 +136,34 @@ def compute_body_battery(
 
     _replace_window(db, start, end, first_day, intraday_rows, daily_rows)
     return BodyBatteryResult(days=len(daily_rows), buckets=len(intraday_rows))
+
+
+def _resolve_neutral(db: Session, cfg: BodyBatteryConfig, end: dt.datetime) -> float:
+    """The energy-neutral stress level for this run: explicit config or auto.
+
+    ``cfg.neutral`` set → use it as-is. Unset (the default) → derive it from the
+    personal stress distribution over a trailing lookback anchored at the
+    window's ``end`` (see :func:`auto_neutral`). Anchoring at ``end`` — not at
+    the recompute window — keeps the nightly, hourly-refresh and full-rederive
+    runs of the same data on the same neutral, so a windowed recompute
+    reproduces the full-history rows. Falls back to the fixed default when the
+    lookback holds too little data to calibrate; the choice is logged either
+    way so a stored value can always be traced to its neutral.
+    """
+    if cfg.neutral is not None:
+        return cfg.neutral
+    look_start = end - dt.timedelta(days=BODY_BATTERY_NEUTRAL_LOOKBACK_DAYS)
+    base = load_stress_intraday(db, look_start, end)
+    if not base.empty and base.index.tz is None:
+        base.index = base.index.tz_localize(dt.UTC)
+    derived = auto_neutral(base, load_sleep_intervals(db, look_start, end))
+    if derived is None:
+        log.info("body_battery: neutral=%.1f (fallback: too little data to auto-calibrate)", BODY_BATTERY_NEUTRAL)
+        return BODY_BATTERY_NEUTRAL
+    log.info(
+        "body_battery: neutral=%.1f (auto-calibrated over trailing %dd)", derived, BODY_BATTERY_NEUTRAL_LOOKBACK_DAYS
+    )
+    return derived
 
 
 def _wake_ends_by_day(sleep_intervals, zone: ZoneInfo) -> dict[dt.date, object]:

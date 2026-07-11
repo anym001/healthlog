@@ -179,8 +179,10 @@ The analysis writes its results to the database, so chart them with whatever you
 prefer — Grafana, Metabase, a notebook, plain SQL. Attach that tool to the same
 Docker network as the database and point it at the DB container (`healthlog-db`
 in both the Compose and `docker run` setups). The repo ships
-ready-made **Grafana dashboards** — see [`grafana/README.md`](https://github.com/anym001/healthlog/blob/HEAD/grafana/README.md)
-for details.
+ready-made **Grafana dashboards** — import them once by hand, or (recommended)
+let Grafana **provision** the datasource and dashboards straight from a checkout
+of this repo, so updates arrive with a `git pull`. Both paths are described in
+[`grafana/README.md`](https://github.com/anym001/healthlog/blob/HEAD/grafana/README.md).
 
 ## Image
 
@@ -380,6 +382,12 @@ the battery reads the freshly recomputed stress timeline:
 docker exec healthlog healthlog rederive-body-battery            # full history
 docker exec healthlog healthlog rederive-body-battery --days 30  # only the last 30 days
 ```
+
+The energy-neutral stress level — below it awake rest charges, above it drains — is
+**auto-calibrated** by default: each run derives it from your own stress distribution
+over the trailing weeks (the derived value is logged), so the battery doesn't pin at
+0 or 100 just because your personal baseline sits low or high. Set `body_battery.neutral`
+to a number to pin it explicitly.
 
 Tunables live under `body_battery.*` in `config.yaml` (charge/drain rates, neutral
 level, alert threshold — see `config.example.yaml`); set `body_battery.enabled: false`
