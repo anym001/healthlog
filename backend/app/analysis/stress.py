@@ -38,7 +38,7 @@ class StressResult:
     buckets: int = 0
 
 
-def _window_bounds(db: Session, tz: str, since_days: int | None) -> tuple[dt.datetime, dt.datetime, dt.date] | None:
+def hr_window_bounds(db: Session, tz: str, since_days: int | None) -> tuple[dt.datetime, dt.datetime, dt.date] | None:
     """Resolve the recompute window ``[start, end)`` and its first local day.
 
     Anchored on the newest heart-rate sample (not wall-clock now, so historical
@@ -93,7 +93,7 @@ def compute_stress(
     if not cfg.enabled:
         return StressResult()
 
-    bounds = _window_bounds(db, tz, since_days)
+    bounds = hr_window_bounds(db, tz, since_days)
     if bounds is None:
         return StressResult()
     start, end, first_day = bounds

@@ -458,7 +458,10 @@ Integrated as `level(t) = clamp(level(t−dwell) + rate·dwell, 0, 100)` from a 
 `seed_level` at the window's first bucket. Because the integrator is **continuous
 across day boundaries**, it is run once over the whole window and then sliced per
 local day for the summary (`wake_level` = the level at the end of the day's main
-sleep, i.e. what you started the day with).
+sleep, i.e. what you started the day with). A day with fewer than
+`body_battery.min_measured_min` informative stress minutes stores no daily row —
+a barely-worn day's level merely *holds*, so a summary would feign knowledge
+(mirroring `stress.min_measured_min`); the intraday timeline is stored regardless.
 
 **Drift & the sleep re-anchor** — an accumulator's risk is unbounded drift. It is
 avoided *without* a hard-coded reset: sleep charges strongly and the level is clamped

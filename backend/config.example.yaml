@@ -147,6 +147,9 @@
 #   active_drain_rate: 0.3   # points/min lost inside a workout
 #   seed_level: 50           # neutral start at the window's first bucket (washed
 #                            #   out within days by the nightly sleep re-anchor)
+#   min_measured_min: 60     # min informative stress minutes/day before a daily
+#                            #   row is stored (a barely-worn day is a gap, not a
+#                            #   flat battery); the intraday timeline always stays
 #   alert_level: 20          # day whose low reaches at/below this fires an alert
 #   alert_recent_days: 14    # only alert on days this recent
 

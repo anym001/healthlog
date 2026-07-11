@@ -1811,6 +1811,34 @@ def test_compute_body_battery_disabled_writes_nothing(db):
     assert db.execute(select(func.count()).select_from(BodyBatteryDaily)).scalar_one() == 0
 
 
+def test_body_battery_daily_gated_by_measured_minutes(db):
+    # A barely-worn day (30 informative buckets < min_measured_min) keeps its
+    # intraday timeline but gets no daily summary row — a gap, not a guess.
+    base = dt.date(2026, 3, 1)
+    for d in range(40):
+        day = base + dt.timedelta(days=d)
+        at4 = dt.datetime(day.year, day.month, day.day, 4, tzinfo=UTC)
+        db.add(MetricSample(time=at4, metric="resting_heart_rate", source="", qty=55.0))
+    full_day = base + dt.timedelta(days=38)
+    sparse_day = base + dt.timedelta(days=39)
+    for m in range(600):
+        ts = dt.datetime(full_day.year, full_day.month, full_day.day, 8, tzinfo=UTC) + dt.timedelta(minutes=m)
+        db.add(MetricSample(time=ts, metric="heart_rate", source="", vavg=58.0))
+    for m in range(30):
+        ts = dt.datetime(sparse_day.year, sparse_day.month, sparse_day.day, 8, tzinfo=UTC) + dt.timedelta(minutes=m)
+        db.add(MetricSample(time=ts, metric="heart_rate", source="", vavg=58.0))
+    db.flush()
+
+    compute_stress(db, "Europe/Vienna", StressConfig(), ProfileConfig(), since_days=90)
+    db.flush()
+    compute_body_battery(db, "Europe/Vienna", BodyBatteryConfig(), since_days=90)
+    days = {r.day for r in db.execute(select(BodyBatteryDaily)).scalars()}
+    assert full_day in days
+    assert sparse_day not in days
+    # The sparse day's intraday levels are still stored (630 buckets total).
+    assert db.execute(select(func.count()).select_from(BodyBatteryIntraday)).scalar_one() == 630
+
+
 def test_run_refresh_recomputes_last_two_days(db):
     # The hourly intraday refresh recomputes only the trailing two local days of
     # stress + Body Battery (no findings) so today's timeline stays current.

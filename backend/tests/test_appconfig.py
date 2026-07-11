@@ -296,6 +296,7 @@ def test_body_battery_defaults():
     assert cfg.sleep_charge_rate == 0.15
     assert cfg.active_drain_rate == 0.3
     assert cfg.seed_level == 50.0
+    assert cfg.min_measured_min == 60
     assert cfg.alert_level == 20.0
     assert cfg.alert_recent_days == 14
 

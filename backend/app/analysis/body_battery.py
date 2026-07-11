@@ -25,6 +25,7 @@ import datetime as dt
 from dataclasses import dataclass
 from zoneinfo import ZoneInfo
 
+import pandas as pd
 from sqlalchemy import delete, insert, select
 from sqlalchemy.orm import Session
 
@@ -33,7 +34,7 @@ from ..models import BodyBatteryDaily, BodyBatteryIntraday
 from .constants import BODY_BATTERY_WARMUP_DAYS, log
 from .load import load_sleep_intervals, load_stress_intraday
 from .pure import body_battery_timeline, summarize_body_battery_day
-from .stress import _window_bounds
+from .stress import hr_window_bounds
 
 
 @dataclass
@@ -68,7 +69,7 @@ def compute_body_battery(
     if not cfg.enabled:
         return BodyBatteryResult()
 
-    bounds = _window_bounds(db, tz, since_days)
+    bounds = hr_window_bounds(db, tz, since_days)
     if bounds is None:
         return BodyBatteryResult()
     start, end, first_day = bounds
@@ -109,8 +110,17 @@ def compute_body_battery(
         {"ts": ts.to_pydatetime(), "level": int(round(float(level)))} for ts, level in timeline["level"].items()
     ]
 
+    # Daily-row gate: a barely-worn day's timeline is almost entirely
+    # "unmeasurable" — the level just holds, and a summary row would feign
+    # knowledge. Count informative buckets (≈ minutes at the per-minute
+    # cadence) per local day; the intraday rows are stored regardless.
+    informative = pd.Series(intraday["state"].to_numpy() != "unmeasurable", index=intraday.index)
+    informative_min = informative.groupby(informative.index.tz_convert(zone).date).sum()
+
     daily_rows: list[dict] = []
     for day, sub in timeline.groupby(timeline.index.tz_convert(zone).date):
+        if int(informative_min.get(day, 0)) < cfg.min_measured_min:
+            continue
         summ = summarize_body_battery_day(sub, wake_by_day.get(day))
         daily_rows.append(
             {
@@ -164,14 +174,12 @@ def _replace_window(
         db.execute(insert(BodyBatteryDaily), daily_rows)
 
 
-def load_body_battery_daily(db: Session, since_days: int | None = None):
+def load_body_battery_daily(db: Session, since_days: int | None = None) -> pd.DataFrame:
     """Recent ``body_battery_daily`` rows as a frame (for the alert-finding builder).
 
     ``since_days`` filters to days at least that recent (relative to the latest
     stored day). Empty frame when the table is empty.
     """
-    import pandas as pd
-
     rows = db.execute(select(BodyBatteryDaily).order_by(BodyBatteryDaily.day)).scalars().all()
     if not rows:
         return pd.DataFrame()

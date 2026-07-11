@@ -269,6 +269,12 @@ class BodyBatteryConfig(BaseModel):
     # Neutral seed at the recompute window's first bucket; washed out within a
     # few days by the nightly sleep re-anchor, so its exact value is immaterial.
     seed_level: float = Field(default=50.0, ge=0.0, le=100.0)
+    # Minimum informative stress buckets (≈ minutes at the per-minute cadence)
+    # in a local day before a daily summary row is stored — a barely-worn day
+    # would otherwise show a flat "held" battery as if it were measured.
+    # Mirrors stress.min_measured_min; the intraday timeline is always stored.
+    # 0 disables the gate.
+    min_measured_min: int = Field(default=60, ge=0)
     # Day whose lowest level reaches at/below this emits a low-battery alert
     # finding; how recent a day must be to alert.
     alert_level: float = Field(default=20.0, ge=0.0, le=100.0)
