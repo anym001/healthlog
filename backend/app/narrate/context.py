@@ -209,7 +209,9 @@ def _section_body_battery(alerts: list[dict], language: str) -> list[str]:
         return [*out, "–"]
     for f in alerts:
         d = scrub_details("body_battery", f.get("details"))
-        low = d.get("low_level", f.get("severity"))
+        # No severity fallback: severity is the depletion (100 − low_level),
+        # not the level itself; the raw level is always present in details.
+        low = d.get("low_level")
         low_str = f"{low:.0f}" if low is not None else "n/a"
         parts = [("low=" if language == "en" else "Tief=") + low_str]
         wake = d.get("wake_level")

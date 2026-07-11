@@ -226,7 +226,7 @@ expects.
 | Export format | **JSON** | CSV is **not** parsed |
 | Export version | **v2** | the parser targets HAE v2 payloads |
 | Aggregate Data | **on** | drastically reduces payload size |
-| Time grouping | **minutes** | the daily analyses only need a daily grid, but the **Stress** timeline (§ Grafana) reads per-minute heart-rate buckets — hourly grouping gives it only ~24 points/day. Use hourly only if you don't want the intraday stress view |
+| Time grouping | **minutes** | the daily analyses only need a daily grid, but the **Stress** timeline (§ Grafana) reads per-minute heart-rate buckets — hourly grouping gives it only ~24 points/day. Only **Heart Rate** actually needs minutes; see the split-automation option below |
 | Batch Requests | **off** | deltas are small; large one-offs go through the backfill CLI instead |
 | Date range | **Standard** | full previous day + today; catches data Apple finalises late (e.g. sleep stages written after waking). Server-side dedup makes the overlap safe |
 | Sync cadence | **every 1 hour** | plenty — the analysis runs nightly (`ANALYSIS_CRON`); 5-minute syncs work but are overkill |
@@ -235,6 +235,15 @@ expects.
 Make sure **Sleep Analysis**, **Heart Rate Variability**, **Resting Heart
 Rate** and **Heart Rate** are among the selected metrics — they drive the sleep,
 consistency, recovery-alert and stress findings.
+
+**Smaller payloads (optional):** minute grouping is only consumed for
+**Heart Rate** (the Stress/Body-Battery timeline); every other metric is
+aggregated to a daily grid anyway. To trim payload size you can split the
+Health-Metrics export into **two automations** with the same settings: one with
+*only* Heart Rate at **Time grouping = minutes**, and one with all remaining
+metrics at **hours**. Keep the metric sets **disjoint** — the same metric
+exported by both automations at different groupings would store overlapping
+buckets of different granularity and skew its daily averages.
 
 **Workouts (optional):** the Health-Metrics automation does not include workouts.
 To capture them, add a **second** REST API automation with the **same settings as
@@ -319,8 +328,9 @@ from the heart-rate elevation above your personal resting baseline (workouts
 excluded), calibrated with HRV — visualised on the **Stress** Grafana dashboard.
 It is a *proxy* from the data Apple Health exports: HAE ships no beat-to-beat RR
 intervals, so it is **not** the Garmin/Firstbeat value and is only meaningful
-relative to your own baseline. It needs **Time grouping = minutes** on the
-Health-Metrics export (above) for a usable timeline.
+relative to your own baseline. It needs **Time grouping = minutes** for the
+**Heart Rate** metric — either on the whole Health-Metrics export or via the
+split-automation option (above) — for a usable timeline.
 
 The nightly analysis recomputes a trailing window (`stress.window_days`, default
 90). Rebuild the full history — e.g. after the first backfill, or after switching
@@ -332,7 +342,9 @@ docker exec healthlog healthlog rederive-stress --days 30  # only the last 30 da
 ```
 
 Tunables live under `stress.*` in `config.yaml` (zones, HRV weight, alert
-threshold — see `config.example.yaml`); set `stress.enabled: false` to turn it off.
+threshold — see `config.example.yaml`); set `stress.enabled: false` to turn it off
+(together with `body_battery.enabled: false` — the battery builds on the stress
+timeline, and the combination is validated at config load).
 
 ## Body Battery
 
@@ -356,7 +368,8 @@ docker exec healthlog healthlog rederive-body-battery --days 30  # only the last
 
 Tunables live under `body_battery.*` in `config.yaml` (charge/drain rates, neutral
 level, alert threshold — see `config.example.yaml`); set `body_battery.enabled: false`
-to turn it off.
+to turn it off. It requires `stress.enabled` (the battery integrates the stress
+timeline) — disabling only stress is rejected at config load.
 
 ## LLM narration
 

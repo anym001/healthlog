@@ -113,3 +113,10 @@ BODY_BATTERY_DRAIN_RATE = _BODY_BATTERY_DEFAULTS.drain_rate  # points/min at max
 BODY_BATTERY_SLEEP_CHARGE_RATE = _BODY_BATTERY_DEFAULTS.sleep_charge_rate  # points/min asleep
 BODY_BATTERY_ACTIVE_DRAIN_RATE = _BODY_BATTERY_DEFAULTS.active_drain_rate  # points/min in a workout
 BODY_BATTERY_SEED_LEVEL = _BODY_BATTERY_DEFAULTS.seed_level  # neutral seed at window start
+# Warm-up margin for windowed recomputes. A day's *last* write happens on the
+# run where it is the window's first day, so without a margin every archived day
+# would permanently keep the computation with the seed at its own start.
+# Integrating this many extra days before the stored range lets the nightly
+# sleep re-anchor wash the seed out before the first stored bucket. Structural
+# domain constant, not an operator knob.
+BODY_BATTERY_WARMUP_DAYS = 7

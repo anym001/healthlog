@@ -1692,8 +1692,38 @@ def test_run_emits_body_battery_alert_for_drained_day(db):
     assert alert is not None
     assert alert.metric_a == "body_battery"
     assert alert.ref_date == dt.date(2026, 4, 9)
-    assert alert.severity <= BodyBatteryConfig().alert_level
+    # severity is the depletion (100 − low level): higher = worse, like every other kind
+    assert alert.severity >= 100 - BodyBatteryConfig().alert_level
     assert alert.details["low_level"] <= BodyBatteryConfig().alert_level
+
+
+def test_compute_body_battery_windowed_matches_full_history(db):
+    # A day's *last* write happens on the run where it is the window's first
+    # day; the warm-up margin must make that write identical to the
+    # full-history computation instead of restarting from the neutral seed.
+    _seed_body_battery_history(db)
+    compute_stress(db, "Europe/Vienna", StressConfig(), ProfileConfig(), since_days=None)
+    db.flush()
+    cfg = BodyBatteryConfig()
+
+    compute_body_battery(db, "Europe/Vienna", cfg, since_days=None)
+    db.flush()
+    full_intraday = {r.ts: r.level for r in db.execute(select(BodyBatteryIntraday)).scalars()}
+    full_daily = {
+        r.day: (r.wake_level, r.high_level, r.low_level) for r in db.execute(select(BodyBatteryDaily)).scalars()
+    }
+
+    # Windowed recompute with the last measured day's predecessor as window
+    # start — exactly the position where the seed used to land.
+    res = compute_body_battery(db, "Europe/Vienna", cfg, since_days=2)
+    db.flush()
+    assert res.days == 2
+    windowed_intraday = {r.ts: r.level for r in db.execute(select(BodyBatteryIntraday)).scalars()}
+    windowed_daily = {
+        r.day: (r.wake_level, r.high_level, r.low_level) for r in db.execute(select(BodyBatteryDaily)).scalars()
+    }
+    assert windowed_intraday == full_intraday
+    assert windowed_daily == full_daily
 
 
 def test_compute_body_battery_disabled_writes_nothing(db):

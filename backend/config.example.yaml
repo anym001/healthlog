@@ -101,7 +101,8 @@
 # intraday timeline, set Health Auto Export's "Time Grouping" to Minute (hourly
 # grouping yields only ~24 points/day). Defaults shown.
 # stress:
-#   enabled: true
+#   enabled: true            # disabling stress also requires
+#                            #   body_battery.enabled: false (it builds on stress)
 #   window_days: 90          # trailing days recomputed each nightly run;
 #                            #   rebuild the full history with
 #                            #   `healthlog rederive-stress --all`
@@ -127,7 +128,9 @@
 # fixed reset. Charge/drain rates are points-per-minute; tune them if your
 # battery pins at 0 or 100. Defaults shown.
 # body_battery:
-#   enabled: true
+#   enabled: true            # requires stress.enabled (the battery integrates the
+#                            #   stress timeline); disabling only stress is
+#                            #   rejected at config load
 #   window_days: 90          # trailing days recomputed each nightly run;
 #                            #   rebuild the full history with
 #                            #   `healthlog rederive-body-battery --all`

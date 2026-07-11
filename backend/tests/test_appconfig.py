@@ -267,7 +267,8 @@ def test_stress_zones_must_be_ascending():
 
 def test_stress_loaded_from_yaml(tmp_path):
     p = tmp_path / "config.yaml"
-    p.write_text("stress:\n  enabled: false\n  window_days: 30\n  reserve_full: 0.4\n")
+    # body_battery depends on stress, so disabling stress requires disabling it too.
+    p.write_text("stress:\n  enabled: false\n  window_days: 30\n  reserve_full: 0.4\nbody_battery:\n  enabled: false\n")
     cfg = load_config(p).stress
     assert cfg.enabled is False
     assert cfg.window_days == 30
@@ -319,3 +320,20 @@ def test_body_battery_rejects_unknown_key(tmp_path):
     p.write_text("body_battery:\n  bogus: 1\n")
     with pytest.raises(ValueError):
         load_config(p)
+
+
+def test_body_battery_requires_stress(tmp_path):
+    # Body Battery integrates the stress timeline: disabling only stress would
+    # leave the battery pass silently computing nothing — reject the combination.
+    p = tmp_path / "config.yaml"
+    p.write_text("stress:\n  enabled: false\n")  # body_battery still default-enabled
+    with pytest.raises(ValueError, match="body_battery.enabled requires stress.enabled"):
+        load_config(p)
+
+
+def test_stress_and_body_battery_both_disabled_ok(tmp_path):
+    p = tmp_path / "config.yaml"
+    p.write_text("stress:\n  enabled: false\nbody_battery:\n  enabled: false\n")
+    cfg = load_config(p)
+    assert cfg.stress.enabled is False
+    assert cfg.body_battery.enabled is False

@@ -454,6 +454,13 @@ washes out within a few days. The wake level is therefore an **emergent** functi
 sleep quality, not a fixed number — mirroring how Garmin's battery visibly re-charges
 overnight.
 
+**Warm-up margin** — a day's *last* write happens on the nightly run where it is the
+trailing window's first day; storing that run's values verbatim would permanently
+keep the seed-influenced computation for every archived day. A bounded recompute
+therefore integrates `BODY_BATTERY_WARMUP_DAYS` (7) extra days *before* the stored
+range — enough sleep re-anchors to settle the integrator — and stores only the
+requested window, so the archived levels match what a full-history run would produce.
+
 **Storage & recompute** — dedicated tables, **never** written back into
 `metric_samples` (§4.1), mirroring the stress precedent. The nightly run recomputes a
 trailing window (`body_battery.window_days`) and replaces those rows idempotently,

@@ -748,7 +748,8 @@ def _body_battery_findings(
     this surfaces only the recent days whose lowest level drops to at/below
     ``cfg.alert_level`` as a ``kind="body_battery"`` finding, so the narration can
     flag a day you ran the tank near empty. A day that stayed charged produces no
-    row. ``severity`` is the day's low level (lower = worse).
+    row. ``severity`` is ``100 − low_level`` (the day's depletion), so higher =
+    worse like every other finding kind; the raw level lives in ``details``.
     """
     cfg = cfg or BodyBatteryConfig()
     if not cfg.enabled:
@@ -769,7 +770,7 @@ def _body_battery_findings(
                 kind="body_battery",
                 metric_a="body_battery",
                 ref_date=ts.date(),
-                severity=round(float(low), 4),
+                severity=round(100.0 - float(low), 4),
                 note="low energy reserve",
                 details={
                     "low_level": int(low),

@@ -353,6 +353,18 @@ class AppConfig(BaseModel):
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
     narrate: NarrateConfig = Field(default_factory=NarrateConfig)
 
+    @model_validator(mode="after")
+    def _check(self) -> AppConfig:
+        # Body Battery integrates the stress_intraday timeline; with stress off
+        # that pass would silently compute nothing (and clear its window). Fail
+        # fast with a clear message instead.
+        if self.body_battery.enabled and not self.stress.enabled:
+            raise ValueError(
+                "body_battery.enabled requires stress.enabled (Body Battery integrates "
+                "the stress timeline); set body_battery.enabled: false as well, or re-enable stress"
+            )
+        return self
+
 
 def load_config(path: str | Path) -> AppConfig:
     """Load and validate ``config.yaml``. A missing file yields all defaults.
