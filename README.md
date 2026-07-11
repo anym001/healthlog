@@ -179,8 +179,10 @@ The analysis writes its results to the database, so chart them with whatever you
 prefer — Grafana, Metabase, a notebook, plain SQL. Attach that tool to the same
 Docker network as the database and point it at the DB container (`healthlog-db`
 in both the Compose and `docker run` setups). The repo ships
-ready-made **Grafana dashboards** — see [`grafana/README.md`](https://github.com/anym001/healthlog/blob/HEAD/grafana/README.md)
-for details.
+ready-made **Grafana dashboards** — import them once by hand, or (recommended)
+let Grafana **provision** the datasource and dashboards straight from a checkout
+of this repo, so updates arrive with a `git pull`. Both paths are described in
+[`grafana/README.md`](https://github.com/anym001/healthlog/blob/HEAD/grafana/README.md).
 
 ## Image
 

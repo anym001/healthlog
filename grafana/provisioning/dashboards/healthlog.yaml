@@ -1,0 +1,20 @@
+# Grafana dashboard provisioning for HealthLog (see grafana/README.md,
+# "Option B — provisioning"). Loads every JSON in grafana/dashboards/ (mounted
+# at the path below) into a "HealthLog" folder and keeps watching the files:
+# updating the repo checkout updates the dashboards within seconds — no manual
+# re-import after a release.
+apiVersion: 1
+
+providers:
+  - name: healthlog
+    folder: HealthLog
+    type: file
+    # Keep dashboards in sync with the mounted files. UI edits are not
+    # persisted (the file is the source of truth); to customise a dashboard,
+    # save it under a new title/UID in another folder, or export the JSON and
+    # commit it.
+    allowUiUpdates: false
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards/healthlog
