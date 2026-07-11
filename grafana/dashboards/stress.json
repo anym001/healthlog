@@ -281,7 +281,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT (EXTRACT(EPOCH FROM ts) * 1000)::bigint AS \"Time\", stress AS \"Stress\" FROM stress_intraday WHERE $__timeFilter(ts) AND stress IS NOT NULL ORDER BY ts",
+          "rawSql": "SELECT ts AS \"time\", stress AS \"Stress\" FROM stress_intraday WHERE $__timeFilter(ts) AND stress IS NOT NULL ORDER BY ts",
           "format": "time_series",
           "datasource": {
             "uid": "healthlog-db"
@@ -423,7 +423,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT (EXTRACT(EPOCH FROM ts) * 1000)::bigint AS \"Time\", level AS \"Body Battery\" FROM body_battery_intraday WHERE $__timeFilter(ts) AND level IS NOT NULL ORDER BY ts",
+          "rawSql": "SELECT ts AS \"time\", level AS \"Body Battery\" FROM body_battery_intraday WHERE $__timeFilter(ts) AND level IS NOT NULL ORDER BY ts",
           "format": "time_series",
           "datasource": {
             "uid": "healthlog-db"
@@ -594,7 +594,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT (EXTRACT(EPOCH FROM ts) * 1000)::bigint AS \"Time\", level AS \"Body Battery\" FROM body_battery_intraday WHERE $__timeFilter(ts) AND level IS NOT NULL ORDER BY ts",
+          "rawSql": "SELECT ts AS \"time\", level AS \"Body Battery\" FROM body_battery_intraday WHERE $__timeFilter(ts) AND level IS NOT NULL ORDER BY ts",
           "format": "time_series",
           "datasource": {
             "uid": "healthlog-db"
