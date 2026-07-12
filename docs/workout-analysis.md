@@ -43,6 +43,14 @@ daily series below (TRIMP via pure helpers):
 Agreement → robust signal; divergence → informative ("much energy, little HR load" =
 a long easy session).
 
+Since migration `0020_workout_load_daily` each run also **persists** this
+daily-series snapshot — including the zone-based `workout_edwards` parallel and
+the per-sport children (§9) — into the `workout_load_daily` table
+(`ARCHITECTURE.md` §4.4), so Grafana can chart what only the nightly analysis
+computes (Banister vs. Edwards, per-sport zone load). Snapshot semantics like
+`findings`: delete + rewrite per run, because past days legitimately change when
+the rolling HR_rest baseline or the resolved HR_max shifts.
+
 ### 2.2 Central nuance: **0 instead of NaN**
 
 For metrics a missing day means NaN (no measurement). For workouts a training-free
@@ -207,7 +215,9 @@ Once the series are in the dict, among others these fall out:
    the `correlations` counter).
 4. Config: `AppConfig` + `config.yaml` (section 4).
 5. **No** registry row (workout series are hand-wired like sleep).
-6. **No** schema migration.
+6. Schema: no per-metric columns; the run's daily-series snapshot is persisted
+   into `workout_load_daily` (migration `0020`, `_persist_workout_series()` in
+   `run.py`) for the Grafana load-model panels.
 7. Tests: `load_workout_frame` (aggregation + 0-fill), Banister TRIMP, the HR_max
    fallback chain, ACWR — all as pure functions against synthetic data with a fixed
    seed.

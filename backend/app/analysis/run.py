@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import datetime as dt
 
+import pandas as pd
 from sqlalchemy import delete, insert, select
 from sqlalchemy.orm import Session
 
 from ..appconfig import AppConfig, load_config
 from ..cli_support import bootstrap, db_session
 from ..config import get_settings
-from ..models import FINDING_FIELDS, Finding, FindingHistory
+from ..models import FINDING_FIELDS, Finding, FindingHistory, WorkoutLoadDaily
 from .body_battery import run_body_battery
 from .constants import _DEFAULT_APP_CONFIG, log
 from .findings import (
@@ -24,6 +25,7 @@ from .findings import (
     _consistency_findings,
     _correlation_findings,
     _decompose_all,
+    _is_workout_load_family,
     _recovery_findings,
     _stress_findings,
     _training_load_findings,
@@ -50,6 +52,28 @@ def _guarded(kind: str, build, empty):
         return empty
 
 
+def _persist_workout_series(db: Session, series: dict[str, pd.Series], computed_at: dt.datetime) -> None:
+    """Snapshot the daily workout-load series into ``workout_load_daily``.
+
+    The findings pipeline is the only place the profile-driven load series
+    exist (Banister ``workout_trimp``, zone-based ``workout_edwards``, the
+    kcal/duration/count/intensity aggregates, their per-sport children); this
+    write keeps them queryable for Grafana instead of the run discarding them.
+    Delete + rewrite like the ``findings`` snapshot — past days legitimately
+    change when the rolling resting-HR baseline or the resolved HR_max shifts,
+    so an upsert would strand rows of days that no longer exist.
+    """
+    rows = [
+        {"series": name, "day": day.date(), "value": float(value), "computed_at": computed_at}
+        for name, s in series.items()
+        if _is_workout_load_family(name)
+        for day, value in s.dropna().items()
+    ]
+    db.execute(delete(WorkoutLoadDaily))
+    if rows:
+        db.execute(insert(WorkoutLoadDaily), rows)
+
+
 def run(db: Session, tz: str | None = None, config: AppConfig | None = None) -> AnalysisResult:
     """Compute all findings and write them as a fresh snapshot (flush only).
 
@@ -65,6 +89,9 @@ def run(db: Session, tz: str | None = None, config: AppConfig | None = None) -> 
     # Load sleep once and share it across build_series + the consistency pass.
     sleep = load_sleep_frame(db, tz)
     series = build_series(db, tz, app_cfg.profile, app_cfg.workouts, sleep=sleep)
+    # Persist the workout-load series (guarded: losing the chartable snapshot
+    # must not sink the findings run, and vice versa).
+    _guarded("workout-series-persist", lambda: _persist_workout_series(db, series, computed_at), None)
     # Decompose once; correlation de-trending and trend/seasonality both reuse it.
     decomps = _decompose_all(series)
 

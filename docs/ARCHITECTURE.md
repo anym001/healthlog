@@ -233,6 +233,24 @@ the `sleep_metrics` view plays for sleep efficiency. They are deliberately
 distinct from the analysis' profile-driven TRIMP series (`workout-analysis.md`
 §3.1): zero-setup, parameterised by the dashboard's HR-Max variable.
 
+Those profile-driven daily series — `workout_trimp` (Banister), `workout_edwards`
+(zone-based), `workout_load` (kcal), `workout_duration`, `workout_count`,
+`workout_intensity` and their per-sport children (`workout_trimp_running` …) —
+are in turn persisted per nightly run (migration `0020_workout_load_daily`):
+
+```sql
+workout_load_daily (series TEXT, day DATE,
+                    value DOUBLE PRECISION NOT NULL,
+                    computed_at TIMESTAMPTZ,
+                    PRIMARY KEY (series, day))   -- nightly snapshot, delete + rewrite
+```
+
+Snapshot semantics like `findings` — each run rewrites the whole table, because
+past days legitimately change when the rolling resting-HR baseline or the
+resolved HR_max shifts. This feeds the Grafana panels only the nightly analysis
+can serve (Banister vs. Edwards comparison, per-sport zone load); the live
+`workout_trimp` functions above stay the source for everything interactive.
+
 ### 4.5 Metric registry (normalisation)
 
 ```sql
@@ -334,6 +352,11 @@ one shared `computed_at` per run as the run key), so findings stay queryable ove
 time — "since when has the ACWR been warning?", "how many recovery alerts this
 month?". The archive is query-only: the pipeline never reads it, and at a few
 hundred rows per day it needs no retention policy.
+
+A thin **`findings_feed`** view (migration `0020`) exposes the snapshot with a
+per-kind one-line `detail` string and a display `day` (`ref_date` falling back
+to `window_end`), so the Grafana findings tables share one rendering definition
+instead of each duplicating the CASE expression.
 
 **Finding types** (snapshot per run, `app/analysis/findings.py`):
 - **correlation** — Spearman on the **residual** series (STL trend *and* seasonal

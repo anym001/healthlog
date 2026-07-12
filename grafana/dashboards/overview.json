@@ -2406,7 +2406,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT TO_CHAR(COALESCE(ref_date, window_end), 'YYYY-MM-DD') AS \"Date\", kind AS \"Kind\", metric_a AS \"Metric\", CASE kind WHEN 'anomaly' THEN ROUND((details->>'z')::numeric,1)::text || 'σ (val: ' || ROUND((details->>'value')::numeric,2)::text || ')' WHEN 'training_load' THEN 'ACWR ' || ROUND((details->>'ratio')::numeric,2)::text WHEN 'consistency' THEN ROUND((details->>'std_hours')::numeric,2)::text || 'h std' WHEN 'recovery_alert' THEN 'RHR z=' || ROUND((details->>'resting_heart_rate_z')::numeric,1)::text || ' HRV z=' || ROUND((details->>'heart_rate_variability_z')::numeric,1)::text WHEN 'correlation' THEN 'r=' || ROUND(coefficient::numeric,2)::text || ' lag=' || COALESCE(lag_days::text,'0') || 'd' ELSE ROUND(severity::numeric,2)::text END AS \"Detail\", note AS \"Note\" FROM findings WHERE kind <> 'correlation' ORDER BY COALESCE(ref_date, window_end) DESC LIMIT 50",
+          "rawSql": "SELECT TO_CHAR(day, 'YYYY-MM-DD') AS \"Date\", kind AS \"Kind\", metric_a AS \"Metric\", detail AS \"Detail\", note AS \"Note\" FROM findings_feed WHERE kind <> 'correlation' ORDER BY day DESC LIMIT 50",
           "format": "table"
         }
       ]

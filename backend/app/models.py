@@ -275,6 +275,27 @@ class BodyBatteryDaily(Base):
     computed_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class WorkoutLoadDaily(Base):
+    """One daily point of a nightly workout-load series (ARCHITECTURE.md §4.4).
+
+    The profile-driven training-load series the findings pipeline builds —
+    ``workout_trimp`` (Banister), ``workout_edwards`` (zone-based),
+    ``workout_load`` (kcal), ``workout_duration``/``workout_count``/
+    ``workout_intensity`` and their per-sport children — persisted so Grafana
+    can chart them (Banister vs. Edwards, per-sport zone load) instead of the
+    run discarding them after the findings pass. Snapshot semantics like
+    ``findings``: each run deletes and rewrites the whole table, because past
+    days legitimately change when the rolling resting-HR baseline or the
+    resolved HR_max shifts."""
+
+    __tablename__ = "workout_load_daily"
+
+    series: Mapped[str] = mapped_column(Text, primary_key=True)
+    day: Mapped[dt.date] = mapped_column(Date, primary_key=True)
+    value: Mapped[float] = mapped_column(Float, nullable=False)
+    computed_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class MetricRegistry(Base):
     """Per-metric behaviour as data: canonical unit, daily aggregate, tier."""
 
