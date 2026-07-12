@@ -65,6 +65,14 @@ CONSISTENCY_BEDTIME_STD = _DEFAULTS.consistency_bedtime_std  # hours; above => i
 # ACWR is conventionally a 7-day acute over a 28-day chronic mean.
 ACWR_ACUTE_DAYS = 7
 ACWR_CHRONIC_DAYS = 28
+# Training status (Banister impulse-response): CTL/ATL are the conventional
+# 42/7-day EWMA time constants; the CTL trend compares against 28 days earlier
+# and calls it rising/falling beyond a 5% relative change. Structural, like the
+# ACWR windows; the zone bands on TSB/CTL are the operator tunables (tsb_*).
+CTL_DAYS = 42
+ATL_DAYS = 7
+CTL_TREND_LOOKBACK_DAYS = 28
+CTL_TREND_REL = 0.05
 # HR_rest is the trailing-median resting heart rate; HR_max / HR_rest fall back
 # along the chains documented in docs/workout-analysis.md §3.1.
 HR_REST_WINDOW = 28
@@ -73,3 +81,59 @@ HR_REST_FALLBACK = 60.0  # last-resort resting HR when no data and no profile
 HR_MAX_FALLBACK = 190.0  # last-resort max HR when neither profile nor data give one
 HR_MAX_DATA_FLOOR = 160.0  # clamp for the data-driven HR_max estimate
 HR_MAX_DATA_CEIL = 210.0
+
+# --- Stress proxy -----------------------------------------------------------
+# Mirrors of app/appconfig.py StressConfig defaults, so the pure helpers have
+# back-compatible defaults when no config is threaded in. See ARCHITECTURE §4.9.
+_STRESS_DEFAULTS = _DEFAULT_APP_CONFIG.stress
+STRESS_RESERVE_FULL = _STRESS_DEFAULTS.reserve_full  # HR-reserve fraction mapped to stress 100
+STRESS_HRV_WEIGHT = _STRESS_DEFAULTS.hrv_weight  # 0 => HR-only; higher => stronger HRV modulation
+STRESS_ZONE_LOW = _STRESS_DEFAULTS.zone_low  # 0-100 stress-scale zone edges (rest/low/medium/high)
+STRESS_ZONE_MEDIUM = _STRESS_DEFAULTS.zone_medium
+STRESS_ZONE_HIGH = _STRESS_DEFAULTS.zone_high
+STRESS_ACTIVE_STEPS_PER_MIN = _STRESS_DEFAULTS.active_steps_per_min  # steps/min gating a bucket as "active"
+# Intraday bucket cadence: HAE ships heart-rate as ~per-minute buckets, so a
+# minute is the natural resolution of the stress timeline (used to convert a
+# bucket's dwell time into minutes-in-zone). Structural, not an operator knob.
+STRESS_BUCKET_MINUTES = 1.0
+# A heart-rate reading covers the time until the next one (Apple samples HR
+# sparsely at rest). Attribute at most this many minutes of dwell to one bucket;
+# a longer silence means the watch was off/unworn -> the excess is
+# "unmeasurable", not held at the last state. Structural domain constant.
+STRESS_GAP_CAP_MINUTES = 10.0
+
+# --- Body Battery -----------------------------------------------------------
+# Mirrors of app/appconfig.py BodyBatteryConfig defaults, so the pure integrator
+# has back-compatible defaults when no config is threaded in. See ARCHITECTURE
+# §4.10. The battery integrates the stress timeline against recovery, so it
+# shares the stress bucket cadence and gap cap.
+_BODY_BATTERY_DEFAULTS = _DEFAULT_APP_CONFIG.body_battery
+# Energy-neutral stress level used as the pure integrator's back-compatible
+# default and as the fallback when `body_battery.neutral` is auto (unset, the
+# config default) but the trailing window holds too little data to derive one.
+# 25 = the stress rest/low boundary (the historical fixed default).
+BODY_BATTERY_NEUTRAL = 25.0
+# Auto-neutral derivation (ARCHITECTURE §4.10). The stress score is relative to
+# the personal resting baseline, so a fixed neutral sits wrong for most people
+# (a calm baseline pins the battery at 100, a high one at 0). When
+# `body_battery.neutral` is unset, each run derives it as a percentile of the
+# measured awake stress minutes over a trailing lookback — "your typical calm
+# waking level" — clamped to a sane band. Structural domain constants; the
+# operator knob is `body_battery.neutral` itself (a number pins it).
+BODY_BATTERY_NEUTRAL_PERCENTILE = 40.0
+BODY_BATTERY_NEUTRAL_LOOKBACK_DAYS = 60
+BODY_BATTERY_NEUTRAL_MIN_MINUTES = 1440  # ≈ a full day of awake measured minutes
+BODY_BATTERY_NEUTRAL_FLOOR = 5.0
+BODY_BATTERY_NEUTRAL_CEIL = 50.0
+BODY_BATTERY_CHARGE_RATE = _BODY_BATTERY_DEFAULTS.charge_rate  # points/min at calm rest
+BODY_BATTERY_DRAIN_RATE = _BODY_BATTERY_DEFAULTS.drain_rate  # points/min at max stress
+BODY_BATTERY_SLEEP_CHARGE_RATE = _BODY_BATTERY_DEFAULTS.sleep_charge_rate  # points/min asleep
+BODY_BATTERY_ACTIVE_DRAIN_RATE = _BODY_BATTERY_DEFAULTS.active_drain_rate  # points/min in a workout
+BODY_BATTERY_SEED_LEVEL = _BODY_BATTERY_DEFAULTS.seed_level  # neutral seed at window start
+# Warm-up margin for windowed recomputes. A day's *last* write happens on the
+# run where it is the window's first day, so without a margin every archived day
+# would permanently keep the computation with the seed at its own start.
+# Integrating this many extra days before the stored range lets the nightly
+# sleep re-anchor wash the seed out before the first stored bucket. Structural
+# domain constant, not an operator knob.
+BODY_BATTERY_WARMUP_DAYS = 7

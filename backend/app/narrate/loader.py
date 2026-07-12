@@ -2,7 +2,7 @@
 
 Recent, dated findings (anomalies, recovery alerts, training load) are bounded
 by the lookback window; the standing analyses (correlations, trends,
-seasonality, consistency) are always included. Display names are joined from
+seasonality, consistency, training status) are always included. Display names are joined from
 the metric registry; the hand-wired series the analysis assembles itself
 (workout load, sleep — no registry rows, see docs/workout-analysis.md) get
 their labels from the fallback map below, so raw snake_case keys never reach
@@ -43,10 +43,10 @@ LEFT JOIN metric_registry ra ON ra.metric = f.metric_a
 LEFT JOIN metric_registry rb ON rb.metric = f.metric_b
 WHERE
     (
-        f.kind IN ('anomaly', 'recovery_alert', 'training_load')
+        f.kind IN ('anomaly', 'recovery_alert', 'training_load', 'stress', 'body_battery')
         AND f.ref_date >= :cutoff
     )
-    OR f.kind IN ('correlation', 'trend', 'seasonality', 'consistency')
+    OR f.kind IN ('correlation', 'trend', 'seasonality', 'consistency', 'training_status')
 ORDER BY f.kind, f.ref_date DESC NULLS LAST, f.severity DESC NULLS LAST
 """
 
@@ -64,6 +64,8 @@ _HANDWIRED_LABELS = {
     "sleep_efficiency": "Sleep Efficiency",
     "bedtime": "Bedtime",
     "recovery": "Recovery",
+    "stress": "Stress",
+    "body_battery": "Body Battery",
 }
 # Per-sport variants: "workout_trimp_running" -> "Training Load (TRIMP) — Running".
 _HANDWIRED_PREFIXES = ("workout_trimp_", "workout_load_", "workout_edwards_")

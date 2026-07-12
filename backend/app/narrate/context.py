@@ -92,6 +92,27 @@ def _z_label(z: float, language: str) -> str:
     return "strong outlier" if language == "en" else "starker Ausreißer"
 
 
+# training_status zone slug (findings.py _tsb_zone) -> (en, de) label.
+_TSB_ZONE_LABELS = {
+    "detraining": ("detraining - load well below fitness", "Detraining – Belastung weit unter Fitnessniveau"),
+    "fresh": ("fresh / tapered", "frisch / erholt (Taper)"),
+    "neutral": ("neutral - load matches fitness", "neutral – Belastung entspricht Fitnessniveau"),
+    "productive": ("productive training", "produktives Training"),
+    "overreaching_risk": ("overreaching risk", "Überlastungsrisiko"),
+}
+_CTL_TREND_LABELS = {
+    "rising": ("rising", "steigend"),
+    "falling": ("falling", "fallend"),
+    "flat": ("stable", "stabil"),
+}
+
+
+def _tsb_zone_label(zone: str | None, language: str) -> str | None:
+    """Translated training-status zone label, or None for an unknown slug."""
+    pair = _TSB_ZONE_LABELS.get(zone or "")
+    return (pair[0] if language == "en" else pair[1]) if pair else None
+
+
 def _acwr_zone(ratio: float, language: str) -> str:
     """Acute:chronic workload-ratio zone label (matches the system-prompt thresholds)."""
     if ratio < 0.8:
@@ -101,6 +122,17 @@ def _acwr_zone(ratio: float, language: str) -> str:
     if ratio <= 1.5:
         return "caution zone" if language == "en" else "Vorsichtszone"
     return "high overtraining risk" if language == "en" else "hohes Übertrainingsrisiko"
+
+
+def _stress_zone(score: float, language: str) -> str:
+    """Daily stress-score band (0-100), matching the system-prompt thresholds."""
+    if score < 25:
+        return "rest" if language == "en" else "Ruhe"
+    if score < 50:
+        return "low" if language == "en" else "niedrig"
+    if score < 75:
+        return "medium" if language == "en" else "mittel"
+    return "high" if language == "en" else "hoch"
 
 
 # ---------------------------------------------------------------------------
@@ -152,6 +184,53 @@ def _section_recovery(alerts: list[dict], language: str) -> list[str]:
     return out
 
 
+def _section_stress(alerts: list[dict], language: str) -> list[str]:
+    out = ["=== STRESS ==="]
+    if not alerts:
+        return [*out, "–"]
+    for f in alerts:
+        d = scrub_details("stress", f.get("details"))
+        score = d.get("score", f.get("severity"))
+        score_str = f"{score:.0f} ({_stress_zone(score, language)})" if score is not None else "n/a"
+        parts = [("score=" if language == "en" else "Score=") + score_str]
+        if d.get("high_min") is not None:
+            parts.append(("high-stress min=" if language == "en" else "Hochstress-Min=") + f"{d['high_min']}")
+        hrv_z = d.get("hrv_z")
+        if hrv_z is not None:
+            parts.append(f"HRV-z={hrv_z:.2f} ({_z_label(hrv_z, language)})")
+        note_str = f" — {f['note']}" if f.get("note") else ""
+        out.append(f"[{f['ref_date']}] {', '.join(parts)}{note_str}")
+    return out
+
+
+def _section_body_battery(alerts: list[dict], language: str) -> list[str]:
+    out = ["=== BODY BATTERY ==="]
+    if not alerts:
+        return [*out, "–"]
+    for f in alerts:
+        d = scrub_details("body_battery", f.get("details"))
+        # No severity fallback: severity is the depletion (100 − low_level),
+        # not the level itself; the raw level is always present in details.
+        low = d.get("low_level")
+        low_str = f"{low:.0f}" if low is not None else "n/a"
+        parts = [("low=" if language == "en" else "Tief=") + low_str]
+        wake = d.get("wake_level")
+        if wake is not None:
+            parts.append(("wake=" if language == "en" else "Weckstand=") + f"{wake:.0f}")
+        high = d.get("high_level")
+        if high is not None:
+            parts.append(("high=" if language == "en" else "Hoch=") + f"{high:.0f}")
+        drained = d.get("drained")
+        charged = d.get("charged")
+        if drained is not None:
+            parts.append(("drained=" if language == "en" else "entladen=") + f"{drained:.0f}")
+        if charged is not None:
+            parts.append(("charged=" if language == "en" else "geladen=") + f"{charged:.0f}")
+        note_str = f" — {f['note']}" if f.get("note") else ""
+        out.append(f"[{f['ref_date']}] {', '.join(parts)}{note_str}")
+    return out
+
+
 def _section_training_load(tload: list[dict], language: str) -> list[str]:
     out = ["=== TRAININGSBELASTUNG ==="] if language == "de" else ["=== TRAINING LOAD ==="]
     if not tload:
@@ -170,6 +249,41 @@ def _section_training_load(tload: list[dict], language: str) -> list[str]:
             load_parts.append(f"acute_{days_a}d={acute:.2f}, chronic_{days_c}d={chronic:.2f}")
         note_str = f" — {f['note']}" if f.get("note") else ""
         out.append(f"[{f['ref_date']}] {_label(f, 'metric_a')}: {', '.join(load_parts)}{note_str}")
+    return out
+
+
+def _section_training_status(status: list[dict], language: str) -> list[str]:
+    """The fitness/form snapshot (kind=training_status): CTL/ATL/TSB with the
+    normalised-form zone and the 4-week fitness trend. A status, not an alert -
+    it gives the report its baseline ("productive, base rising") even when the
+    alert sections above are empty."""
+    if language == "de":
+        out = ["=== TRAININGSZUSTAND (Fitness/Form) ==="]
+    else:
+        out = ["=== TRAINING STATUS (fitness/form) ==="]
+    if not status:
+        return [*out, "–"]
+    for f in status:
+        d = scrub_details("training_status", f.get("details"))
+        parts = []
+        if d.get("ctl") is not None and d.get("atl") is not None:
+            label_f = "fitness" if language == "en" else "Fitness"
+            label_l = "fatigue" if language == "en" else "Ermüdung"
+            ctl_str = f"{label_f} CTL={d['ctl']:.1f} ({d.get('ctl_days', 42)}d)"
+            parts.append(f"{ctl_str}, {label_l} ATL={d['atl']:.1f} ({d.get('atl_days', 7)}d)")
+        if d.get("tsb") is not None:
+            tsb_pct = d.get("tsb_pct")
+            pct_str = f" = {tsb_pct * 100:+.0f}% CTL" if tsb_pct is not None else ""
+            parts.append(f"Form TSB={d['tsb']:+.1f}{pct_str}")
+        zone = _tsb_zone_label(d.get("zone"), language)
+        if zone:
+            parts.append(zone)
+        trend = _CTL_TREND_LABELS.get(d.get("ctl_trend") or "")
+        if trend:
+            label = "fitness trend" if language == "en" else "Fitness-Trend"
+            days = d.get("ctl_trend_days", 28)
+            parts.append(f"{label} ({days}d): {trend[0] if language == 'en' else trend[1]}")
+        out.append(f"[{f['ref_date']}] {_label(f, 'metric_a')}: {', '.join(parts)}")
     return out
 
 
@@ -320,7 +434,10 @@ def build_context(
         header,
         _section_anomalies(by_kind.get("anomaly", []), language, lookback_days),
         _section_recovery(by_kind.get("recovery_alert", []), language),
+        _section_stress(by_kind.get("stress", []), language),
+        _section_body_battery(by_kind.get("body_battery", []), language),
         _section_training_load(by_kind.get("training_load", []), language),
+        _section_training_status(by_kind.get("training_status", []), language),
         _section_correlations(by_kind.get("correlation", []), language, max_correlations),
         _section_trends(by_kind.get("trend", []), language),
         _section_seasonality(by_kind.get("seasonality", []), language),

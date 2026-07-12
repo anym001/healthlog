@@ -159,6 +159,133 @@ class AnalysisConfig(BaseModel):
     # guards per-sport ratios for rarely-practised sports (a sparse series makes
     # the ratio jump on a single session).
     acwr_min_active_days: int = Field(default=8, ge=1, le=28)
+    # Training status (fitness/form): a descriptive CTL/ATL/TSB snapshot written
+    # every run (like consistency), not an alert. Zone bands sit on TSB/CTL —
+    # normalising by fitness keeps them scale-free, because absolute TSB
+    # thresholds only make sense on a calibrated load scale (TSS), not on the
+    # relative TRIMP estimate. Bands (ascending): below tsb_overreach_pct =
+    # overreaching risk, up to −tsb_fresh_pct = productive, within
+    # ±tsb_fresh_pct = neutral, above = fresh, above tsb_detraining_pct =
+    # detraining.
+    tsb_fresh_pct: float = Field(default=0.05, ge=0.0, le=1.0)
+    tsb_detraining_pct: float = Field(default=0.15, ge=0.0, le=1.0)
+    tsb_overreach_pct: float = Field(default=-0.30, ge=-1.0, le=0.0)
+
+
+class StressConfig(BaseModel):
+    """Intraday stress-proxy knobs (see docs/ARCHITECTURE.md §4.9).
+
+    Stress is derived, not measured: HAE does not export the beat-to-beat RR
+    intervals a Garmin/Firstbeat score needs, so this is a proxy built from the
+    heart-rate elevation above a personal resting baseline (workouts excluded),
+    optionally modulated by the day's HRV. The numbers track *your own* baseline
+    over time; they are NOT comparable to a Garmin stress value.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    # Trailing days recomputed on each nightly run. The full history is rebuilt
+    # on demand with `healthlog rederive-stress --all` (e.g. after a backfill);
+    # old days rarely change, so the nightly job only revisits the recent window.
+    window_days: int = Field(default=90, ge=1, le=3650)
+    # Fraction of heart-rate reserve (HR_max - HR_rest) mapped to a stress of
+    # 100. Non-exercise sympathetic activation rarely exceeds ~half the reserve,
+    # so 0.5 saturates the scale sensibly; lower = more sensitive.
+    reserve_full: float = Field(default=0.5, gt=0.0, le=1.0)
+    # HRV modulation weight. 0 = pure heart-rate model (Stufe 2); higher lets the
+    # day's HRV-z shift the score (low HRV → higher stress, Stufe 3). The
+    # multiplier is clamped to [1 - hrv_weight, 1 + hrv_weight].
+    hrv_weight: float = Field(default=0.3, ge=0.0, le=1.0)
+    # Step-based activity gating. A bucket with at least this many steps per
+    # minute is classified "active" (like a workout minute) instead of scored:
+    # everyday movement — a brisk walk, stairs — elevates the heart rate without
+    # being psychological stress, mirroring Garmin's accelerometer gating.
+    # Requires per-minute step_count buckets in the export; with coarser step
+    # data the gate self-disables. ~100 steps/min is a normal walking cadence,
+    # so 60 catches sustained movement while ignoring pacing around a room.
+    # 0 disables the gate (pre-gating behaviour).
+    active_steps_per_min: float = Field(default=60.0, ge=0.0)
+    # Zone boundaries on the 0-100 stress scale (Garmin-style rest/low/medium/
+    # high). A minute's state is rest < zone_low <= low < zone_medium <=
+    # medium < zone_high <= high.
+    zone_low: float = Field(default=25.0, ge=0.0, le=100.0)
+    zone_medium: float = Field(default=50.0, ge=0.0, le=100.0)
+    zone_high: float = Field(default=75.0, ge=0.0, le=100.0)
+    # Minimum measured (non-active, non-gap) minutes in a day before a daily
+    # score is stored; a mostly-unworn day yields no row (gap, not a zero).
+    min_measured_min: int = Field(default=60, ge=0)
+    # Daily score at/above which a high-stress alert finding is emitted, and how
+    # recent a day must be to alert (mirrors the recovery early-warning).
+    alert_score: float = Field(default=60.0, ge=0.0, le=100.0)
+    alert_recent_days: int = Field(default=14, ge=1)
+
+    @model_validator(mode="after")
+    def _check(self) -> StressConfig:
+        if not (self.zone_low < self.zone_medium < self.zone_high):
+            raise ValueError("stress zones must be strictly ascending: zone_low < zone_medium < zone_high")
+        return self
+
+
+class BodyBatteryConfig(BaseModel):
+    """Body-Battery (energy-reserve) proxy knobs (see docs/ARCHITECTURE.md §4.10).
+
+    Body Battery integrates the intraday stress timeline (``stress_intraday``)
+    against recovery over the day: stress and activity drain it, calm rest and
+    sleep charge it, clamped to 0-100. Like the stress score it is a proxy on a
+    proxy — HAE exports no beat-to-beat RR intervals — so the numbers track
+    *your own* baseline over time, not a Garmin value. Drift is avoided by a
+    self-correcting rate integrator: sleep (clamped at 100) re-anchors the
+    battery each night, so the wake level is an emergent function of sleep
+    quality, not a hard-coded reset.
+
+    The charge/drain rates are points-per-minute; the defaults are calibrated so
+    a normal night refills the battery and a stressful day drains it noticeably.
+    Being a personal-relative proxy, the exact numbers are not critical — tune
+    them if your battery pins at 0 or 100.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    # Trailing days recomputed on each nightly run (full history on demand via
+    # `healthlog rederive-body-battery --all`). Old days rarely change.
+    window_days: int = Field(default=90, ge=1, le=3650)
+    # Stress level (0-100) that is energy-neutral: below it awake rest charges,
+    # above it drains. Empty (the default) = auto-calibrated each run from the
+    # personal stress distribution — a percentile of the trailing weeks'
+    # measured awake minutes (see analysis/constants.py for the derivation
+    # constants; falls back to the stress "rest/low" boundary with under a day
+    # of data). The stress score is baseline-relative, so a fixed threshold
+    # sits wrong for most people (a calm baseline pins the battery at 100, a
+    # high one at 0); auto keeps the neutral point aligned with the personal
+    # distribution. Set a number to pin it explicitly.
+    neutral: float | None = Field(default=None, ge=0.0, le=100.0)
+    # Charge earned per minute of fully-calm wake rest (stress 0); scales down
+    # linearly toward `neutral`.
+    charge_rate: float = Field(default=0.03, ge=0.0)
+    # Drain per minute at maximum stress (100); scales down linearly toward
+    # `neutral`.
+    drain_rate: float = Field(default=0.2, ge=0.0)
+    # Charge per minute asleep (scaled by sleep efficiency when known). ~0.15
+    # refills a full night (8 h ~ +72), so the battery self-anchors at wake.
+    sleep_charge_rate: float = Field(default=0.15, ge=0.0)
+    # Drain per minute inside a workout (stress is NULL there, but exertion still
+    # costs energy).
+    active_drain_rate: float = Field(default=0.3, ge=0.0)
+    # Neutral seed at the recompute window's first bucket; washed out within a
+    # few days by the nightly sleep re-anchor, so its exact value is immaterial.
+    seed_level: float = Field(default=50.0, ge=0.0, le=100.0)
+    # Minimum informative stress buckets (≈ minutes at the per-minute cadence)
+    # in a local day before a daily summary row is stored — a barely-worn day
+    # would otherwise show a flat "held" battery as if it were measured.
+    # Mirrors stress.min_measured_min; the intraday timeline is always stored.
+    # 0 disables the gate.
+    min_measured_min: int = Field(default=60, ge=0)
+    # Day whose lowest level reaches at/below this emits a low-battery alert
+    # finding; how recent a day must be to alert.
+    alert_level: float = Field(default=20.0, ge=0.0, le=100.0)
+    alert_recent_days: int = Field(default=14, ge=1)
 
 
 NotifyEvent = Literal["ingest", "analysis", "findings"]
@@ -209,6 +336,15 @@ class NarrateConfig(BaseModel):
     model: str = "qwen2.5:14b"
     # Report language. "en" = English, "de" = German.
     language: Literal["de", "en"] = "en"
+    # Audience the report is written for — selects a curated style block in the
+    # system prompt (prompts.py). Changes how much gets explained, never what
+    # is included: the findings context is identical at every level.
+    #   simple   → everyday words only, no jargon at all, analogies
+    #   standard → plain language, every technical term translated on first use
+    #   expert   → technical vocabulary and statistics used directly
+    audience: Literal["simple", "standard", "expert"] = "standard"
+    # Soft word budget the model is instructed to stay within.
+    max_words: int = Field(default=700, ge=100, le=3000)
     # How far back to look for ref_date-based findings (anomaly, recovery_alert,
     # training_load). Time-independent kinds (correlation, trend, seasonality,
     # consistency) are always included — they represent the current state.
@@ -234,8 +370,22 @@ class AppConfig(BaseModel):
     profile: ProfileConfig = Field(default_factory=ProfileConfig)
     workouts: WorkoutConfig = Field(default_factory=WorkoutConfig)
     analysis: AnalysisConfig = Field(default_factory=AnalysisConfig)
+    stress: StressConfig = Field(default_factory=StressConfig)
+    body_battery: BodyBatteryConfig = Field(default_factory=BodyBatteryConfig)
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
     narrate: NarrateConfig = Field(default_factory=NarrateConfig)
+
+    @model_validator(mode="after")
+    def _check(self) -> AppConfig:
+        # Body Battery integrates the stress_intraday timeline; with stress off
+        # that pass would silently compute nothing (and clear its window). Fail
+        # fast with a clear message instead.
+        if self.body_battery.enabled and not self.stress.enabled:
+            raise ValueError(
+                "body_battery.enabled requires stress.enabled (Body Battery integrates "
+                "the stress timeline); set body_battery.enabled: false as well, or re-enable stress"
+            )
+        return self
 
 
 def load_config(path: str | Path) -> AppConfig:

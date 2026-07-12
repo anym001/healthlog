@@ -43,6 +43,14 @@ daily series below (TRIMP via pure helpers):
 Agreement → robust signal; divergence → informative ("much energy, little HR load" =
 a long easy session).
 
+Since migration `0020_workout_load_daily` each run also **persists** this
+daily-series snapshot — including the zone-based `workout_edwards` parallel and
+the per-sport children (§9) — into the `workout_load_daily` table
+(`ARCHITECTURE.md` §4.4), so Grafana can chart what only the nightly analysis
+computes (Banister vs. Edwards, per-sport zone load). Snapshot semantics like
+`findings`: delete + rewrite per run, because past days legitimately change when
+the rolling HR_rest baseline or the resolved HR_max shifts.
+
 ### 2.2 Central nuance: **0 instead of NaN**
 
 For metrics a missing day means NaN (no measurement). For workouts a training-free
@@ -161,6 +169,34 @@ ACWR = mean_7d(workout_trimp) / mean_28d(workout_trimp)
 - Computed on `workout_trimp` (more meaningful than on energy). A good candidate to
   also include in the notify `findings` (alongside `anomalies` + `recovery_alerts`).
 
+### 5.2 Training status (CTL/ATL/TSB) — a status, not an alert
+
+The Banister impulse-response smoothing of the same daily load (§10 has the
+formulas): CTL = EWMA 42 d ("fitness"), ATL = EWMA 7 d ("fatigue"),
+TSB = CTL − ATL ("form"). As an **alert** this would double-score the ACWR —
+normalised form is `TSB/CTL = 1 − ATL/CTL`, i.e. monotonically an EWMA variant
+of the same acute-vs-chronic idea — so the alerting role stays with §5.1.
+What was missing is **context**: the narration could not say *where* the
+training state stands when nothing is alert-worthy.
+
+- `kind = "training_status"` (fits `String(16)`, no migration), written **every**
+  run like the consistency findings; `metric_a` = the aggregate load series
+  (TRIMP preferred), **aggregate only** — form is systemic, not per-sport.
+- `details = {ctl, atl, tsb, tsb_pct, zone, ctl_ago, ctl_trend, …}`;
+  `severity = |tsb_pct|`. Zones are classified on **TSB/CTL** (scale-free on the
+  relative TRIMP estimate — absolute TSB bands only make sense on a calibrated
+  TSS scale): `tsb_overreach_pct`/`tsb_fresh_pct`/`tsb_detraining_pct` in
+  `config.yaml` (defaults −0.30 / 0.05 / 0.15). `ctl_trend`
+  (rising/flat/falling vs. 28 days earlier) states whether the base is growing.
+- Skipped below one CTL time constant (42 days) of history — the zero-seeded
+  EWMA is still warm-up dominated — and when the chronic load is zero.
+- Consumers: the narration renders it as its own section (the report's baseline:
+  "productive, base rising"); **notify ignores it** (not an alert; the run
+  summary lists its count only at `level: always`). The Fitness & Form section of
+  Grafana's Training dashboard computes the same numbers live in SQL — the finding is the nightly snapshot on
+  the analysis' richer profile-driven TRIMP (§3.1), queryable over time via
+  `findings_history`.
+
 ## 6. What it unlocks (lag correlations)
 
 Once the series are in the dict, among others these fall out:
@@ -179,7 +215,9 @@ Once the series are in the dict, among others these fall out:
    the `correlations` counter).
 4. Config: `AppConfig` + `config.yaml` (section 4).
 5. **No** registry row (workout series are hand-wired like sleep).
-6. **No** schema migration.
+6. Schema: no per-metric columns; the run's daily-series snapshot is persisted
+   into `workout_load_daily` (migration `0020`, `_persist_workout_series()` in
+   `run.py`) for the Grafana load-model panels.
 7. Tests: `load_workout_frame` (aggregation + 0-fill), Banister TRIMP, the HR_max
    fallback chain, ACWR — all as pure functions against synthetic data with a fixed
    seed.
@@ -248,3 +286,60 @@ Once the series are in the dict, among others these fall out:
     trimp/load/edwards, which are composition, not health signal. Edwards' value
     surfaces in correlations against body-state metrics and in its own
     anomaly/trend findings.
+
+## 10. Fitness & form (CTL / ATL / TSB) — dashboard-side
+
+The classic performance-management chart (Banister impulse-response, as popularised
+by TrainingPeaks/Garmin) on top of the same daily TRIMP:
+
+```
+CTL_t = CTL_{t-1} + (TRIMP_t − CTL_{t-1}) / 42     # "fitness", slow EWMA
+ATL_t = ATL_{t-1} + (TRIMP_t − ATL_{t-1}) / 7      # "fatigue", fast EWMA
+TSB_t = CTL_t − ATL_t                              # "form"
+```
+
+This lives **entirely in the Training dashboard's Fitness & Form section**
+(the `workout_trimp` / `daily_trimp` SQL functions — migration 0019, shared by
+every TRIMP panel — supply the per-session and daily TRIMP; the panel adds the
+recursive EWMA CTE over the dense 0-filled series), **not** in the nightly
+analysis, deliberately:
+
+- CTL/ATL/TSB are **descriptive smoothings**, not alert-worthy statistics — the
+  alerting role stays with the ACWR finding (§5.1), which is the same
+  acute-vs-chronic idea expressed as a ratio; a TSB *alert* would score the same
+  load twice. The nightly run stores the numbers as the **`training_status`
+  status finding** (§5.2, narration context, never notified), and the dashboard
+  pulls the analysis *in*: the PMC chart overlays the stored `training_load` and
+  `recovery_alert` findings as annotations (from `findings_history`,
+  deduplicated to one marker per alert day), and an ACWR history panel charts
+  the 7d/28d ratio per day against the §5 bands.
+- Chart-side derivation needs **no schema, no stored derived series** — the same
+  reasoning that keeps the other dashboard TRIMP panels in SQL. The dashboard's
+  TRIMP mirrors the analysis' fallback chains (§3.1) as far as SQL can reach:
+  HR_max defaults to `auto` = `clamp(max(observed max_hr), 160, 210)` with the
+  dashboard variable as the explicit override, and HR_rest is a per-day 28-day
+  rolling median of the measured resting HR (overall median, then 60, as
+  fallbacks). What the dashboard *cannot* see is `config.yaml` (birth_year/sex),
+  so it stays a *relative* view; the analysis keeps the profile-driven chain.
+- **Sample-resolved Banister:** where an intra-workout HR series is stored, the
+  session TRIMP is the Banister formula applied per sample interval (interval
+  time credited to the start sample and rescaled to `duration_s`, the same
+  crediting scheme as Edwards, §9) instead of one average HR — so intervals
+  cost more than a steady run with the same average, which single-average
+  Banister smooths over (§8). Sessions without samples keep the average-HR
+  formula, which yields the *identical* value for a constant-HR session — both
+  variants are the same unit, so mixing them in one daily sum does not violate
+  §2.1's don't-mix-units rule (unlike Edwards' zone weights, which is why the
+  daily load is not Edwards here).
+- The EWMA warms up from the first recorded workout day (seeded with
+  `TRIMP_0/42` resp. `/7`). Every panel follows the dashboard time picker: the
+  stat tiles and the ACWR gauge are anchored on the end of the selected range
+  (capped at today), and days past "now" continue with TRIMP = 0 to show the
+  projected decay (dashed) as far as the range extends: fatigue falls fast,
+  form rebounds — the taper view.
+
+The dashboard's **Training Load Focus** panel reuses the Edwards zone boundaries
+(§9, % of HR_max) to split the selected range's training time into low-aerobic
+(50–80%), high-aerobic (80–90%) and anaerobic (≥ 90%) shares from
+`workout_hr_samples`, with a whole-session fallback to `avg_hr` for workouts
+without a stored HR series.

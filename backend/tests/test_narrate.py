@@ -138,6 +138,45 @@ def test_build_context_anomaly_contains_raw_value():
     assert "72.5" in ctx
 
 
+def test_build_context_training_status_section():
+    findings = [
+        _finding(
+            "training_status",
+            metric_a="workout_trimp",
+            metric_a_label="Training Load (TRIMP)",
+            severity=0.17,
+            note="productive training (moderate negative form)",
+            details={
+                "ctl": 42.3,
+                "atl": 49.5,
+                "tsb": -7.2,
+                "tsb_pct": -0.1702,
+                "zone": "productive",
+                "ctl_days": 42,
+                "atl_days": 7,
+                "ctl_ago": 38.1,
+                "ctl_trend": "rising",
+                "ctl_trend_days": 28,
+            },
+        )
+    ]
+    ctx = build_context(findings, 7, _TODAY)
+    assert "TRAININGSZUSTAND" in ctx
+    assert "CTL=42.3" in ctx and "ATL=49.5" in ctx and "TSB=-7.2" in ctx
+    assert "-17% CTL" in ctx
+    assert "produktives Training" in ctx
+    assert "steigend" in ctx
+
+    ctx_en = build_context(findings, 7, _TODAY, language="en")
+    assert "TRAINING STATUS" in ctx_en
+    assert "productive training" in ctx_en and "rising" in ctx_en
+
+
+def test_build_context_training_status_empty_shows_placeholder():
+    ctx = build_context([], 7, _TODAY)
+    assert "TRAININGSZUSTAND" in ctx
+
+
 def test_build_context_uses_display_name_not_metric_key():
     findings = [_finding("anomaly", details={"z": 2.1}, severity=2.1)]
     ctx = build_context(findings, 7, _TODAY)
@@ -350,7 +389,9 @@ def test_run_dry_run_renders_context_without_ollama(tmp_path, monkeypatch, capsy
     )
     monkeypatch.setattr(narrate_cli, "OllamaClient", _no_client)
 
-    args = argparse.Namespace(lookback_days=None, output_dir=None, note=None, dry_run=True)
+    args = argparse.Namespace(
+        lookback_days=None, output_dir=None, language=None, audience=None, max_words=None, note=None, dry_run=True
+    )
     rc = narrate_cli.run(args)
 
     out = capsys.readouterr().out
@@ -379,6 +420,44 @@ def test_system_prompt_unknown_language_falls_back_to_de():
     p = _system_prompt("fr")
     p_de = _system_prompt("de")
     assert p == p_de
+
+
+def test_system_prompt_every_audience_keeps_safety_rules():
+    # The safety rules are invariant: every language x audience combination
+    # must contain them - the audience only changes the explanation style.
+    markers = {
+        "de": ("keine erfundenen Zahlen", "Keine medizinischen Diagnosen", "Berichtsstruktur"),
+        "en": ("do not invent numbers", "Do not make medical diagnoses", "Report structure"),
+    }
+    for lang, needles in markers.items():
+        for audience in ("simple", "standard", "expert"):
+            p = _system_prompt(lang, audience)
+            for needle in needles:
+                assert needle in p, (lang, audience, needle)
+
+
+def test_system_prompt_audience_styles_differ():
+    simple = _system_prompt("de", "simple")
+    standard = _system_prompt("de", "standard")
+    expert = _system_prompt("de", "expert")
+    assert len({simple, standard, expert}) == 3
+    assert "erscheinen im Text gar nicht" in simple  # no jargon at all
+    # standard is two-tier: consumer-fitness terms used directly, statistics
+    # and model terms still translated on first use.
+    assert "ohne Klammer-Erklärung" in standard
+    assert "beim ersten Auftreten" in standard
+    assert "ohne Erklärung verwenden" in expert  # jargon allowed
+
+
+def test_system_prompt_default_audience_is_standard():
+    assert _system_prompt("en") == _system_prompt("en", "standard")
+    # An unknown audience value falls back to standard instead of failing.
+    assert _system_prompt("en", "phd") == _system_prompt("en", "standard")
+
+
+def test_system_prompt_injects_max_words():
+    assert "Maximal 700 Wörter" in _system_prompt("de")
+    assert "Maximum 450 words" in _system_prompt("en", "simple", max_words=450)
 
 
 # ---------------------------------------------------------------------------
@@ -598,3 +677,86 @@ def test_load_findings_labels_handwired_series(db):
     rows = load_findings(db, 7)
     row = next(r for r in rows if r["kind"] == "training_load")
     assert row["metric_a_label"] == "Training Load (TRIMP) — Running"
+
+
+# ---------------------------------------------------------------------------
+# Stress section + system prompt
+# ---------------------------------------------------------------------------
+
+
+def test_build_context_stress_shows_score_and_zone():
+    f = _finding(
+        "stress",
+        metric_a="stress",
+        metric_a_label="Stress",
+        severity=69.0,
+        note="elevated daily stress",
+        details={"score": 69.0, "high_min": 360, "rest_min": 180, "hrv_z": -1.66},
+    )
+    ctx = build_context([f], 7, _TODAY, language="en")
+    assert "=== STRESS ===" in ctx
+    assert "score=69 (medium)" in ctx
+    assert "high-stress min=360" in ctx
+    assert "HRV-z=-1.66" in ctx
+
+
+def test_build_context_stress_german():
+    f = _finding(
+        "stress",
+        metric_a="stress",
+        metric_a_label="Stress",
+        severity=80.0,
+        details={"score": 80.0, "high_min": 120},
+    )
+    ctx = build_context([f], 7, _TODAY, language="de")
+    assert "Score=80 (hoch)" in ctx
+    assert "Hochstress-Min=120" in ctx
+
+
+def test_build_context_stress_empty_placeholder():
+    ctx = build_context([], 7, _TODAY)
+    assert "=== STRESS ===" in ctx  # section always rendered, with a placeholder
+
+
+def test_system_prompt_documents_stress_both_languages():
+    assert "Stress-Score" in _system_prompt("de")
+    assert "Stress score" in _system_prompt("en")
+
+
+def test_build_context_body_battery_shows_levels_en():
+    f = _finding(
+        "body_battery",
+        metric_a="body_battery",
+        metric_a_label="Body Battery",
+        severity=12.0,
+        note="low energy reserve",
+        details={"low_level": 12, "high_level": 55, "wake_level": 40, "charged": 30.0, "drained": 70.0},
+    )
+    ctx = build_context([f], 7, _TODAY, language="en")
+    assert "=== BODY BATTERY ===" in ctx
+    assert "low=12" in ctx
+    assert "wake=40" in ctx
+    assert "drained=70" in ctx
+
+
+def test_build_context_body_battery_german():
+    f = _finding(
+        "body_battery",
+        metric_a="body_battery",
+        metric_a_label="Body Battery",
+        severity=8.0,
+        details={"low_level": 8, "wake_level": 25},
+    )
+    ctx = build_context([f], 7, _TODAY, language="de")
+    assert "Tief=8" in ctx
+    assert "Weckstand=25" in ctx
+
+
+def test_build_context_body_battery_empty_placeholder():
+    ctx = build_context([], 7, _TODAY)
+    assert "=== BODY BATTERY ===" in ctx  # section always rendered, with a placeholder
+
+
+def test_system_prompt_documents_body_battery_both_languages():
+    assert "Body Battery" in _system_prompt("de")
+    assert "Body Battery" in _system_prompt("en")

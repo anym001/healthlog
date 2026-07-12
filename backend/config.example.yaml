@@ -84,6 +84,77 @@
 #   acwr_high: 1.5            # above => load spike flagged (overload risk)
 #   acwr_low: 0.8             # below => detraining flagged
 #   acwr_min_active_days: 8   # min training days in 28 before a (per-sport) ratio is trusted
+#   # Training status (fitness/form): descriptive CTL/ATL/TSB snapshot written
+#   # every run (a status like consistency, NOT an alert - it feeds the
+#   # narration's baseline). Zones sit on TSB normalised by CTL (scale-free on
+#   # the relative TRIMP estimate):
+#   tsb_fresh_pct: 0.05       # |TSB|/CTL below => neutral; above => fresh (positive TSB)
+#   tsb_detraining_pct: 0.15  # TSB/CTL above => detraining (base shrinking)
+#   tsb_overreach_pct: -0.30  # TSB/CTL below => overreaching risk; between => productive
+
+# --- Stress proxy ----------------------------------------------------------
+# A Garmin-style intraday stress score (0-100) + time-in-zone, derived from the
+# heart-rate elevation above your personal resting baseline (workouts excluded),
+# optionally modulated by HRV. NOTE: this is a proxy from the data Apple Health
+# exports — NOT the RR-interval-based Garmin/Firstbeat value — so it tracks your
+# own baseline over time and is not comparable to a Garmin number. For a usable
+# intraday timeline, set Health Auto Export's "Time Grouping" to Minute (hourly
+# grouping yields only ~24 points/day). Defaults shown.
+# stress:
+#   enabled: true            # disabling stress also requires
+#                            #   body_battery.enabled: false (it builds on stress)
+#   window_days: 90          # trailing days recomputed each nightly run;
+#                            #   rebuild the full history with
+#                            #   `healthlog rederive-stress --all`
+#   reserve_full: 0.5        # fraction of HR reserve (HR_max - HR_rest) mapped
+#                            #   to a stress of 100 (lower = more sensitive)
+#   hrv_weight: 0.3          # 0 = heart-rate only; higher lets the day's HRV-z
+#                            #   shift the score (low HRV -> higher stress)
+#   zone_low: 25             # 0-100 zone edges: rest < low < medium < high
+#   zone_medium: 50
+#   zone_high: 75
+#   active_steps_per_min: 60 # buckets with at least this many steps/min count as
+#                            #   "active" (movement, not stress) like workout
+#                            #   minutes; needs per-minute step_count buckets
+#                            #   (self-disables on coarser data); 0 turns it off
+#   min_measured_min: 60     # min measured minutes/day before a score is stored
+#   alert_score: 60          # daily score at/above which a high-stress finding fires
+#   alert_recent_days: 14    # only alert on days this recent
+
+# --- Body Battery ----------------------------------------------------------
+# A Garmin-style energy-reserve score (0-100): the stress timeline above,
+# integrated against recovery -- stress and workouts drain it, calm rest and
+# sleep charge it. Builds on the stress proxy, so it needs the same "Time
+# Grouping = Minute" export setting. Same caveat: a proxy on a proxy (no RR
+# intervals), relative to your own baseline, not a Garmin value. Drift is
+# avoided by a self-correcting integrator -- a night's sleep (clamped at 100)
+# re-anchors the battery, so the wake level reflects sleep quality rather than a
+# fixed reset. Charge/drain rates are points-per-minute; tune them if your
+# battery pins at 0 or 100. Defaults shown.
+# body_battery:
+#   enabled: true            # requires stress.enabled (the battery integrates the
+#                            #   stress timeline); disabling only stress is
+#                            #   rejected at config load
+#   window_days: 90          # trailing days recomputed each nightly run;
+#                            #   rebuild the full history with
+#                            #   `healthlog rederive-body-battery --all`
+#                            #   (run it after `rederive-stress --all`)
+#   neutral:                 # stress level that is energy-neutral (below charges,
+#                            #   above drains). Empty = auto (default): calibrated
+#                            #   each run from your own stress distribution, so the
+#                            #   battery doesn't pin at 0/100 just because your
+#                            #   baseline sits low or high; set a number to pin it
+#   charge_rate: 0.03        # points/min gained at fully calm wake rest
+#   drain_rate: 0.2          # points/min lost at maximum stress
+#   sleep_charge_rate: 0.15  # points/min gained asleep (~+72 over a full night)
+#   active_drain_rate: 0.3   # points/min lost inside a workout
+#   seed_level: 50           # neutral start at the window's first bucket (washed
+#                            #   out within days by the nightly sleep re-anchor)
+#   min_measured_min: 60     # min informative stress minutes/day before a daily
+#                            #   row is stored (a barely-worn day is a gap, not a
+#                            #   flat battery); the intraday timeline always stays
+#   alert_level: 20          # day whose low reaches at/below this fires an alert
+#   alert_recent_days: 14    # only alert on days this recent
 
 # --- LLM narration ---------------------------------------------------------
 # On-demand health report from a local Ollama instance. Reads the current
@@ -95,6 +166,12 @@
 #   ollama_url:               # required: http://192.168.1.100:11434
 #   model: qwen2.5:14b
 #   language: en              # en | de
+#   audience: standard        # simple | standard | expert — how much the report
+#                             # explains (same findings at every level: simple =
+#                             # everyday words only, standard = fitness terms like
+#                             # HRV used directly but statistics terms translated
+#                             # on first use, expert = everything used directly)
+#   max_words: 700            # soft word budget the model is told to respect
 #   lookback_days: 7          # ref_date window for anomalies / recovery / load
 #   timeout_s: 300            # generous — 14B models take time
 #   max_correlations: 15      # cap the correlations narrated, highest-priority

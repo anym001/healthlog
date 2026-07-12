@@ -1,0 +1,29 @@
+# Grafana datasource provisioning for HealthLog (see grafana/README.md,
+# "Option B — provisioning"). Mount the grafana/provisioning directory at
+# /etc/grafana/provisioning and Grafana creates this datasource on startup —
+# with the exact UID the dashboards reference, so the "wrong UID => No data"
+# setup error cannot happen.
+#
+# The read-only DB password is NOT stored here: it is read from the
+# GRAFANA_RO_PASSWORD environment variable of the *Grafana* container
+# (secrets stay in the environment, mirroring the app's ENV/YAML split).
+apiVersion: 1
+
+datasources:
+  - name: healthlog-db
+    # The dashboards reference this exact UID — do not change it.
+    uid: healthlog-db
+    type: postgres
+    access: proxy
+    # Hostname of the TimescaleDB container on the shared Docker network.
+    url: healthlog-db:5432
+    user: grafana_ro
+    secureJsonData:
+      password: $GRAFANA_RO_PASSWORD
+    jsonData:
+      database: healthlog
+      sslmode: disable
+      postgresVersion: 1600
+      timescaledb: true
+    # Managed by this file; the UI cannot edit (and thus break) it.
+    editable: false

@@ -7,7 +7,7 @@ import uuid
 
 import numpy as np
 import pandas as pd
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from app import analysis
 from app.analysis import (
@@ -16,20 +16,44 @@ from app.analysis import (
     acute_chronic_ratio,
     aggregate_workout_daily,
     annual_seasonality,
+    auto_neutral,
     banister_trimp,
+    body_battery_timeline,
     circular_bedtime_offset,
     decompose,
     edwards_trimp,
+    ewma,
     fdr_adjust,
     fill_zero_within_span,
     resolve_hr_max,
     resolve_hr_rest,
     rolling_mad_anomalies,
     spearman_lag,
+    stress_intraday_from_hr,
+    stress_state,
+    summarize_body_battery_day,
+    summarize_stress_day,
+    training_status,
     trend_slope,
 )
-from app.appconfig import AnalysisConfig, AppConfig, ProfileConfig, WorkoutConfig
-from app.models import Finding, FindingHistory, MetricSample, SleepSession, Workout, WorkoutHrSample
+from app.analysis.body_battery import _resolve_neutral, compute_body_battery
+from app.analysis.constants import BODY_BATTERY_NEUTRAL
+from app.analysis.refresh import run_refresh
+from app.analysis.stress import compute_stress, hr_window_bounds
+from app.appconfig import AnalysisConfig, AppConfig, BodyBatteryConfig, ProfileConfig, StressConfig, WorkoutConfig
+from app.models import (
+    BodyBatteryDaily,
+    BodyBatteryIntraday,
+    Finding,
+    FindingHistory,
+    MetricSample,
+    SleepSession,
+    StressDaily,
+    StressIntraday,
+    Workout,
+    WorkoutHrSample,
+    WorkoutLoadDaily,
+)
 from app.workout_types import canonical_workout_type
 
 UTC = dt.UTC
@@ -995,6 +1019,77 @@ def test_training_load_activity_guard_is_configurable():
     assert [f.metric_a for f in relaxed] == ["workout_trimp_cycling"]
 
 
+# --- Training status (CTL/ATL/TSB) ------------------------------------------
+
+
+def test_ewma_matches_explicit_recursion():
+    rng = np.random.default_rng(7)
+    s = _daily(rng.uniform(0, 50, size=100))
+    out = ewma(s, 42.0)
+    y = 0.0
+    for x in s:
+        y += (x - y) / 42.0
+    assert abs(float(out.iloc[-1]) - y) < 1e-9
+    # zero-seeded: the first smoothed value is x_0 / tau, not x_0
+    assert abs(float(out.iloc[0]) - float(s.iloc[0]) / 42.0) < 1e-9
+
+
+def test_training_status_needs_history_and_load():
+    assert training_status(_daily([10.0] * 41)) is None  # < one CTL time constant
+    assert training_status(_daily([0.0] * 60)) is None  # no load -> no status
+
+
+def test_training_status_taper_turns_form_positive():
+    building = training_status(_daily([20.0] * 56 + [30.0] * 14))
+    tapering = training_status(_daily([20.0] * 56 + [0.0] * 14))
+    assert building is not None and tapering is not None
+    assert building.tsb < 0 < tapering.tsb  # hard block -> negative form; taper -> positive
+    assert tapering.atl < building.atl
+    assert abs(building.tsb_pct - building.tsb / building.ctl) < 1e-12
+
+
+def test_tsb_zone_bands():
+    from app.analysis.findings import _tsb_zone
+
+    cfg = AnalysisConfig()
+    assert _tsb_zone(0.20, cfg) == "detraining"
+    assert _tsb_zone(0.08, cfg) == "fresh"
+    assert _tsb_zone(0.0, cfg) == "neutral"
+    assert _tsb_zone(-0.15, cfg) == "productive"
+    assert _tsb_zone(-0.40, cfg) == "overreaching_risk"
+
+
+def test_training_status_finding_written_every_run():
+    # A steady load is not alert-worthy, but the status snapshot still exists.
+    findings = analysis._training_status_findings({"workout_trimp": _daily([20.0] * 90)}, dt.datetime.now(UTC))
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.kind == "training_status"
+    assert f.metric_a == "workout_trimp"
+    assert f.details["zone"] in ("neutral", "productive")  # warm-up keeps TSB mildly negative
+    assert f.details["ctl_trend"] == "rising"  # the base is still building from the zero seed
+    assert f.severity == abs(f.details["tsb_pct"])
+
+
+def test_training_status_finding_flags_overreach_zone():
+    findings = analysis._training_status_findings(
+        {"workout_trimp": _daily([10.0] * 56 + [30.0] * 14)}, dt.datetime.now(UTC)
+    )
+    assert len(findings) == 1
+    assert findings[0].details["zone"] == "overreaching_risk"
+    assert "overreaching" in findings[0].note
+
+
+def test_training_status_aggregate_only_prefers_trimp():
+    series = {
+        "workout_trimp": _daily([20.0] * 90),
+        "workout_load": _daily([300.0] * 90),
+        "workout_trimp_running": _daily([20.0] * 90),
+    }
+    findings = analysis._training_status_findings(series, dt.datetime.now(UTC))
+    assert [f.metric_a for f in findings] == ["workout_trimp"]  # one snapshot, aggregate, TRIMP preferred
+
+
 # --- Per-sport type mapping (Iteration 2) ----------------------------------
 
 
@@ -1115,6 +1210,90 @@ def test_run_with_workouts_is_clean_and_snapshots(db):
     first = db.execute(select(func.count()).select_from(Finding)).scalar_one()
     analysis.run(db, "Europe/Vienna", AppConfig())
     assert db.execute(select(func.count()).select_from(Finding)).scalar_one() == first
+
+
+def test_run_persists_workout_load_series_snapshot(db):
+    start = dt.date(2026, 1, 1)
+    for i in range(35):
+        day = start + dt.timedelta(days=i)
+        when = dt.datetime(day.year, day.month, day.day, 18, tzinfo=UTC)
+        hae_id = _add_workout(db, when, duration_s=2400, avg_hr=140, max_hr=175, energy=350)
+        if i % 2 == 0:  # an HR series on every other session -> Edwards self-gates on
+            _add_hr_series(db, hae_id, when, count=40)
+    db.flush()
+
+    cfg = AppConfig(workouts=WorkoutConfig(type_map={"Outdoor Run": "running"}))
+    analysis.run(db, "Europe/Vienna", cfg)
+
+    rows = db.execute(select(WorkoutLoadDaily)).scalars().all()
+    by_series: dict[str, list[WorkoutLoadDaily]] = {}
+    for r in rows:
+        by_series.setdefault(r.series, []).append(r)
+
+    # The aggregate load family, the zone-based parallel and the per-sport child.
+    for name in ("workout_trimp", "workout_load", "workout_edwards", "workout_duration", "workout_count"):
+        assert name in by_series, name
+    assert "workout_trimp_running" in by_series and "workout_edwards_running" in by_series
+    # Densified span: one row per calendar day, real zeros included.
+    assert len(by_series["workout_trimp"]) == 35
+    assert sum(r.value for r in by_series["workout_count"]) == 35
+    # Days with an HR series carry a positive Edwards load; days without stay 0.
+    edwards = {r.day: r.value for r in by_series["workout_edwards"]}
+    assert edwards[start] > 0 and edwards[start + dt.timedelta(days=1)] == 0
+
+    # Re-running replaces, never accumulates (snapshot semantics like findings).
+    analysis.run(db, "Europe/Vienna", cfg)
+    assert db.execute(select(func.count()).select_from(WorkoutLoadDaily)).scalar_one() == len(rows)
+
+
+def test_findings_feed_view_renders_per_kind_detail(db):
+    computed_at = dt.datetime(2026, 7, 1, 2, 0, tzinfo=UTC)
+    db.add_all(
+        [
+            Finding(
+                computed_at=computed_at,
+                kind="training_load",
+                metric_a="workout_trimp",
+                ref_date=dt.date(2026, 6, 28),
+                severity=0.7,
+                details={"ratio": 1.85},
+            ),
+            Finding(
+                computed_at=computed_at,
+                kind="anomaly",
+                metric_a="resting_heart_rate",
+                ref_date=dt.date(2026, 6, 29),
+                severity=0.5,
+                details={"z": 4.2, "value": 61.0},
+            ),
+            Finding(
+                computed_at=computed_at,
+                kind="correlation",
+                metric_a="workout_trimp",
+                metric_b="sleep_total_h",
+                lag_days=2,
+                coefficient=0.8,
+                window_end=dt.date(2026, 6, 30),
+                severity=0.8,
+            ),
+            Finding(
+                computed_at=computed_at,
+                kind="trend",
+                metric_a="vo2_max",
+                window_end=dt.date(2026, 6, 30),
+                severity=0.42,
+            ),
+        ]
+    )
+    db.flush()
+
+    feed = {r.kind: r for r in db.execute(text("SELECT kind, day, detail FROM findings_feed ORDER BY kind")).all()}
+    assert feed["training_load"].detail == "ACWR 1.85"
+    assert feed["training_load"].day == dt.date(2026, 6, 28)  # ref_date wins
+    assert feed["anomaly"].detail == "4.2σ (val: 61.00)"
+    assert feed["correlation"].detail == "r=0.80 lag=2d"
+    assert feed["correlation"].day == dt.date(2026, 6, 30)  # window_end fallback
+    assert feed["trend"].detail == "0.42"  # generic severity fallback
 
 
 def test_build_series_splits_load_by_sport(db):
@@ -1268,3 +1447,547 @@ def test_build_series_edwards_per_sport(db):
     series = analysis.build_series(db, "Europe/Vienna", workouts=workouts)
     assert "workout_edwards" in series
     assert "workout_edwards_running" in series and "workout_edwards_cycling" in series
+
+
+# --- Stress proxy (pure) ---------------------------------------------------
+
+
+def _minute_hr(values, start="2026-03-16 08:00", tz="UTC") -> pd.Series:
+    idx = pd.date_range(start, periods=len(values), freq="min", tz=tz)
+    return pd.Series(np.asarray(values, dtype="float64"), index=idx)
+
+
+def test_stress_state_bands():
+    assert stress_state(10, 25, 50, 75) == "rest"
+    assert stress_state(25, 25, 50, 75) == "low"  # boundary is inclusive of the upper band
+    assert stress_state(60, 25, 50, 75) == "medium"
+    assert stress_state(90, 25, 50, 75) == "high"
+
+
+def test_stress_scales_with_hr_reserve():
+    # rest=55, max=155 -> reserve 100; reserve_full 0.5 saturates at 50 bpm over rest.
+    hr = _minute_hr([55, 80, 105, 130])
+    df = stress_intraday_from_hr(hr, hr_rest_day=55.0, hr_max=155.0, reserve_full=0.5)
+    stresses = list(df["stress"])
+    assert stresses[0] == 0  # at rest
+    assert stresses[1] == 50  # (80-55)/(0.5*100) = 0.5
+    assert stresses[2] == 100  # (105-55)/50 = 1.0 (saturated)
+    assert stresses[3] == 100  # clamped
+    assert list(df["state"]) == ["rest", "medium", "high", "high"]
+
+
+def test_stress_workout_minutes_are_active_not_scored():
+    hr = _minute_hr([60, 150, 150, 60])
+    wstart = pd.Timestamp("2026-03-16 08:01", tz="UTC")
+    intervals = [(wstart, wstart + pd.Timedelta(minutes=2))]
+    df = stress_intraday_from_hr(hr, 55.0, 155.0, workout_intervals=intervals)
+    assert list(df["state"]) == ["rest", "active", "active", "rest"]
+    assert pd.isna(df["stress"].iloc[1]) and pd.isna(df["stress"].iloc[2])
+
+
+def test_stress_step_active_buckets_are_gated():
+    # A brisk walk (>= active_steps_per_min steps in a bucket) elevates HR but is
+    # movement, not stress: those buckets go "active" like workout minutes.
+    hr = _minute_hr([60, 120, 120, 60])
+    steps = pd.Series([0.0, 80.0, 90.0, 5.0], index=hr.index)
+    df = stress_intraday_from_hr(hr, 55.0, 155.0, steps=steps, active_steps_per_min=60.0)
+    assert list(df["state"]) == ["rest", "active", "active", "rest"]
+    assert pd.isna(df["stress"].iloc[1]) and pd.isna(df["stress"].iloc[2])
+
+
+def test_stress_step_gating_disabled_with_zero_threshold():
+    hr = _minute_hr([120])
+    steps = pd.Series([200.0], index=hr.index)
+    df = stress_intraday_from_hr(hr, 55.0, 155.0, steps=steps, active_steps_per_min=0.0)
+    assert df["state"].iloc[0] != "active"
+
+
+def test_stress_overlapping_workout_intervals_merge():
+    # Overlapping intervals (e.g. a multisport session logged twice) must not
+    # confuse the vectorised membership test.
+    hr = _minute_hr([150, 150, 150, 150])
+    t0 = hr.index[0]
+    intervals = [
+        (t0, t0 + pd.Timedelta(minutes=3)),
+        (t0 + pd.Timedelta(minutes=1), t0 + pd.Timedelta(minutes=2)),
+    ]
+    df = stress_intraday_from_hr(hr, 55.0, 155.0, workout_intervals=intervals)
+    assert list(df["state"]) == ["active", "active", "active", "high"]
+
+
+def test_stress_hrv_modulation_raises_on_low_hrv():
+    hr = _minute_hr([90, 90])
+    base = stress_intraday_from_hr(hr, 55.0, 155.0, hrv_z=None, hrv_weight=0.3)["stress"].iloc[0]
+    low_hrv = stress_intraday_from_hr(hr, 55.0, 155.0, hrv_z=-2.0, hrv_weight=0.3)["stress"].iloc[0]
+    high_hrv = stress_intraday_from_hr(hr, 55.0, 155.0, hrv_z=2.0, hrv_weight=0.3)["stress"].iloc[0]
+    assert low_hrv > base > high_hrv
+    # modulation is clamped to [1 - hrv_weight, 1 + hrv_weight] = [0.7, 1.3]
+    assert low_hrv == round(base * 1.3)
+    assert high_hrv == round(base * 0.7)
+
+
+def test_stress_degenerate_reserve_is_unmeasurable():
+    hr = _minute_hr([80, 90])
+    df = stress_intraday_from_hr(hr, hr_rest_day=160.0, hr_max=150.0)  # rest >= max
+    assert list(df["state"]) == ["unmeasurable", "unmeasurable"]
+    assert df["stress"].isna().all()
+
+
+def test_summarize_stress_day_weights_by_dwell_and_counts_zones():
+    # 30 min rest at ~0, then 10 min high at 100; score is dwell-weighted.
+    hr = _minute_hr([55.0] * 30 + [155.0] * 10)
+    df = stress_intraday_from_hr(hr, 55.0, 155.0, reserve_full=0.5)
+    summ = summarize_stress_day(df)
+    assert summ["rest_min"] == 30
+    assert summ["high_min"] == 10
+    assert summ["measured_min"] == 40
+    # last bucket contributes 1 nominal minute; ~ (30*0 + 10*100)/40
+    assert 24.0 <= summ["score"] <= 26.0
+
+
+def test_summarize_stress_day_caps_long_gaps_as_unmeasurable():
+    idx = pd.DatetimeIndex([pd.Timestamp("2026-03-16 08:00", tz="UTC"), pd.Timestamp("2026-03-16 09:00", tz="UTC")])
+    hr = pd.Series([60.0, 60.0], index=idx)
+    df = stress_intraday_from_hr(hr, 55.0, 155.0)
+    summ = summarize_stress_day(df, gap_cap_minutes=10.0)
+    # 60-minute gap: 10 min dwell for the first bucket, 50 min unmeasurable.
+    assert summ["unmeasurable_min"] == 50
+    assert summ["rest_min"] == 11  # 10 (capped) + 1 (trailing nominal)
+
+
+def test_summarize_stress_day_empty():
+    summ = summarize_stress_day(pd.DataFrame(columns=["stress", "hr", "state"]))
+    assert summ["score"] is None and summ["measured_min"] == 0
+
+
+# --- Stress proxy (DB end-to-end) ------------------------------------------
+
+
+def _seed_stress_history(db, spike_days=(37,), workout_days=(37, 38)):
+    """40 days of daily RHR/HRV baseline + per-minute HR for the last 3 days."""
+    base = dt.date(2026, 3, 1)
+    rng = np.random.default_rng(0)
+    for d in range(40):
+        day = base + dt.timedelta(days=d)
+        at4 = dt.datetime(day.year, day.month, day.day, 4, tzinfo=UTC)
+        db.add(MetricSample(time=at4, metric="resting_heart_rate", source="", qty=55.0 + rng.normal(0, 1)))
+        db.add(MetricSample(time=at4, metric="heart_rate_variability", source="", qty=45.0 + rng.normal(0, 3)))
+    for d in (37, 38, 39):
+        day = base + dt.timedelta(days=d)
+        for m in range(600):
+            ts = dt.datetime(day.year, day.month, day.day, 8, tzinfo=UTC) + dt.timedelta(minutes=m)
+            bpm = 58.0
+            if d in spike_days and 60 <= m < 480:
+                bpm = 115.0
+            if 300 <= m < 360 and d in workout_days:
+                bpm = 150.0
+            db.add(MetricSample(time=ts, metric="heart_rate", source="", vavg=bpm, vmin=bpm - 5, vmax=bpm + 5))
+        if d in workout_days:
+            wstart = dt.datetime(day.year, day.month, day.day, 8, tzinfo=UTC) + dt.timedelta(minutes=300)
+            db.add(
+                Workout(
+                    hae_id=uuid.uuid4(),
+                    start_time=wstart,
+                    end_time=wstart + dt.timedelta(minutes=60),
+                    name="Run",
+                    duration_s=3600,
+                    avg_hr=150,
+                    max_hr=160,
+                )
+            )
+    db.flush()
+
+
+def test_compute_stress_writes_tables_and_is_idempotent(db):
+    _seed_stress_history(db)
+    cfg = StressConfig()
+    res1 = compute_stress(db, "Europe/Vienna", cfg, ProfileConfig(), since_days=cfg.window_days)
+    assert res1.days == 3 and res1.buckets == 1800
+    daily = {r.day: r for r in db.execute(select(StressDaily)).scalars()}
+    assert len(daily) == 3
+    # The spike day (2026-04-07) scores clearly higher than a calm day.
+    spike = daily[dt.date(2026, 4, 7)]
+    calm = daily[dt.date(2026, 4, 9)]
+    assert spike.score > calm.score
+    assert spike.high_min > 0
+    # Workout minutes are excluded from the score (active band).
+    assert spike.active_min == 60
+    intraday_count = db.execute(select(func.count()).select_from(StressIntraday)).scalar_one()
+    assert intraday_count == 1800
+
+    # Idempotent: a re-run replaces the window, no duplication.
+    res2 = compute_stress(db, "Europe/Vienna", cfg, ProfileConfig(), since_days=cfg.window_days)
+    assert res2.days == 3 and res2.buckets == 1800
+    assert db.execute(select(func.count()).select_from(StressIntraday)).scalar_one() == 1800
+    assert db.execute(select(func.count()).select_from(StressDaily)).scalar_one() == 3
+
+
+def test_run_emits_stress_alert_for_high_stress_day(db):
+    _seed_stress_history(db)
+    result = analysis.run(db)
+    assert result.stress >= 1
+    alert = db.execute(select(Finding).where(Finding.kind == "stress")).scalars().first()
+    assert alert is not None
+    assert alert.metric_a == "stress"
+    assert alert.ref_date == dt.date(2026, 4, 7)
+    assert alert.severity >= StressConfig().alert_score
+    assert alert.details["high_min"] > 0
+
+
+def test_compute_stress_disabled_writes_nothing(db):
+    _seed_stress_history(db)
+    res = compute_stress(db, "Europe/Vienna", StressConfig(enabled=False), ProfileConfig(), since_days=90)
+    assert res.days == 0 and res.buckets == 0
+    assert db.execute(select(func.count()).select_from(StressDaily)).scalar_one() == 0
+
+
+def test_compute_stress_no_hr_data_is_clean(db):
+    res = compute_stress(db, "Europe/Vienna", StressConfig(), ProfileConfig(), since_days=90)
+    assert res.days == 0 and res.buckets == 0
+
+
+def test_compute_stress_dedupes_multi_source_buckets(db):
+    # Two sources report heart_rate at the same minute: must not collide on the
+    # stress_intraday ts primary key (they are averaged into one bucket).
+    base = dt.date(2026, 3, 1)
+    for d in range(40):
+        day = base + dt.timedelta(days=d)
+        at4 = dt.datetime(day.year, day.month, day.day, 4, tzinfo=UTC)
+        db.add(MetricSample(time=at4, metric="resting_heart_rate", source="", qty=55.0))
+    day = base + dt.timedelta(days=39)
+    for m in range(120):
+        ts = dt.datetime(day.year, day.month, day.day, 8, tzinfo=UTC) + dt.timedelta(minutes=m)
+        db.add(MetricSample(time=ts, metric="heart_rate", source="Apple Watch", vavg=80.0))
+        db.add(MetricSample(time=ts, metric="heart_rate", source="iPhone", vavg=90.0))
+    db.flush()
+
+    res = compute_stress(db, "Europe/Vienna", StressConfig(min_measured_min=1), ProfileConfig(), since_days=90)
+    assert res.buckets == 120  # one row per minute, not two
+    hr = {r.ts: r.hr for r in db.execute(select(StressIntraday)).scalars()}
+    assert len(hr) == 120
+    assert next(iter(hr.values())) == 85.0  # (80 + 90) / 2
+
+
+def test_compute_stress_gates_step_active_minutes(db):
+    # Per-minute steps during elevated HR (a brisk walk) turn those buckets
+    # "active" instead of high-stress.
+    base = dt.date(2026, 3, 1)
+    for d in range(40):
+        day = base + dt.timedelta(days=d)
+        at4 = dt.datetime(day.year, day.month, day.day, 4, tzinfo=UTC)
+        db.add(MetricSample(time=at4, metric="resting_heart_rate", source="", qty=55.0))
+    day = base + dt.timedelta(days=39)
+    for m in range(120):
+        ts = dt.datetime(day.year, day.month, day.day, 8, tzinfo=UTC) + dt.timedelta(minutes=m)
+        walking = 30 <= m < 60
+        db.add(MetricSample(time=ts, metric="heart_rate", source="", vavg=110.0 if walking else 58.0))
+        db.add(MetricSample(time=ts, metric="step_count", source="", qty=110.0 if walking else 0.0))
+    db.flush()
+
+    compute_stress(db, "Europe/Vienna", StressConfig(min_measured_min=1), ProfileConfig(), since_days=90)
+    states = {r.ts: r.state for r in db.execute(select(StressIntraday)).scalars()}
+    assert states[dt.datetime(day.year, day.month, day.day, 8, 40, tzinfo=UTC)] == "active"
+    daily = db.execute(select(StressDaily)).scalars().one()
+    assert daily.active_min == 30
+
+
+def test_compute_stress_ignores_coarse_step_buckets(db):
+    # Hourly step totals must not gate single co-timed buckets: the cadence
+    # guard self-disables the gate on coarse step data.
+    base = dt.date(2026, 3, 1)
+    for d in range(40):
+        day = base + dt.timedelta(days=d)
+        at4 = dt.datetime(day.year, day.month, day.day, 4, tzinfo=UTC)
+        db.add(MetricSample(time=at4, metric="resting_heart_rate", source="", qty=55.0))
+    day = base + dt.timedelta(days=39)
+    for m in range(120):
+        ts = dt.datetime(day.year, day.month, day.day, 8, tzinfo=UTC) + dt.timedelta(minutes=m)
+        db.add(MetricSample(time=ts, metric="heart_rate", source="", vavg=58.0))
+    for h in (8, 9):
+        ts = dt.datetime(day.year, day.month, day.day, h, tzinfo=UTC)
+        db.add(MetricSample(time=ts, metric="step_count", source="", qty=3000.0))
+    db.flush()
+
+    compute_stress(db, "Europe/Vienna", StressConfig(min_measured_min=1), ProfileConfig(), since_days=90)
+    states = [r.state for r in db.execute(select(StressIntraday)).scalars()]
+    assert "active" not in states
+
+
+# --- Body Battery (pure) ---------------------------------------------------
+
+
+def _bb_frame(rows, start="2026-03-16 08:00") -> pd.DataFrame:
+    """Build a per-minute stress-intraday frame from (stress, state) tuples."""
+    idx = pd.date_range(start, periods=len(rows), freq="min", tz="UTC")
+    return pd.DataFrame({"stress": [r[0] for r in rows], "state": [r[1] for r in rows]}, index=idx)
+
+
+def test_body_battery_drains_on_stress_and_charges_on_rest():
+    high = body_battery_timeline(_bb_frame([(100, "high")] * 60), seed_level=50.0, drain_rate=0.2)
+    assert high["level"].iloc[-1] < 50.0
+    assert high["level"].is_monotonic_decreasing
+
+    rest = body_battery_timeline(_bb_frame([(0, "rest")] * 60), seed_level=50.0, charge_rate=0.1)
+    assert rest["level"].iloc[-1] > 50.0
+    assert rest["level"].is_monotonic_increasing
+
+
+def test_body_battery_clamps_to_0_and_100():
+    drain = body_battery_timeline(_bb_frame([(100, "high")] * 600), seed_level=50.0, drain_rate=0.2)
+    assert drain["level"].min() == 0.0
+    charge = body_battery_timeline(_bb_frame([(0, "rest")] * 2000), seed_level=50.0, charge_rate=0.1)
+    assert charge["level"].max() == 100.0
+
+
+def test_body_battery_sleep_charges_more_than_awake_rest():
+    start = pd.Timestamp("2026-03-16 23:00", tz="UTC")
+    frame = _bb_frame([(0, "rest")] * 480, start="2026-03-16 23:00")
+    sleep = [(start, start + pd.Timedelta(minutes=480), 1.0)]
+    asleep = body_battery_timeline(frame, sleep, seed_level=20.0)["level"].iloc[-1]
+    awake = body_battery_timeline(frame, [], seed_level=20.0)["level"].iloc[-1]
+    assert asleep > awake > 20.0
+    assert asleep >= 90.0  # 20 + ~480*0.15 sleep charge
+
+
+def test_body_battery_active_drains_and_unmeasurable_holds():
+    active = body_battery_timeline(_bb_frame([(None, "active")] * 60), seed_level=50.0, active_drain_rate=0.3)
+    assert active["level"].iloc[-1] < 50.0
+    hold = body_battery_timeline(_bb_frame([(None, "unmeasurable")] * 60), seed_level=50.0)
+    assert (hold["level"] == 50.0).all()
+
+
+def test_body_battery_seed_washes_out_after_full_sleep():
+    start = pd.Timestamp("2026-03-16 22:00", tz="UTC")
+    frame = _bb_frame([(0, "rest")] * 800, start="2026-03-16 22:00")
+    sleep = [(start, start + pd.Timedelta(minutes=800), 1.0)]
+    from_empty = body_battery_timeline(frame, sleep, seed_level=0.0)["level"].iloc[-1]
+    from_full = body_battery_timeline(frame, sleep, seed_level=100.0)["level"].iloc[-1]
+    assert from_empty == from_full == 100.0
+
+
+def test_body_battery_timeline_empty():
+    empty = pd.DataFrame({"stress": [], "state": []}, index=pd.DatetimeIndex([], name="ts"))
+    assert body_battery_timeline(empty).empty
+
+
+def test_summarize_body_battery_day():
+    idx = pd.date_range("2026-03-16 06:00", periods=5, freq="h", tz="UTC")
+    tl = pd.DataFrame({"level": [50.0, 60.0, 55.0, 80.0, 70.0]}, index=idx)
+    summ = summarize_body_battery_day(tl, wake_ts=idx[1])
+    assert summ["high_level"] == 80
+    assert summ["low_level"] == 50
+    assert summ["wake_level"] == 60  # level at/just before the wake timestamp
+    assert summ["charged"] == 35.0  # (+10) + (+25)
+    assert summ["drained"] == 15.0  # (-5) + (-10)
+
+
+def test_summarize_body_battery_day_empty():
+    summ = summarize_body_battery_day(pd.DataFrame({"level": []}))
+    assert summ["wake_level"] is None and summ["charged"] == 0.0 and summ["low_level"] is None
+
+
+def test_auto_neutral_percentile_and_clamps():
+    # 2000 awake minutes uniformly 0..99: the 40th percentile of the personal
+    # distribution (≈39.6) becomes the neutral level.
+    value = auto_neutral(_bb_frame([(v % 100, "rest") for v in range(2000)]))
+    assert value is not None and 39.0 <= value <= 40.0
+
+    # Floor: an all-zero distribution must not disable awake charging entirely.
+    assert auto_neutral(_bb_frame([(0, "rest")] * 1500)) == 5.0
+    # Ceiling: a high distribution must not mark half the scale energy-neutral.
+    assert auto_neutral(_bb_frame([(90, "high")] * 1500)) == 50.0
+
+
+def test_auto_neutral_excludes_sleep_minutes():
+    # Half the minutes are near-zero sleep stress; unmasked they would drag the
+    # percentile to the floor. Only the awake half may calibrate the neutral.
+    start = pd.Timestamp("2026-03-16 00:00", tz="UTC")
+    frame = _bb_frame([(0, "rest")] * 1500 + [(30, "low")] * 1500, start="2026-03-16 00:00")
+    sleep = [(start, start + pd.Timedelta(minutes=1500), 1.0)]
+    assert auto_neutral(frame, sleep) == 30.0
+    assert auto_neutral(frame) == 5.0  # without the mask: 40th pct 0 → clamped to the floor
+
+
+def test_auto_neutral_needs_enough_data():
+    assert auto_neutral(_bb_frame([(20, "rest")] * 100)) is None
+    empty = pd.DataFrame({"stress": [], "state": []}, index=pd.DatetimeIndex([], name="ts"))
+    assert auto_neutral(empty) is None
+
+
+# --- Body Battery (DB end-to-end) ------------------------------------------
+
+
+def _seed_body_battery_history(db):
+    """The stress seed plus a sleep session ending in-window on the last two days."""
+    _seed_stress_history(db)
+    base = dt.date(2026, 3, 1)
+    for d in (38, 39):
+        wake_day = base + dt.timedelta(days=d)
+        prev = wake_day - dt.timedelta(days=1)
+        s_start = dt.datetime(prev.year, prev.month, prev.day, 23, tzinfo=UTC)
+        s_end = dt.datetime(wake_day.year, wake_day.month, wake_day.day, 8, 30, tzinfo=UTC)
+        db.add(
+            SleepSession(
+                sleep_start=s_start,
+                sleep_end=s_end,
+                in_bed_start=s_start,
+                in_bed_end=s_end,
+                source="",
+                sleep_date=wake_day,
+                total_sleep_h=9.0,
+                in_bed_h=9.5,
+            )
+        )
+    db.flush()
+
+
+def test_compute_body_battery_writes_tables_and_is_idempotent(db):
+    _seed_body_battery_history(db)
+    compute_stress(db, "Europe/Vienna", StressConfig(), ProfileConfig(), since_days=90)
+    db.flush()
+    cfg = BodyBatteryConfig()
+    res1 = compute_body_battery(db, "Europe/Vienna", cfg, since_days=cfg.window_days)
+    assert res1.days == 3 and res1.buckets == 1800
+    daily = {r.day: r for r in db.execute(select(BodyBatteryDaily)).scalars()}
+    assert len(daily) == 3
+    for r in daily.values():
+        assert 0 <= r.low_level <= r.high_level <= 100
+        assert r.charged >= 0 and r.drained >= 0
+    # A day whose main sleep ends inside the measured window carries a wake level.
+    assert daily[dt.date(2026, 4, 9)].wake_level is not None
+    assert db.execute(select(func.count()).select_from(BodyBatteryIntraday)).scalar_one() == 1800
+
+    # Idempotent: a re-run over the same stress timeline replaces the window.
+    res2 = compute_body_battery(db, "Europe/Vienna", cfg, since_days=cfg.window_days)
+    assert res2.days == 3 and res2.buckets == 1800
+    assert db.execute(select(func.count()).select_from(BodyBatteryIntraday)).scalar_one() == 1800
+    assert db.execute(select(func.count()).select_from(BodyBatteryDaily)).scalar_one() == 3
+
+
+def test_run_emits_body_battery_alert_for_drained_day(db):
+    # A baseline plus one day of sustained high HR drains the battery to empty.
+    base = dt.date(2026, 3, 1)
+    for d in range(40):
+        day = base + dt.timedelta(days=d)
+        at4 = dt.datetime(day.year, day.month, day.day, 4, tzinfo=UTC)
+        db.add(MetricSample(time=at4, metric="resting_heart_rate", source="", qty=55.0))
+    day = base + dt.timedelta(days=39)
+    for m in range(600):
+        ts = dt.datetime(day.year, day.month, day.day, 8, tzinfo=UTC) + dt.timedelta(minutes=m)
+        db.add(MetricSample(time=ts, metric="heart_rate", source="", vavg=150.0))
+    db.flush()
+
+    result = analysis.run(db)
+    assert result.body_battery >= 1
+    alert = db.execute(select(Finding).where(Finding.kind == "body_battery")).scalars().first()
+    assert alert is not None
+    assert alert.metric_a == "body_battery"
+    assert alert.ref_date == dt.date(2026, 4, 9)
+    # severity is the depletion (100 − low level): higher = worse, like every other kind
+    assert alert.severity >= 100 - BodyBatteryConfig().alert_level
+    assert alert.details["low_level"] <= BodyBatteryConfig().alert_level
+
+
+def test_compute_body_battery_windowed_matches_full_history(db):
+    # A day's *last* write happens on the run where it is the window's first
+    # day; the warm-up margin must make that write identical to the
+    # full-history computation instead of restarting from the neutral seed.
+    _seed_body_battery_history(db)
+    compute_stress(db, "Europe/Vienna", StressConfig(), ProfileConfig(), since_days=None)
+    db.flush()
+    cfg = BodyBatteryConfig()
+
+    compute_body_battery(db, "Europe/Vienna", cfg, since_days=None)
+    db.flush()
+    full_intraday = {r.ts: r.level for r in db.execute(select(BodyBatteryIntraday)).scalars()}
+    full_daily = {
+        r.day: (r.wake_level, r.high_level, r.low_level) for r in db.execute(select(BodyBatteryDaily)).scalars()
+    }
+
+    # Windowed recompute with the last measured day's predecessor as window
+    # start — exactly the position where the seed used to land.
+    res = compute_body_battery(db, "Europe/Vienna", cfg, since_days=2)
+    db.flush()
+    assert res.days == 2
+    windowed_intraday = {r.ts: r.level for r in db.execute(select(BodyBatteryIntraday)).scalars()}
+    windowed_daily = {
+        r.day: (r.wake_level, r.high_level, r.low_level) for r in db.execute(select(BodyBatteryDaily)).scalars()
+    }
+    assert windowed_intraday == full_intraday
+    assert windowed_daily == full_daily
+
+
+def test_compute_body_battery_disabled_writes_nothing(db):
+    _seed_body_battery_history(db)
+    compute_stress(db, "Europe/Vienna", StressConfig(), ProfileConfig(), since_days=90)
+    db.flush()
+    res = compute_body_battery(db, "Europe/Vienna", BodyBatteryConfig(enabled=False), since_days=90)
+    assert res.days == 0 and res.buckets == 0
+    assert db.execute(select(func.count()).select_from(BodyBatteryDaily)).scalar_one() == 0
+
+
+def test_body_battery_daily_gated_by_measured_minutes(db):
+    # A barely-worn day (30 informative buckets < min_measured_min) keeps its
+    # intraday timeline but gets no daily summary row — a gap, not a guess.
+    base = dt.date(2026, 3, 1)
+    for d in range(40):
+        day = base + dt.timedelta(days=d)
+        at4 = dt.datetime(day.year, day.month, day.day, 4, tzinfo=UTC)
+        db.add(MetricSample(time=at4, metric="resting_heart_rate", source="", qty=55.0))
+    full_day = base + dt.timedelta(days=38)
+    sparse_day = base + dt.timedelta(days=39)
+    for m in range(600):
+        ts = dt.datetime(full_day.year, full_day.month, full_day.day, 8, tzinfo=UTC) + dt.timedelta(minutes=m)
+        db.add(MetricSample(time=ts, metric="heart_rate", source="", vavg=58.0))
+    for m in range(30):
+        ts = dt.datetime(sparse_day.year, sparse_day.month, sparse_day.day, 8, tzinfo=UTC) + dt.timedelta(minutes=m)
+        db.add(MetricSample(time=ts, metric="heart_rate", source="", vavg=58.0))
+    db.flush()
+
+    compute_stress(db, "Europe/Vienna", StressConfig(), ProfileConfig(), since_days=90)
+    db.flush()
+    compute_body_battery(db, "Europe/Vienna", BodyBatteryConfig(), since_days=90)
+    days = {r.day for r in db.execute(select(BodyBatteryDaily)).scalars()}
+    assert full_day in days
+    assert sparse_day not in days
+    # The sparse day's intraday levels are still stored (630 buckets total).
+    assert db.execute(select(func.count()).select_from(BodyBatteryIntraday)).scalar_one() == 630
+
+
+def test_compute_body_battery_auto_neutral_uses_personal_distribution(db):
+    # With `neutral` unset (the default) the run derives the energy-neutral
+    # level from the trailing personal stress distribution: it must equal a run
+    # explicitly pinned to that derived value, and differ from the historical
+    # fixed default — proving the auto path is wired in, not decorative.
+    _seed_body_battery_history(db)
+    compute_stress(db, "Europe/Vienna", StressConfig(), ProfileConfig(), since_days=90)
+    db.flush()
+
+    _start, end, _first = hr_window_bounds(db, "Europe/Vienna", 90)
+    derived = _resolve_neutral(db, BodyBatteryConfig(), end)
+    assert derived != BODY_BATTERY_NEUTRAL  # this seed's calm distribution sits below the fixed 25
+
+    compute_body_battery(db, "Europe/Vienna", BodyBatteryConfig(), since_days=90)
+    db.flush()
+    auto_rows = {r.ts: r.level for r in db.execute(select(BodyBatteryIntraday)).scalars()}
+
+    compute_body_battery(db, "Europe/Vienna", BodyBatteryConfig(neutral=derived), since_days=90)
+    db.flush()
+    pinned_rows = {r.ts: r.level for r in db.execute(select(BodyBatteryIntraday)).scalars()}
+    assert pinned_rows == auto_rows
+
+    compute_body_battery(db, "Europe/Vienna", BodyBatteryConfig(neutral=BODY_BATTERY_NEUTRAL), since_days=90)
+    db.flush()
+    fixed_rows = {r.ts: r.level for r in db.execute(select(BodyBatteryIntraday)).scalars()}
+    assert fixed_rows != auto_rows
+
+
+def test_run_refresh_recomputes_last_two_days(db):
+    # The hourly intraday refresh recomputes only the trailing two local days of
+    # stress + Body Battery (no findings) so today's timeline stays current.
+    _seed_body_battery_history(db)
+    run_refresh(db, "Europe/Vienna", AppConfig())
+    stress_days = {r.day for r in db.execute(select(StressDaily)).scalars()}
+    bb_days = {r.day for r in db.execute(select(BodyBatteryDaily)).scalars()}
+    assert stress_days == {dt.date(2026, 4, 8), dt.date(2026, 4, 9)}
+    assert bb_days == {dt.date(2026, 4, 8), dt.date(2026, 4, 9)}

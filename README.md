@@ -179,8 +179,10 @@ The analysis writes its results to the database, so chart them with whatever you
 prefer — Grafana, Metabase, a notebook, plain SQL. Attach that tool to the same
 Docker network as the database and point it at the DB container (`healthlog-db`
 in both the Compose and `docker run` setups). The repo ships
-ready-made **Grafana dashboards** — see [`grafana/README.md`](https://github.com/anym001/healthlog/blob/HEAD/grafana/README.md)
-for details.
+ready-made **Grafana dashboards** — import them once by hand, or (recommended)
+let Grafana **provision** the datasource and dashboards straight from a checkout
+of this repo, so updates arrive with a `git pull`. Both paths are described in
+[`grafana/README.md`](https://github.com/anym001/healthlog/blob/HEAD/grafana/README.md).
 
 ## Image
 
@@ -226,15 +228,29 @@ expects.
 | Export format | **JSON** | CSV is **not** parsed |
 | Export version | **v2** | the parser targets HAE v2 payloads |
 | Aggregate Data | **on** | drastically reduces payload size |
-| Time grouping | **hourly** | the analysis runs on a daily grid, so sub-hourly detail isn't needed |
+| Time grouping | **minutes** | the daily analyses only need a daily grid, but the **Stress** timeline (§ Grafana) reads per-minute heart-rate buckets — hourly grouping gives it only ~24 points/day. Only **Heart Rate** actually needs minutes; see the split-automation option below |
 | Batch Requests | **off** | deltas are small; large one-offs go through the backfill CLI instead |
 | Date range | **Standard** | full previous day + today; catches data Apple finalises late (e.g. sleep stages written after waking). Server-side dedup makes the overlap safe |
 | Sync cadence | **every 1 hour** | plenty — the analysis runs nightly (`ANALYSIS_CRON`); 5-minute syncs work but are overkill |
 | *Use Localized Units* | **off** | HealthLog normalises units itself; localized units only get flagged |
 
-Make sure **Sleep Analysis**, **Heart Rate Variability** and **Resting Heart
-Rate** are among the selected metrics — they drive the sleep, consistency and
-recovery-alert findings.
+Make sure **Sleep Analysis**, **Heart Rate Variability**, **Resting Heart
+Rate**, **Heart Rate** and **Step Count** are among the selected metrics — they
+drive the sleep, consistency, recovery-alert and stress findings (per-minute
+steps additionally gate everyday movement out of the stress score).
+
+**Smaller payloads (optional):** minute grouping is only consumed for
+**Heart Rate** and **Step Count** (the Stress/Body-Battery timeline and its
+movement gating); every other metric is aggregated to a daily grid anyway. To
+trim payload size you can split the Health-Metrics export into **two
+automations** with the same settings: one with *only* Heart Rate + Step Count at
+**Time grouping = minutes**, and one with all remaining metrics at **hours**.
+Keep the metric sets **disjoint** — deselect Heart Rate and Step Count from the
+hourly automation. Ingest dedups on `(metric, time, source)`, so a metric
+exported by both automations collides where the bucket times coincide (the :00
+bucket flip-flops between a minute value and the whole-hour aggregate, and a
+sum metric like steps double-counts on the minutes in between) — the sets must
+not overlap.
 
 **Workouts (optional):** the Health-Metrics automation does not include workouts.
 To capture them, add a **second** REST API automation with the **same settings as
@@ -244,7 +260,7 @@ above**, changing only these:
 |---|---|---|
 | Data type | **Workouts** | makes it a workout export |
 | Include Workout Metrics | **on** | delivers the intra-workout HR series — required for zone-based Edwards TRIMP |
-| Include Route Data | **on** for the route map | stores the GPS track of outdoor workouts for the Workout Detail dashboard's route map. Leave **off** to keep payloads smaller and location out of the database — everything except that map works without it |
+| Include Route Data | **on** for the route map | stores the GPS track of outdoor workouts for the route map in the Training dashboard's Workout Detail section. Leave **off** to keep payloads smaller and location out of the database — everything except that map works without it |
 | Time grouping | **minutes** | per-minute HR buckets are the shape the Edwards parser expects |
 
 The nightly analysis folds workouts in as daily training-load series (TRIMP /
@@ -289,6 +305,13 @@ of silently skipping a day. To recompute the findings on demand:
 docker exec healthlog healthlog analyze
 ```
 
+A lightweight **intraday refresh** additionally recomputes just the stress +
+Body-Battery timeline over the last two days — so *today* appears in the Overview
+dashboard's Stress & Body Battery section shortly after each HAE sync instead of
+after the next nightly run.
+Schedule: `INTRADAY_CRON`, default `15 * * * *` (hourly at :15); set it to
+`off` to disable. It computes no findings and sends no notifications.
+
 Before trusting the findings, run a read-only data-quality audit — it reports the
 latest findings snapshot, per-metric coverage (flagging core metrics with no data or
 below the ~6-week `analysis.min_overlap` floor), units that diverge from canonical,
@@ -312,6 +335,68 @@ replay it from the raw archive once (idempotent):
 docker exec healthlog healthlog rederive-workout-hr
 ```
 
+## Stress score
+
+HealthLog derives a Garmin-style **stress score** (0–100) and intraday timeline
+from the heart-rate elevation above your personal resting baseline — visualised
+in the **Stress & Body Battery** section of the Overview Grafana dashboard and
+calibrated with HRV. Activity is gated
+out twice: logged **workouts** and, with per-minute **Step Count** data, minutes
+of everyday movement (`stress.active_steps_per_min`, default 60 steps/min — a
+brisk walk elevates the heart rate without being psychological stress). It is a
+*proxy* from the data Apple Health exports: HAE ships no beat-to-beat RR
+intervals, so it is **not** the Garmin/Firstbeat value and is only meaningful
+relative to your own baseline. It needs **Time grouping = minutes** for the
+**Heart Rate** (and ideally **Step Count**) metric — either on the whole
+Health-Metrics export or via the split-automation option (above) — for a usable
+timeline.
+
+The nightly analysis recomputes a trailing window (`stress.window_days`, default
+90). Rebuild the full history — e.g. after the first backfill, or after switching
+the export to minute grouping — with (idempotent):
+
+```bash
+docker exec healthlog healthlog rederive-stress            # full history
+docker exec healthlog healthlog rederive-stress --days 30  # only the last 30 days
+```
+
+Tunables live under `stress.*` in `config.yaml` (zones, HRV weight, alert
+threshold — see `config.example.yaml`); set `stress.enabled: false` to turn it off
+(together with `body_battery.enabled: false` — the battery builds on the stress
+timeline, and the combination is validated at config load).
+
+## Body Battery
+
+Building on the stress score, HealthLog derives a Garmin-style **Body Battery** — a
+0–100 **energy reserve** integrated over the day: stress and workouts drain it, calm
+rest and (above all) sleep charge it. It shares the Overview dashboard's Stress &
+Body Battery section and the same
+**Time grouping = minutes** requirement, and it is a *proxy on a proxy* — read
+relative to your own baseline, **not** a Garmin value. There is no hard-coded
+overnight reset: sleep re-anchors the battery each night (clamped at 100), so the
+level you wake with reflects your sleep quality.
+
+The nightly analysis recomputes a trailing window (`body_battery.window_days`,
+default 90) right after the stress pass. Rebuild the full history — after a backfill
+or a config change — with (idempotent), running it **after** `rederive-stress`, since
+the battery reads the freshly recomputed stress timeline:
+
+```bash
+docker exec healthlog healthlog rederive-body-battery            # full history
+docker exec healthlog healthlog rederive-body-battery --days 30  # only the last 30 days
+```
+
+The energy-neutral stress level — below it awake rest charges, above it drains — is
+**auto-calibrated** by default: each run derives it from your own stress distribution
+over the trailing weeks (the derived value is logged), so the battery doesn't pin at
+0 or 100 just because your personal baseline sits low or high. Set `body_battery.neutral`
+to a number to pin it explicitly.
+
+Tunables live under `body_battery.*` in `config.yaml` (charge/drain rates, neutral
+level, alert threshold — see `config.example.yaml`); set `body_battery.enabled: false`
+to turn it off. It requires `stress.enabled` (the battery integrates the stress
+timeline) — disabling only stress is rejected at config load.
+
 ## LLM narration
 
 HealthLog can turn the current findings snapshot into a written health report via a
@@ -328,6 +413,10 @@ docker exec healthlog healthlog narrate
 docker exec healthlog healthlog narrate --note "Focus on the HRV/training link."
 # German report, last 14 days:
 docker exec healthlog healthlog narrate --language de --lookback-days 14
+# One-off expert-level report (jargon and statistics unexplained):
+docker exec healthlog healthlog narrate --audience expert
+# One-off short summary:
+docker exec healthlog healthlog narrate --max-words 300
 # Inspect what the model would receive — no Ollama call, no report written:
 docker exec healthlog healthlog narrate --dry-run
 ```
@@ -340,6 +429,17 @@ The report is printed to stdout and written to `/config/narration/YYYY-MM-DD.md`
 correlation curation, included values, lookback window — and exits without
 contacting Ollama. It works even when `narrate.ollama_url` is unset, so you can
 verify the input deterministically before trusting the narrative.
+
+**How much the report explains** is set by `narrate.audience` (`simple` |
+`standard` | `expert`, default `standard`): `simple` uses everyday words only
+(no jargon at all), `standard` uses common fitness terms (HRV, resting heart
+rate) directly but translates statistics and model terms (ACWR, z-score) on
+first use, `expert` writes for a reader fluent in statistics and training
+terminology.
+The level changes the explanation depth, never the content — every level
+narrates the same findings. `narrate.max_words` (default 700) sets the word
+budget independently. All of it can be overridden per report (`--audience`,
+`--language`, `--max-words`).
 
 To keep the report focused, only the highest-priority correlations are narrated
 (cross-domain links — e.g. training load vs next-day respiratory rate — rank
@@ -405,6 +505,7 @@ the Ollama host. The steps below use macOS as the example.
 | `INGEST_SECRET` | *(required)* | shared secret expected in the `X-Ingest-Token` header |
 | `TZ` | `Europe/Vienna` | container clock (log timestamps) **and** the daily-bucket timezone for analysis |
 | `ANALYSIS_CRON` | `30 3 * * *` | when the nightly analysis runs (5-field cron, in `TZ`) |
+| `INTRADAY_CRON` | `15 * * * *` | when the intraday stress/Body-Battery refresh runs (5-field cron, in `TZ`); `off` disables it |
 | `MAX_PAYLOAD_BYTES` | `33554432` | max accepted ingest body (32 MiB); larger histories use the backfill CLI |
 | `TRUSTED_PROXIES` | *(private ranges)* | reverse proxies (comma-separated IPs/CIDRs, or `*`) trusted to set `X-Real-IP`/`X-Forwarded-For` for the audit client IP; empty trusts the standard private + loopback ranges |
 | `PUID` / `PGID` | `1000` | host user/group that owns `/config` (Unraid: `99` / `100`) |
@@ -429,8 +530,8 @@ It holds:
 
 - **`analysis`** — the nightly pipeline's tunables (correlation lag range and
   FDR alpha, anomaly window/threshold, trend/seasonality strengths, recovery and
-  consistency thresholds, ACWR load-spike/detraining bands). Retune without
-  rebuilding the image.
+  consistency thresholds, ACWR load-spike/detraining bands, training-status
+  form zones `tsb_*`). Retune without rebuilding the image.
 - **`profile`** — your `birth_year`/`sex` (and optional `hr_max`/`hr_rest`).
   Personal but not secret; sharpens the HR-based training load (see
   [`docs/workout-analysis.md`](https://github.com/anym001/healthlog/blob/HEAD/docs/workout-analysis.md)). Without it, HR_max is
@@ -440,8 +541,10 @@ It holds:
   default on). A `type_map` adds a per-sport load series per mapped type, so one
   sport's lagged effect is told apart from another's; unmapped workouts still feed
   the type-agnostic aggregate.
-- **`narrate`** — Ollama endpoint, model, report language, lookback, timeout and
-  `thinking` mode. Off until `ollama_url` is set (see [LLM narration](#llm-narration)).
+- **`narrate`** — Ollama endpoint, model, report language, `audience`
+  (explanation depth: `simple`/`standard`/`expert`), `max_words`, lookback,
+  timeout and `thinking` mode. Off until `ollama_url` is set (see
+  [LLM narration](#llm-narration)).
 - **`notify`** — push notifications (see below).
 
 Changes are **picked up automatically** — no restart needed (the file's mtime is

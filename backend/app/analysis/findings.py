@@ -1,8 +1,11 @@
 """Finding builders and series assembly.
 
 Builds the analysis series (core metrics + derived sleep + workout-load) and the
-six finding kinds (correlation, anomaly, trend, seasonality, recovery_alert,
-consistency, training_load) on top of the pure helpers and DB loaders.
+finding kinds (correlation, anomaly, trend, seasonality, recovery_alert,
+consistency, training_load, training_status, stress, body_battery) on top of the
+pure helpers and DB loaders. The stress and body_battery findings are alert-only;
+their continuous scores/timelines live in their own tables (see ``stress.py`` /
+``body_battery.py``).
 """
 
 from __future__ import annotations
@@ -13,11 +16,22 @@ from dataclasses import dataclass, fields
 import pandas as pd
 from sqlalchemy.orm import Session
 
-from ..appconfig import AnalysisConfig, ProfileConfig, WorkoutConfig
+from ..appconfig import AnalysisConfig, BodyBatteryConfig, ProfileConfig, StressConfig, WorkoutConfig
 from ..models import Finding
 from ..registry import METRIC_REGISTRY
 from ..workout_types import canonical_workout_type
-from .constants import _DEFAULT_APP_CONFIG, _DEFAULTS, ACWR_ACUTE_DAYS, ACWR_CHRONIC_DAYS, log
+from .body_battery import load_body_battery_daily
+from .constants import (
+    _DEFAULT_APP_CONFIG,
+    _DEFAULTS,
+    ACWR_ACUTE_DAYS,
+    ACWR_CHRONIC_DAYS,
+    ATL_DAYS,
+    CTL_DAYS,
+    CTL_TREND_LOOKBACK_DAYS,
+    CTL_TREND_REL,
+    log,
+)
 from .load import (
     _reindex_full,
     load_daily_series,
@@ -43,9 +57,11 @@ from .pure import (
     robust_z,
     rolling_mad_anomalies,
     spearman_lag,
+    training_status,
     trend_monotonicity,
     trend_slope,
 )
+from .stress import load_stress_daily
 
 
 @dataclass
@@ -57,6 +73,9 @@ class AnalysisResult:
     recovery_alerts: int = 0
     consistency: int = 0
     training_load: int = 0
+    training_status: int = 0
+    stress: int = 0
+    body_battery: int = 0
 
     def counts(self) -> list[tuple[str, int]]:
         """The (category, count) pairs in declaration order — the single source
@@ -679,6 +698,92 @@ def _recovery_findings(
     return findings
 
 
+def _stress_findings(db: Session, computed_at: dt.datetime, cfg: StressConfig | None = None) -> list[Finding]:
+    """High-stress days as alert-only findings (mirrors ``_recovery_findings``).
+
+    The continuous stress score lives in ``stress_daily`` (for Grafana); this
+    surfaces only the recent days whose score reaches ``cfg.alert_score`` as a
+    ``kind="stress"`` finding, so the narration can mention them. A calm day
+    produces no row.
+    """
+    cfg = cfg or StressConfig()
+    if not cfg.enabled:
+        return []
+    daily = load_stress_daily(db, since_days=cfg.alert_recent_days)
+    if daily.empty:
+        return []
+    findings: list[Finding] = []
+    for ts, row in daily.iterrows():
+        score = row["score"]
+        if score is None or pd.isna(score) or score < cfg.alert_score:
+            continue
+        findings.append(
+            Finding(
+                computed_at=computed_at,
+                kind="stress",
+                metric_a="stress",
+                ref_date=ts.date(),
+                severity=round(float(score), 4),
+                note="elevated daily stress",
+                details={
+                    "score": round(float(score), 1),
+                    "high_min": int(row["high_min"]),
+                    "medium_min": int(row["medium_min"]),
+                    "rest_min": int(row["rest_min"]),
+                    "hrv_z": round(float(row["hrv_z"]), 4)
+                    if row["hrv_z"] is not None and not pd.isna(row["hrv_z"])
+                    else None,
+                },
+            )
+        )
+    return findings
+
+
+def _body_battery_findings(
+    db: Session, computed_at: dt.datetime, cfg: BodyBatteryConfig | None = None
+) -> list[Finding]:
+    """Low Body-Battery days as alert-only findings (mirrors ``_stress_findings``).
+
+    The continuous 0-100 reserve lives in ``body_battery_daily`` (for Grafana);
+    this surfaces only the recent days whose lowest level drops to at/below
+    ``cfg.alert_level`` as a ``kind="body_battery"`` finding, so the narration can
+    flag a day you ran the tank near empty. A day that stayed charged produces no
+    row. ``severity`` is ``100 − low_level`` (the day's depletion), so higher =
+    worse like every other finding kind; the raw level lives in ``details``.
+    """
+    cfg = cfg or BodyBatteryConfig()
+    if not cfg.enabled:
+        return []
+    daily = load_body_battery_daily(db, since_days=cfg.alert_recent_days)
+    if daily.empty:
+        return []
+    findings: list[Finding] = []
+    for ts, row in daily.iterrows():
+        low = row["low_level"]
+        if low is None or pd.isna(low) or low > cfg.alert_level:
+            continue
+        wake = row["wake_level"]
+        high = row["high_level"]
+        findings.append(
+            Finding(
+                computed_at=computed_at,
+                kind="body_battery",
+                metric_a="body_battery",
+                ref_date=ts.date(),
+                severity=round(100.0 - float(low), 4),
+                note="low energy reserve",
+                details={
+                    "low_level": int(low),
+                    "high_level": int(high) if high is not None and not pd.isna(high) else None,
+                    "wake_level": int(wake) if wake is not None and not pd.isna(wake) else None,
+                    "charged": round(float(row["charged"]), 1),
+                    "drained": round(float(row["drained"]), 1),
+                },
+            )
+        )
+    return findings
+
+
 def _consistency_findings(
     db: Session,
     tz: str,
@@ -803,3 +908,91 @@ def _training_load_findings(
             )
         )
     return findings
+
+
+# Zone slug -> note text. The zone is classified on TSB/CTL (scale-free; see
+# AnalysisConfig.tsb_*), the note is the English one-liner stored on the finding.
+_TSB_ZONE_NOTES = {
+    "detraining": "form strongly positive (load well below fitness - base shrinking)",
+    "fresh": "fresh / tapered (form positive)",
+    "neutral": "neutral (load matches fitness)",
+    "productive": "productive training (moderate negative form)",
+    "overreaching_risk": "overreaching risk (deeply negative form)",
+}
+
+
+def _tsb_zone(tsb_pct: float, cfg: AnalysisConfig) -> str:
+    """Classify the normalised form (TSB/CTL) into its descriptive zone."""
+    if tsb_pct >= cfg.tsb_detraining_pct:
+        return "detraining"
+    if tsb_pct >= cfg.tsb_fresh_pct:
+        return "fresh"
+    if tsb_pct > -cfg.tsb_fresh_pct:
+        return "neutral"
+    if tsb_pct > cfg.tsb_overreach_pct:
+        return "productive"
+    return "overreaching_risk"
+
+
+def _ctl_trend(ctl: float, ctl_ago: float | None) -> str | None:
+    """Direction of the fitness base vs. CTL_TREND_LOOKBACK_DAYS earlier."""
+    if ctl_ago is None:
+        return None
+    if ctl_ago <= 0:
+        return "rising" if ctl > 0 else "flat"
+    change = ctl / ctl_ago - 1.0
+    if change >= CTL_TREND_REL:
+        return "rising"
+    if change <= -CTL_TREND_REL:
+        return "falling"
+    return "flat"
+
+
+def _training_status_findings(
+    series: dict[str, pd.Series], computed_at: dt.datetime, cfg: AnalysisConfig | None = None
+) -> list[Finding]:
+    """One descriptive fitness/form snapshot per run (CTL/ATL/TSB) — a status
+    finding, not an alert (docs/workout-analysis.md §5.2).
+
+    Written every run like the consistency findings, so the narration can
+    describe the training state ("productive, base rising") even when nothing
+    is alert-worthy; the alerting role stays with the ACWR finding above.
+    Assessed on the type-agnostic aggregate only (form is systemic, not
+    per-sport), preferring TRIMP over the kcal load. Zones are classified on
+    TSB normalised by CTL, so they are scale-free on the relative TRIMP
+    estimate. Skipped with less than one CTL time constant (42 days) of
+    history, where the EWMA is still warm-up dominated.
+    """
+    cfg = cfg or _DEFAULTS
+    name = next((n for n in ("workout_trimp", "workout_load") if n in series), None)
+    if name is None:
+        return []
+    status = training_status(series[name])
+    if status is None:
+        return []
+    zone = _tsb_zone(status.tsb_pct, cfg)
+    details: dict[str, object] = {
+        "ctl": round(status.ctl, 4),
+        "atl": round(status.atl, 4),
+        "tsb": round(status.tsb, 4),
+        "tsb_pct": round(status.tsb_pct, 4),
+        "zone": zone,
+        "ctl_days": CTL_DAYS,
+        "atl_days": ATL_DAYS,
+    }
+    trend = _ctl_trend(status.ctl, status.ctl_ago)
+    if trend is not None:
+        details["ctl_ago"] = round(status.ctl_ago, 4)
+        details["ctl_trend"] = trend
+        details["ctl_trend_days"] = CTL_TREND_LOOKBACK_DAYS
+    return [
+        Finding(
+            computed_at=computed_at,
+            kind="training_status",
+            metric_a=name,
+            ref_date=series[name].dropna().index.max().date(),
+            severity=round(abs(status.tsb_pct), 4),
+            note=_TSB_ZONE_NOTES[zone],
+            details=details,
+        )
+    ]

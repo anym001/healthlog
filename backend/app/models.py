@@ -195,6 +195,107 @@ class WorkoutRoutePoint(Base):
     speed_mps: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
+class StressIntraday(Base):
+    """One intraday stress-proxy bucket (ARCHITECTURE.md §4.9).
+
+    Derived per run from the all-day per-minute heart-rate buckets in
+    ``metric_samples`` (elevation above the personal resting baseline, workouts
+    excluded, optionally HRV-modulated) — a dedicated table, never written back
+    into ``metric_samples`` (which stays a replayable mirror of the raw archive).
+    ``ts`` is the bucket time; ``stress`` is 0-100 (NULL when the minute is
+    inside a workout or has no HR sample); ``state`` is one of
+    rest/low/medium/high/active/unmeasurable. Recomputed idempotently
+    (upsert on ``ts``); the nightly run refreshes a trailing window,
+    ``rederive-stress --all`` the full history."""
+
+    __tablename__ = "stress_intraday"
+
+    ts: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    stress: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    hr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    state: Mapped[str] = mapped_column(String(16))
+
+
+class StressDaily(Base):
+    """Per-local-day stress summary (ARCHITECTURE.md §4.9).
+
+    The Garmin-style day view: an overall ``score`` (0-100, time-weighted mean of
+    the measured non-active minutes) plus minutes-in-zone. A day with fewer than
+    ``stress.min_measured_min`` measured minutes yields no row (a gap, not a
+    zero). ``hrv_z`` records the day's HRV modulation input. Upserted on
+    ``day``."""
+
+    __tablename__ = "stress_daily"
+
+    day: Mapped[dt.date] = mapped_column(Date, primary_key=True)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rest_min: Mapped[int] = mapped_column(Integer, default=0)
+    low_min: Mapped[int] = mapped_column(Integer, default=0)
+    medium_min: Mapped[int] = mapped_column(Integer, default=0)
+    high_min: Mapped[int] = mapped_column(Integer, default=0)
+    active_min: Mapped[int] = mapped_column(Integer, default=0)
+    unmeasurable_min: Mapped[int] = mapped_column(Integer, default=0)
+    hrv_z: Mapped[float | None] = mapped_column(Float, nullable=True)
+    computed_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class BodyBatteryIntraday(Base):
+    """One intraday Body-Battery bucket (ARCHITECTURE.md §4.10).
+
+    Derived per run by integrating the ``stress_intraday`` timeline against
+    recovery: stress and workouts drain the battery, calm rest and sleep charge
+    it, clamped to 0-100. A dedicated table (like ``stress_intraday``), never
+    written back into ``metric_samples``. ``ts`` is the bucket time; ``level``
+    is the 0-100 reserve. Recomputed idempotently (upsert on ``ts``); the nightly
+    run refreshes a trailing window, ``rederive-body-battery --all`` the full
+    history."""
+
+    __tablename__ = "body_battery_intraday"
+
+    ts: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class BodyBatteryDaily(Base):
+    """Per-local-day Body-Battery summary (ARCHITECTURE.md §4.10).
+
+    Mirrors Garmin's day view: ``wake_level`` (battery at the end of the main
+    sleep — what you started the day with), ``high_level`` / ``low_level`` (the
+    day's peak and trough), ``charged`` / ``drained`` (total points gained / lost
+    over the day). Upserted on ``day``."""
+
+    __tablename__ = "body_battery_daily"
+
+    day: Mapped[dt.date] = mapped_column(Date, primary_key=True)
+    wake_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    high_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    low_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    charged: Mapped[float] = mapped_column(Float, default=0.0)
+    drained: Mapped[float] = mapped_column(Float, default=0.0)
+    computed_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class WorkoutLoadDaily(Base):
+    """One daily point of a nightly workout-load series (ARCHITECTURE.md §4.4).
+
+    The profile-driven training-load series the findings pipeline builds —
+    ``workout_trimp`` (Banister), ``workout_edwards`` (zone-based),
+    ``workout_load`` (kcal), ``workout_duration``/``workout_count``/
+    ``workout_intensity`` and their per-sport children — persisted so Grafana
+    can chart them (Banister vs. Edwards, per-sport zone load) instead of the
+    run discarding them after the findings pass. Snapshot semantics like
+    ``findings``: each run deletes and rewrites the whole table, because past
+    days legitimately change when the rolling resting-HR baseline or the
+    resolved HR_max shifts."""
+
+    __tablename__ = "workout_load_daily"
+
+    series: Mapped[str] = mapped_column(Text, primary_key=True)
+    day: Mapped[dt.date] = mapped_column(Date, primary_key=True)
+    value: Mapped[float] = mapped_column(Float, nullable=False)
+    computed_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class MetricRegistry(Base):
     """Per-metric behaviour as data: canonical unit, daily aggregate, tier."""
 
@@ -256,7 +357,8 @@ class Finding(_FindingColumns, Base):
 
     Written as a fresh snapshot each run (the analysis deletes the previous
     batch). ``kind`` is one of: correlation, anomaly, trend, seasonality,
-    recovery_alert, consistency. Fields not relevant to a kind stay NULL.
+    recovery_alert, consistency, training_load, training_status, stress,
+    body_battery. Fields not relevant to a kind stay NULL.
     """
 
     __tablename__ = "findings"

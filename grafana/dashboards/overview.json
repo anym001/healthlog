@@ -1,12 +1,12 @@
 {
   "uid": "healthlog-overview",
   "title": "HealthLog – Overview",
-  "description": "Daily health snapshot: last night's sleep, current HRV & resting heart rate, steps, active energy, and key findings. Time window: 14 days.",
+  "description": "Daily health snapshot: last night's sleep, HRV & resting heart rate, stress score and Body Battery, sleep trends, overnight vitals, activity, body weight, and the nightly analysis' findings. Stress and Body Battery are derived proxies calibrated to your own baseline, not Garmin-comparable values. Bedtime/wake-up clock hours are computed via the hidden 'tz' constant (default Europe/Vienna); other times use the dashboard timezone (Settings → Timezone, default Europe/Vienna). Time window: 30 days.",
   "schemaVersion": 39,
-  "version": 6,
+  "version": 7,
   "timezone": "Europe/Vienna",
   "time": {
-    "from": "now-14d",
+    "from": "now-30d",
     "to": "now"
   },
   "refresh": "",
@@ -15,16 +15,6 @@
   ],
   "links": [
     {
-      "title": "Sleep",
-      "url": "/d/healthlog-sleep",
-      "type": "link",
-      "icon": "external link",
-      "keepTime": true,
-      "targetBlank": false,
-      "includeVars": false,
-      "tooltip": "Open Sleep dashboard"
-    },
-    {
       "title": "Training",
       "url": "/d/healthlog-training",
       "type": "link",
@@ -32,7 +22,7 @@
       "keepTime": true,
       "targetBlank": false,
       "includeVars": false,
-      "tooltip": "Open Training & Recovery dashboard"
+      "tooltip": "Open Training dashboard"
     },
     {
       "title": "Metrics Explorer",
@@ -43,42 +33,32 @@
       "targetBlank": false,
       "includeVars": false,
       "tooltip": "Open Metrics Explorer"
-    },
-    {
-      "title": "Workout Detail",
-      "url": "/d/healthlog-workout-detail",
-      "type": "link",
-      "icon": "external link",
-      "keepTime": true,
-      "targetBlank": false,
-      "includeVars": false,
-      "tooltip": "Open Workout Detail dashboard"
     }
   ],
   "panels": [
     {
-      "id": 100,
-      "type": "row",
-      "title": "Today at a Glance",
       "collapsed": false,
       "gridPos": {
-        "x": 0,
-        "y": 0,
+        "h": 1,
         "w": 24,
-        "h": 1
+        "x": 0,
+        "y": 0
       },
-      "panels": []
+      "id": 1,
+      "panels": [],
+      "title": "Today at a Glance",
+      "type": "row"
     },
     {
-      "id": 1,
+      "id": 2,
       "type": "stat",
       "title": "Last Night – Total Sleep",
       "description": "Total sleep duration for the most recent night. Yellow ≥ 6 h, green ≥ 7 h (WHO recommendation).",
       "gridPos": {
-        "x": 0,
-        "y": 1,
+        "h": 4,
         "w": 4,
-        "h": 4
+        "x": 0,
+        "y": 1
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -133,141 +113,15 @@
       ]
     },
     {
-      "id": 2,
-      "type": "stat",
-      "title": "Last Night – Deep Sleep",
-      "description": "Deep (slow-wave) sleep for the most recent night. Yellow ≥ 0.8 h, green ≥ 1.2 h.",
-      "gridPos": {
-        "x": 4,
-        "y": 1,
-        "w": 4,
-        "h": 4
-      },
-      "datasource": {
-        "uid": "healthlog-db"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "suffix:h",
-          "decimals": 1,
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 0.8
-              },
-              {
-                "color": "green",
-                "value": 1.2
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "values": false,
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": ""
-        },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "rawSql": "SELECT sleep_date AS time, deep_h AS \"Deep Sleep\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
-          "format": "time_series"
-        }
-      ]
-    },
-    {
       "id": 3,
-      "type": "stat",
-      "title": "Last Night – REM Sleep",
-      "description": "REM sleep for the most recent night. Yellow ≥ 1.0 h, green ≥ 1.5 h.",
-      "gridPos": {
-        "x": 8,
-        "y": 1,
-        "w": 4,
-        "h": 4
-      },
-      "datasource": {
-        "uid": "healthlog-db"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "suffix:h",
-          "decimals": 1,
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 1.0
-              },
-              {
-                "color": "green",
-                "value": 1.5
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "values": false,
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": ""
-        },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "rawSql": "SELECT sleep_date AS time, rem_h AS \"REM Sleep\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
-          "format": "time_series"
-        }
-      ]
-    },
-    {
-      "id": 4,
       "type": "stat",
       "title": "Last Night – Sleep Efficiency",
       "description": "% of time in bed actually asleep. Calculated from in-bed timestamps when available, otherwise total_sleep / (sleep + awake). Yellow ≥ 75 %, green ≥ 85 %.",
       "gridPos": {
-        "x": 12,
-        "y": 1,
+        "h": 4,
         "w": 4,
-        "h": 4
+        "x": 4,
+        "y": 1
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -322,15 +176,15 @@
       ]
     },
     {
-      "id": 5,
+      "id": 4,
       "type": "stat",
       "title": "Today – HRV",
       "description": "Latest daily HRV average (ms). Higher = better autonomic recovery. Yellow ≥ 30 ms, green ≥ 50 ms.",
       "gridPos": {
-        "x": 16,
-        "y": 1,
+        "h": 4,
         "w": 4,
-        "h": 4
+        "x": 8,
+        "y": 1
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -385,15 +239,15 @@
       ]
     },
     {
-      "id": 6,
+      "id": 5,
       "type": "stat",
       "title": "Today – Resting HR",
       "description": "Latest daily resting heart rate minimum (bpm). Lower = better cardiovascular fitness. Yellow ≥ 65 bpm, red ≥ 75 bpm.",
       "gridPos": {
-        "x": 20,
-        "y": 1,
+        "h": 4,
         "w": 4,
-        "h": 4
+        "x": 12,
+        "y": 1
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -448,28 +302,416 @@
       ]
     },
     {
-      "id": 101,
-      "type": "row",
-      "title": "Sleep & Recovery",
-      "collapsed": false,
+      "id": 6,
+      "type": "gauge",
+      "title": "Stress Score — latest day",
+      "description": "Overall daily stress (0-100), most recent day in range. A derived proxy from the heart-rate elevation above your resting baseline (workouts excluded), HRV-calibrated — NOT a Garmin value. Blue rest < 25, green low < 50, orange medium < 75, red high.",
       "gridPos": {
-        "x": 0,
-        "y": 5,
-        "w": 24,
-        "h": 1
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 1
       },
-      "panels": []
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 100,
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 25
+              },
+              {
+                "color": "orange",
+                "value": 50
+              },
+              {
+                "color": "red",
+                "value": 75
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT day AS time, score AS \"Stress Score\" FROM stress_daily WHERE $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series",
+          "datasource": {
+            "uid": "healthlog-db"
+          }
+        }
+      ]
     },
     {
       "id": 7,
+      "type": "gauge",
+      "title": "Body Battery — current reserve",
+      "description": "Latest energy reserve (0-100) in range: the stress timeline integrated against recovery — stress and workouts drain it, calm rest and sleep charge it. A proxy on the stress proxy (no RR intervals), relative to your own baseline, NOT a Garmin value. Red near-empty < 20, orange < 50, green charged.",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 1
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 100,
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 20
+              },
+              {
+                "color": "green",
+                "value": 50
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT ts AS \"time\", level AS \"Body Battery\" FROM body_battery_intraday WHERE $__timeFilter(ts) AND level IS NOT NULL ORDER BY ts",
+          "format": "time_series",
+          "datasource": {
+            "uid": "healthlog-db"
+          }
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "id": 8,
+      "panels": [],
+      "title": "Sleep",
+      "type": "row"
+    },
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "Avg Total Sleep (7d)",
+      "description": "Average total sleep duration over the last 7 nights. Yellow ≥ 6 h, green ≥ 7 h.",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 6
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:h",
+          "decimals": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 6
+              },
+              {
+                "color": "green",
+                "value": 7
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT ROUND(AVG(total_sleep_h)::numeric, 1) AS \"Avg Total Sleep\" FROM sleep_nightly WHERE sleep_date >= CURRENT_DATE - INTERVAL '7 days'",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Avg Deep Sleep (7d)",
+      "description": "Average deep (slow-wave) sleep over the last 7 nights. Yellow ≥ 0.8 h, green ≥ 1.2 h.",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 6
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:h",
+          "decimals": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.8
+              },
+              {
+                "color": "green",
+                "value": 1.2
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT ROUND(AVG(deep_h)::numeric, 1) AS \"Avg Deep Sleep\" FROM sleep_nightly WHERE sleep_date >= CURRENT_DATE - INTERVAL '7 days'",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Avg REM Sleep (7d)",
+      "description": "Average REM sleep over the last 7 nights. Yellow ≥ 1.0 h, green ≥ 1.5 h.",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 6
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:h",
+          "decimals": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1.0
+              },
+              {
+                "color": "green",
+                "value": 1.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT ROUND(AVG(rem_h)::numeric, 1) AS \"Avg REM Sleep\" FROM sleep_nightly WHERE sleep_date >= CURRENT_DATE - INTERVAL '7 days'",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Avg Sleep Efficiency (7d)",
+      "description": "Average sleep efficiency over the last 7 nights. Calculated from in-bed timestamps when available, otherwise total_sleep / (sleep + awake). Yellow ≥ 75 %, green ≥ 85 %.",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 6
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 75
+              },
+              {
+                "color": "green",
+                "value": 85
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT ROUND(AVG(efficiency_pct)::numeric, 0) AS \"Avg Sleep Efficiency\" FROM sleep_metrics WHERE sleep_date >= CURRENT_DATE - INTERVAL '7 days'",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 13,
       "type": "barchart",
       "title": "Sleep Phases",
-      "description": "Stacked hours per phase for each night (Deep + Core + REM + Awake). The total bar height is time in bed; Awake on top shows fragmentation. Hover for the per-phase breakdown.",
+      "description": "Stacked hours per phase for each night (Deep + Core + REM + Awake). Total bar height is time asleep plus awake-in-bed; the Awake segment on top shows fragmentation. Hover for the per-phase breakdown.",
       "gridPos": {
+        "h": 9,
+        "w": 24,
         "x": 0,
-        "y": 6,
-        "w": 12,
-        "h": 8
+        "y": 10
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -508,23 +750,23 @@
       ]
     },
     {
-      "id": 8,
+      "id": 14,
       "type": "timeseries",
-      "title": "HRV & Resting Heart Rate",
-      "description": "HRV (left axis, ms): higher = better autonomic recovery. Resting HR (right axis, bpm): lower = better cardiovascular fitness. Dashed lines show 7-day moving averages.",
+      "title": "Sleep Duration",
+      "description": "Total sleep per night. Dashed line is the 7-day moving average.",
       "gridPos": {
-        "x": 12,
-        "y": 6,
+        "h": 8,
         "w": 12,
-        "h": 8
+        "x": 0,
+        "y": 19
       },
       "datasource": {
         "uid": "healthlog-db"
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "ms",
-          "decimals": 0,
+          "unit": "suffix:h",
+          "decimals": 1,
           "color": {
             "mode": "palette-classic"
           },
@@ -541,44 +783,17 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Resting HR (bpm)"
+              "options": "7d Trend (h)"
             },
             "properties": [
-              {
-                "id": "unit",
-                "value": "suffix:bpm"
-              },
-              {
-                "id": "custom.axisPlacement",
-                "value": "right"
-              },
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "orange"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "HRV Trend (ms)"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "blue"
-                }
-              },
               {
                 "id": "custom.lineStyle",
                 "value": {
                   "fill": "dash",
-                  "dash": [8, 4]
+                  "dash": [
+                    8,
+                    4
+                  ]
                 }
               },
               {
@@ -592,48 +807,13 @@
               {
                 "id": "custom.showPoints",
                 "value": "never"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Resting HR Trend (bpm)"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "suffix:bpm"
-              },
-              {
-                "id": "custom.axisPlacement",
-                "value": "right"
               },
               {
                 "id": "color",
                 "value": {
                   "mode": "fixed",
-                  "fixedColor": "dark-orange"
+                  "fixedColor": "gray"
                 }
-              },
-              {
-                "id": "custom.lineStyle",
-                "value": {
-                  "fill": "dash",
-                  "dash": [8, 4]
-                }
-              },
-              {
-                "id": "custom.lineWidth",
-                "value": 1
-              },
-              {
-                "id": "custom.fillOpacity",
-                "value": 0
-              },
-              {
-                "id": "custom.showPoints",
-                "value": "never"
               }
             ]
           }
@@ -653,49 +833,1194 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT day AS time, avg AS \"HRV (ms)\" FROM daily_metrics WHERE metric = 'heart_rate_variability' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "rawSql": "SELECT sleep_date AS time, total_sleep_h AS \"Total Sleep (h)\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
           "format": "time_series"
         },
         {
           "refId": "B",
-          "rawSql": "SELECT day AS time, vmin AS \"Resting HR (bpm)\" FROM daily_metrics WHERE metric = 'resting_heart_rate' AND $__timeFilter(day::timestamptz) ORDER BY day",
-          "format": "time_series"
-        },
-        {
-          "refId": "C",
-          "rawSql": "SELECT day AS time, ROUND(AVG(avg) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 0) AS \"HRV Trend (ms)\" FROM daily_metrics WHERE metric = 'heart_rate_variability' AND $__timeFilter(day::timestamptz) ORDER BY day",
-          "format": "time_series"
-        },
-        {
-          "refId": "D",
-          "rawSql": "SELECT day AS time, ROUND(AVG(vmin) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 0) AS \"Resting HR Trend (bpm)\" FROM daily_metrics WHERE metric = 'resting_heart_rate' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "rawSql": "SELECT sleep_date AS time, ROUND(AVG(total_sleep_h) OVER (ORDER BY sleep_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 2) AS \"7d Trend (h)\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
           "format": "time_series"
         }
       ]
     },
     {
-      "id": 102,
-      "type": "row",
-      "title": "Activity",
-      "collapsed": false,
+      "id": 15,
+      "type": "timeseries",
+      "title": "Sleep Efficiency",
+      "description": "% of time in bed actually asleep. Calculated from in-bed timestamps when available, otherwise total_sleep / (sleep + awake). Dashed line is the 7-day moving average.",
       "gridPos": {
-        "x": 0,
-        "y": 14,
-        "w": 24,
-        "h": 1
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 19
       },
-      "panels": []
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "spanNulls": false,
+            "showPoints": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "7d Trend (%)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    8,
+                    4
+                  ]
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "gray"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT sleep_date AS time, efficiency_pct AS \"Sleep Efficiency (%)\" FROM sleep_metrics WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "rawSql": "SELECT sleep_date AS time, ROUND(AVG(efficiency_pct) OVER (ORDER BY sleep_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 1) AS \"7d Trend (%)\" FROM sleep_metrics WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "format": "time_series"
+        }
+      ]
     },
     {
-      "id": 9,
+      "id": 16,
+      "type": "timeseries",
+      "title": "Bedtime",
+      "description": "Hour of sleep onset on a 20–30 scale (20 = 20:00, 24 = midnight, 26 = 02:00 next day). Uses the selected Timezone. Dashed line is the 7-day moving average.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 27
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 2,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "spanNulls": false,
+            "showPoints": "auto",
+            "axisLabel": "Clock hour ($tz)"
+          },
+          "min": 20,
+          "max": 30
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "7d Trend (h)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    8,
+                    4
+                  ]
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "gray"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT sleep_date AS time, EXTRACT(HOUR FROM (sleep_start AT TIME ZONE '$tz')) + EXTRACT(MINUTE FROM (sleep_start AT TIME ZONE '$tz'))/60.0 + CASE WHEN EXTRACT(HOUR FROM (sleep_start AT TIME ZONE '$tz')) < 12 THEN 24 ELSE 0 END AS \"Bedtime (h)\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) AND sleep_start IS NOT NULL ORDER BY sleep_date",
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "rawSql": "SELECT sleep_date AS time, ROUND(AVG(EXTRACT(HOUR FROM (sleep_start AT TIME ZONE '$tz')) + EXTRACT(MINUTE FROM (sleep_start AT TIME ZONE '$tz'))/60.0 + CASE WHEN EXTRACT(HOUR FROM (sleep_start AT TIME ZONE '$tz')) < 12 THEN 24 ELSE 0 END) OVER (ORDER BY sleep_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 2) AS \"7d Trend (h)\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) AND sleep_start IS NOT NULL ORDER BY sleep_date",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Wake-up Time",
+      "description": "Hour of wake-up in the selected Timezone. Dashed line is the 7-day moving average.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 27
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 2,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "spanNulls": false,
+            "showPoints": "auto",
+            "axisLabel": "Clock hour ($tz)"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "7d Trend (h)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    8,
+                    4
+                  ]
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "gray"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT sleep_date AS time, EXTRACT(HOUR FROM (sleep_end AT TIME ZONE '$tz')) + EXTRACT(MINUTE FROM (sleep_end AT TIME ZONE '$tz'))/60.0 AS \"Wake-up (h)\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) AND sleep_end IS NOT NULL ORDER BY sleep_date",
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "rawSql": "SELECT sleep_date AS time, ROUND(AVG(EXTRACT(HOUR FROM (sleep_end AT TIME ZONE '$tz')) + EXTRACT(MINUTE FROM (sleep_end AT TIME ZONE '$tz'))/60.0) OVER (ORDER BY sleep_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 2) AS \"7d Trend (h)\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) AND sleep_end IS NOT NULL ORDER BY sleep_date",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 35
+      },
+      "id": 18,
+      "panels": [
+        {
+          "id": 19,
+          "type": "timeseries",
+          "title": "Respiratory Rate & Wrist Temperature",
+          "description": "Overnight recovery markers. Respiratory rate (left axis, breaths/min): a stable baseline is normal; sustained elevation can precede illness or follow hard training. Wrist temperature (right axis, °C) is shown as the deviation around your own baseline, not an absolute body temperature. Dashed lines are 7-day moving averages.",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 36
+          },
+          "datasource": {
+            "uid": "healthlog-db"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "suffix:/min",
+              "decimals": 1,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "fillOpacity": 15,
+                "spanNulls": false,
+                "showPoints": "auto"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Wrist Temp (°C)"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "celsius"
+                  },
+                  {
+                    "id": "custom.axisPlacement",
+                    "value": "right"
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "orange"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Resp Rate Trend (/min)"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "blue"
+                    }
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        8,
+                        4
+                      ]
+                    }
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 1
+                  },
+                  {
+                    "id": "custom.fillOpacity",
+                    "value": 0
+                  },
+                  {
+                    "id": "custom.showPoints",
+                    "value": "never"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Wrist Temp Trend (°C)"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "celsius"
+                  },
+                  {
+                    "id": "custom.axisPlacement",
+                    "value": "right"
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "dark-orange"
+                    }
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        8,
+                        4
+                      ]
+                    }
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 1
+                  },
+                  {
+                    "id": "custom.fillOpacity",
+                    "value": 0
+                  },
+                  {
+                    "id": "custom.showPoints",
+                    "value": "never"
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "rawSql": "SELECT day AS time, avg AS \"Resp Rate (/min)\" FROM daily_metrics WHERE metric = 'respiratory_rate' AND $__timeFilter(day::timestamptz) ORDER BY day",
+              "format": "time_series"
+            },
+            {
+              "refId": "B",
+              "rawSql": "SELECT day AS time, ROUND(avg::numeric, 2) AS \"Wrist Temp (°C)\" FROM daily_metrics WHERE metric = 'apple_sleeping_wrist_temperature' AND $__timeFilter(day::timestamptz) ORDER BY day",
+              "format": "time_series"
+            },
+            {
+              "refId": "C",
+              "rawSql": "SELECT day AS time, ROUND(AVG(avg) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 1) AS \"Resp Rate Trend (/min)\" FROM daily_metrics WHERE metric = 'respiratory_rate' AND $__timeFilter(day::timestamptz) ORDER BY day",
+              "format": "time_series"
+            },
+            {
+              "refId": "D",
+              "rawSql": "SELECT day AS time, ROUND(AVG(avg) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 2) AS \"Wrist Temp Trend (°C)\" FROM daily_metrics WHERE metric = 'apple_sleeping_wrist_temperature' AND $__timeFilter(day::timestamptz) ORDER BY day",
+              "format": "time_series"
+            }
+          ]
+        },
+        {
+          "id": 20,
+          "type": "timeseries",
+          "title": "Blood Oxygen Saturation (SpO₂)",
+          "description": "Overnight blood oxygen saturation (%). Typical healthy range is ~95–100 %; brief dips can occur normally. Persistently low overnight values may warrant attention. Dashed line is the 7-day moving average.",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 36
+          },
+          "datasource": {
+            "uid": "healthlog-db"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "decimals": 1,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "fillOpacity": 15,
+                "spanNulls": false,
+                "showPoints": "auto"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "7d Trend (%)"
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "dash",
+                      "dash": [
+                        8,
+                        4
+                      ]
+                    }
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 1
+                  },
+                  {
+                    "id": "custom.fillOpacity",
+                    "value": 0
+                  },
+                  {
+                    "id": "custom.showPoints",
+                    "value": "never"
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "gray"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "rawSql": "SELECT day AS time, ROUND(avg::numeric, 1) AS \"SpO₂ (%)\" FROM daily_metrics WHERE metric = 'blood_oxygen_saturation' AND $__timeFilter(day::timestamptz) ORDER BY day",
+              "format": "time_series"
+            },
+            {
+              "refId": "B",
+              "rawSql": "SELECT day AS time, ROUND(AVG(avg) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 1) AS \"7d Trend (%)\" FROM daily_metrics WHERE metric = 'blood_oxygen_saturation' AND $__timeFilter(day::timestamptz) ORDER BY day",
+              "format": "time_series"
+            }
+          ]
+        },
+        {
+          "id": 21,
+          "type": "barchart",
+          "title": "Breathing Disturbances (count / night)",
+          "description": "Nightly breathing-disturbance count from the Apple Watch (the sleep-apnoea indicator, watchOS 11+). Shows data only when the watch records it and HAE exports the breathing_disturbances metric.",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 44
+          },
+          "datasource": {
+            "uid": "healthlog-db"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {}
+            },
+            "overrides": []
+          },
+          "options": {
+            "stacking": "none",
+            "barRadius": 0.1,
+            "groupWidth": 0.7,
+            "barWidth": 0.97,
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "rawSql": "SELECT day AS time, sum AS \"Disturbances\" FROM daily_metrics WHERE metric = 'breathing_disturbances' AND $__timeFilter(day::timestamptz) ORDER BY day",
+              "format": "time_series"
+            }
+          ]
+        }
+      ],
+      "title": "Overnight Vitals",
+      "type": "row"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 36
+      },
+      "id": 22,
+      "panels": [
+        {
+          "id": 23,
+          "type": "timeseries",
+          "title": "Time in stress zones (per day)",
+          "description": "Minutes per day in each stress zone, plus workout (Active) minutes. Stacked bars.",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 37
+          },
+          "datasource": {
+            "uid": "healthlog-db"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "m",
+              "custom": {
+                "drawStyle": "bars",
+                "lineWidth": 1,
+                "fillOpacity": 80,
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                },
+                "showPoints": "never"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Rest"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "blue"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Low"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "green"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Medium"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "orange"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "High"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "red"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Active"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "purple"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "rawSql": "SELECT day AS time, rest_min AS \"Rest\", low_min AS \"Low\", medium_min AS \"Medium\", high_min AS \"High\", active_min AS \"Active\" FROM stress_daily WHERE $__timeFilter(day::timestamptz) ORDER BY day",
+              "format": "time_series",
+              "datasource": {
+                "uid": "healthlog-db"
+              }
+            }
+          ]
+        },
+        {
+          "id": 24,
+          "type": "timeseries",
+          "title": "Daily stress score — trend",
+          "description": "Overall daily stress score over time. Interpret relative to your own baseline, not Garmin.",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 37
+          },
+          "datasource": {
+            "uid": "healthlog-db"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "min": 0,
+              "max": 100,
+              "unit": "none",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "blue",
+                    "value": null
+                  },
+                  {
+                    "color": "green",
+                    "value": 25
+                  },
+                  {
+                    "color": "orange",
+                    "value": 50
+                  },
+                  {
+                    "color": "red",
+                    "value": 75
+                  }
+                ]
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "gradientMode": "scheme",
+                "spanNulls": true,
+                "showPoints": "auto",
+                "pointSize": 5
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "single"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "rawSql": "SELECT day AS time, score AS \"Stress Score\" FROM stress_daily WHERE $__timeFilter(day::timestamptz) ORDER BY day",
+              "format": "time_series",
+              "datasource": {
+                "uid": "healthlog-db"
+              }
+            }
+          ]
+        },
+        {
+          "id": 25,
+          "type": "timeseries",
+          "title": "Intraday stress timeline",
+          "description": "Per-bucket stress (0-100) over the selected range, coloured by zone. Gaps are unmeasured (watch off / workout). For a usable timeline set Health Auto Export's Time Grouping to Minute.",
+          "gridPos": {
+            "h": 9,
+            "w": 12,
+            "x": 0,
+            "y": 45
+          },
+          "datasource": {
+            "uid": "healthlog-db"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "min": 0,
+              "max": 100,
+              "unit": "none",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "blue",
+                    "value": null
+                  },
+                  {
+                    "color": "green",
+                    "value": 25
+                  },
+                  {
+                    "color": "orange",
+                    "value": 50
+                  },
+                  {
+                    "color": "red",
+                    "value": 75
+                  }
+                ]
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "stepAfter",
+                "lineWidth": 1,
+                "fillOpacity": 40,
+                "gradientMode": "scheme",
+                "spanNulls": false,
+                "showPoints": "never",
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "single"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "rawSql": "SELECT ts AS \"time\", stress AS \"Stress\" FROM stress_intraday WHERE $__timeFilter(ts) AND stress IS NOT NULL ORDER BY ts",
+              "format": "time_series",
+              "datasource": {
+                "uid": "healthlog-db"
+              }
+            }
+          ]
+        },
+        {
+          "id": 26,
+          "type": "timeseries",
+          "title": "Intraday Body Battery timeline",
+          "description": "Per-bucket energy reserve (0-100) over the selected range. Rises during calm rest and sleep, falls with stress and workouts. For a usable timeline set Health Auto Export's Time Grouping to Minute.",
+          "gridPos": {
+            "h": 9,
+            "w": 12,
+            "x": 12,
+            "y": 45
+          },
+          "datasource": {
+            "uid": "healthlog-db"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "min": 0,
+              "max": 100,
+              "unit": "none",
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 20
+                  },
+                  {
+                    "color": "green",
+                    "value": 50
+                  }
+                ]
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "stepAfter",
+                "lineWidth": 1,
+                "fillOpacity": 30,
+                "gradientMode": "scheme",
+                "spanNulls": false,
+                "showPoints": "never",
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "single"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "rawSql": "SELECT ts AS \"time\", level AS \"Body Battery\" FROM body_battery_intraday WHERE $__timeFilter(ts) AND level IS NOT NULL ORDER BY ts",
+              "format": "time_series",
+              "datasource": {
+                "uid": "healthlog-db"
+              }
+            }
+          ]
+        },
+        {
+          "id": 27,
+          "type": "timeseries",
+          "title": "Body Battery — daily wake / high / low",
+          "description": "Per day: the level you woke with (end of main sleep), the day's peak and trough. Wake and high near 100 = well recharged; a low trough = the tank ran empty.",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 54
+          },
+          "datasource": {
+            "uid": "healthlog-db"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "min": 0,
+              "max": 100,
+              "unit": "none",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "spanNulls": true,
+                "showPoints": "auto",
+                "pointSize": 5
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Wake"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "blue"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "High"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "green"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Low"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "red"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "rawSql": "SELECT day AS time, wake_level AS \"Wake\", high_level AS \"High\", low_level AS \"Low\" FROM body_battery_daily WHERE $__timeFilter(day::timestamptz) ORDER BY day",
+              "format": "time_series",
+              "datasource": {
+                "uid": "healthlog-db"
+              }
+            }
+          ]
+        },
+        {
+          "id": 28,
+          "type": "timeseries",
+          "title": "Charged vs drained (per day)",
+          "description": "Total points the battery gained (charged) and lost (drained) each day. Charged should outweigh drained on a well-recovered day.",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 54
+          },
+          "datasource": {
+            "uid": "healthlog-db"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "custom": {
+                "drawStyle": "bars",
+                "lineWidth": 1,
+                "fillOpacity": 80,
+                "showPoints": "never"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Charged"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "green"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Drained"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "red"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "rawSql": "SELECT day AS time, charged AS \"Charged\", drained AS \"Drained\" FROM body_battery_daily WHERE $__timeFilter(day::timestamptz) ORDER BY day",
+              "format": "time_series",
+              "datasource": {
+                "uid": "healthlog-db"
+              }
+            }
+          ]
+        }
+      ],
+      "title": "Stress & Body Battery",
+      "type": "row"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 37
+      },
+      "id": 29,
+      "panels": [],
+      "title": "Activity",
+      "type": "row"
+    },
+    {
+      "id": 30,
       "type": "barchart",
       "title": "Daily Steps",
       "description": "Total step count per day (sum of all intraday samples). A common general-health target is ~10,000 steps/day.",
       "gridPos": {
-        "x": 0,
-        "y": 15,
+        "h": 7,
         "w": 12,
-        "h": 7
+        "x": 0,
+        "y": 38
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -734,15 +2059,15 @@
       ]
     },
     {
-      "id": 10,
+      "id": 31,
       "type": "barchart",
       "title": "Active Energy",
       "description": "Active energy burned per day (kcal) — movement on top of basal metabolism. Sum of all intraday samples.",
       "gridPos": {
-        "x": 12,
-        "y": 15,
+        "h": 7,
         "w": 12,
-        "h": 7
+        "x": 12,
+        "y": 38
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -781,28 +2106,284 @@
       ]
     },
     {
-      "id": 103,
-      "type": "row",
-      "title": "Findings",
-      "collapsed": false,
+      "id": 32,
+      "type": "barchart",
+      "title": "Exercise Minutes",
+      "description": "Apple exercise-ring minutes per day (apple_exercise_time, sum of all intraday samples). The Apple default goal is 30 min/day.",
       "gridPos": {
+        "h": 7,
+        "w": 12,
         "x": 0,
-        "y": 22,
-        "w": 24,
-        "h": 1
+        "y": 45
       },
-      "panels": []
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "stacking": "none",
+        "barRadius": 0.1,
+        "groupWidth": 0.7,
+        "barWidth": 0.97,
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT day AS time, sum AS \"Exercise (min)\" FROM daily_metrics WHERE metric = 'apple_exercise_time' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
+        }
+      ]
     },
     {
-      "id": 11,
+      "id": 33,
+      "type": "barchart",
+      "title": "Walking / Running Distance (km)",
+      "description": "Daily walking + running distance (walking_running_distance, sum of all intraday samples) — everyday movement, not just workouts.",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 45
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "stacking": "none",
+        "barRadius": 0.1,
+        "groupWidth": 0.7,
+        "barWidth": 0.97,
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT day AS time, ROUND(sum::numeric, 1) AS \"Distance (km)\" FROM daily_metrics WHERE metric = 'walking_running_distance' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 52
+      },
+      "id": 34,
+      "panels": [],
+      "title": "Body",
+      "type": "row"
+    },
+    {
+      "id": 35,
+      "type": "stat",
+      "title": "Latest Weight",
+      "description": "Most recent body-mass reading within the selected time range (daily average when the scale reports several).",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 53
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:kg",
+          "decimals": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT day AS time, ROUND(avg::numeric, 1) AS \"Weight\" FROM daily_metrics WHERE metric = 'weight_body_mass' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "id": 36,
+      "type": "timeseries",
+      "title": "Weight Trend",
+      "description": "Daily body mass (average of the day's readings). Sparse by nature — points appear only on days with a measurement.",
+      "gridPos": {
+        "h": 8,
+        "w": 18,
+        "x": 6,
+        "y": 53
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:kg",
+          "decimals": 1,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "spanNulls": false,
+            "showPoints": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "7d Trend (h)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    8,
+                    4
+                  ]
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "gray"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT day AS time, ROUND(avg::numeric, 1) AS \"Weight\" FROM daily_metrics WHERE metric = 'weight_body_mass' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "rawSql": "SELECT sleep_date AS time, ROUND(AVG(total_sleep_h) OVER (ORDER BY sleep_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 2) AS \"7d Trend (h)\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 61
+      },
+      "id": 37,
+      "panels": [],
+      "title": "Findings",
+      "type": "row"
+    },
+    {
+      "id": 38,
       "type": "table",
       "title": "Recent Findings",
-      "description": "Automatically detected patterns. anomaly: z-score deviation from personal baseline (σ > 2 is flagged). recovery_alert: combined Resting HR + HRV z-scores; positive z = elevated HR or suppressed HRV. training_load: Acute:Chronic Workload Ratio (ACWR); > 1.5 = high injury risk, < 0.8 = undertraining.",
+      "description": "Latest findings of every kind from the nightly analysis (anomalies, recovery alerts, training load, consistency, ...). Correlations are excluded here - they have their own panel below.",
       "gridPos": {
-        "x": 0,
-        "y": 23,
+        "h": 7,
         "w": 24,
-        "h": 6
+        "x": 0,
+        "y": 62
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -825,21 +2406,21 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT TO_CHAR(COALESCE(ref_date, window_end), 'YYYY-MM-DD') AS \"Date\", kind AS \"Kind\", metric_a AS \"Metric\", CASE kind WHEN 'anomaly' THEN ROUND((details->>'z')::numeric,1)::text || 'σ (val: ' || ROUND((details->>'value')::numeric,2)::text || ')' WHEN 'training_load' THEN 'ACWR ' || ROUND((details->>'ratio')::numeric,2)::text WHEN 'consistency' THEN ROUND((details->>'std_hours')::numeric,2)::text || 'h std' WHEN 'recovery_alert' THEN 'RHR z=' || ROUND((details->>'resting_heart_rate_z')::numeric,1)::text || ' HRV z=' || ROUND((details->>'heart_rate_variability_z')::numeric,1)::text WHEN 'correlation' THEN 'r=' || ROUND(coefficient::numeric,2)::text || ' lag=' || COALESCE(lag_days::text,'0') || 'd' ELSE ROUND(severity::numeric,2)::text END AS \"Detail\", note AS \"Note\" FROM findings WHERE kind IN ('anomaly', 'recovery_alert', 'training_load') ORDER BY COALESCE(ref_date, window_end) DESC LIMIT 50",
+          "rawSql": "SELECT TO_CHAR(day, 'YYYY-MM-DD') AS \"Date\", kind AS \"Kind\", metric_a AS \"Metric\", detail AS \"Detail\", note AS \"Note\" FROM findings_feed WHERE kind <> 'correlation' ORDER BY day DESC LIMIT 50",
           "format": "table"
         }
       ]
     },
     {
-      "id": 110,
+      "id": 39,
       "type": "table",
       "title": "Top Correlations",
       "description": "Lagged Spearman relationships between metrics, ranked by report_priority (analysis.py): cross-domain links (e.g. training load → next-day respiratory rate) rank above expected within-subsystem pairs (total vs deep sleep, average vs resting HR). The Priority column reflects the stored details.priority_tier; r is the de-trended coefficient, lag the strongest lead/lag.",
       "gridPos": {
-        "x": 0,
-        "y": 29,
+        "h": 9,
         "w": 24,
-        "h": 9
+        "x": 0,
+        "y": 69
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -922,5 +2503,29 @@
         }
       ]
     }
-  ]
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "tz",
+        "type": "constant",
+        "label": "Timezone",
+        "description": "Hidden constant. Timezone name used only for the SQL-side local clock-hour math of the bedtime/wake-up panels (EXTRACT(HOUR FROM sleep_start AT TIME ZONE ...)), which Grafana's dashboard timezone cannot reach. Change the value here to re-localise those computations.",
+        "query": "Europe/Vienna",
+        "current": {
+          "value": "Europe/Vienna",
+          "text": "Europe/Vienna",
+          "selected": false
+        },
+        "options": [
+          {
+            "text": "Europe/Vienna",
+            "value": "Europe/Vienna",
+            "selected": false
+          }
+        ],
+        "hide": 2
+      }
+    ]
+  }
 }

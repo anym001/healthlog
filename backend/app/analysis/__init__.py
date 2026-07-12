@@ -25,6 +25,14 @@ Findings (ARCHITECTURE.md §4.8), all derived, never medical advice:
 - training_load  ACWR (acute:chronic workload ratio) on daily workout load,
                  overall and per sport; flagged on a load spike or detraining
                  (Banister TRIMP / kcal).
+- training_status  descriptive CTL/ATL/TSB (fitness/fatigue/form) snapshot on
+                 the aggregate daily load, written every run (a status like
+                 consistency, not an alert); zones on TSB/CTL.
+- stress         alert-only high-stress day; the continuous intraday score +
+                 daily summary live in the stress tables (see stress.py, §4.9).
+- body_battery   alert-only low-battery day; the continuous 0-100 energy-reserve
+                 timeline + daily summary live in the body-battery tables (see
+                 body_battery.py, §4.10).
 """
 
 from __future__ import annotations
@@ -88,6 +96,7 @@ from .findings import (
     _residual_series,
     _training_load_findings,
     _training_load_targets,
+    _training_status_findings,
     _trend_and_seasonality_findings,
     build_series,
     build_workout_series,
@@ -106,6 +115,7 @@ from .pure import (
     EDWARDS_ZONE_LOWER,
     Corr,
     Decomp,
+    TrainingStatus,
     _component_strength,
     _daily_grid,
     _global_robust_z,
@@ -116,10 +126,13 @@ from .pure import (
     acute_chronic_ratio,
     aggregate_workout_daily,
     annual_seasonality,
+    auto_neutral,
     banister_trimp,
+    body_battery_timeline,
     circular_bedtime_offset,
     decompose,
     edwards_trimp,
+    ewma,
     fdr_adjust,
     fill_zero_within_span,
     resolve_hr_max,
@@ -127,12 +140,18 @@ from .pure import (
     robust_z,
     rolling_mad_anomalies,
     spearman_lag,
+    stress_intraday_from_hr,
+    stress_state,
+    summarize_body_battery_day,
+    summarize_stress_day,
+    training_status,
     trend_monotonicity,
     trend_slope,
 )
 from .run import main, run
 
 __all__ = [
+    "TrainingStatus",
     "ACWR_ACUTE_DAYS",
     "ACWR_CHRONIC_DAYS",
     "ANOMALY_MIN_GLOBAL_Z",
@@ -200,11 +219,15 @@ __all__ = [
     "_series_from_rows",
     "_training_load_findings",
     "_training_load_targets",
+    "_training_status_findings",
     "_trend_and_seasonality_findings",
     "acute_chronic_ratio",
+    "ewma",
     "aggregate_workout_daily",
     "annual_seasonality",
+    "auto_neutral",
     "banister_trimp",
+    "body_battery_timeline",
     "build_series",
     "build_workout_series",
     "circular_bedtime_offset",
@@ -226,6 +249,11 @@ __all__ = [
     "rolling_mad_anomalies",
     "run",
     "spearman_lag",
+    "stress_intraday_from_hr",
+    "stress_state",
+    "summarize_body_battery_day",
+    "summarize_stress_day",
+    "training_status",
     "trend_monotonicity",
     "trend_slope",
 ]
