@@ -25,16 +25,6 @@
       "tooltip": "Open Overview dashboard"
     },
     {
-      "title": "Sleep",
-      "url": "/d/healthlog-sleep",
-      "type": "link",
-      "icon": "external link",
-      "keepTime": true,
-      "targetBlank": false,
-      "includeVars": false,
-      "tooltip": "Open Sleep dashboard"
-    },
-    {
       "title": "Training",
       "url": "/d/healthlog-training",
       "type": "link",
@@ -42,27 +32,7 @@
       "keepTime": true,
       "targetBlank": false,
       "includeVars": false,
-      "tooltip": "Open Training & Recovery dashboard"
-    },
-    {
-      "title": "Fitness",
-      "url": "/d/healthlog-fitness",
-      "type": "link",
-      "icon": "external link",
-      "keepTime": false,
-      "targetBlank": false,
-      "includeVars": false,
-      "tooltip": "Open Fitness dashboard (CTL/ATL/TSB, load ratio & focus; opens with its own future-extended time range)"
-    },
-    {
-      "title": "Workout Detail",
-      "url": "/d/healthlog-workout-detail",
-      "type": "link",
-      "icon": "external link",
-      "keepTime": true,
-      "targetBlank": false,
-      "includeVars": false,
-      "tooltip": "Open Workout Detail dashboard"
+      "tooltip": "Open Training dashboard"
     }
   ],
   "templating": {
@@ -183,7 +153,7 @@
       "id": 2,
       "type": "stat",
       "title": "7-Day Average ($unit)",
-      "description": "Average of the daily aggregated values over the last 7 days.",
+      "description": "Average of the daily aggregated values over the 7 days ending at the selected time range's end (today with the default range).",
       "gridPos": {
         "x": 6,
         "y": 1,
@@ -221,7 +191,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT ROUND(AVG(CASE r.agg_default WHEN 'sum' THEN d.sum WHEN 'min' THEN d.vmin WHEN 'max' THEN d.vmax ELSE d.avg END)::numeric, 2) AS \"7-day avg\" FROM daily_metrics d JOIN metric_registry r ON r.metric = d.metric WHERE d.metric = '$metric' AND d.day >= CURRENT_DATE - INTERVAL '7 days'",
+          "rawSql": "SELECT ROUND(AVG(CASE r.agg_default WHEN 'sum' THEN d.sum WHEN 'min' THEN d.vmin WHEN 'max' THEN d.vmax ELSE d.avg END)::numeric, 2) AS \"7-day avg\" FROM daily_metrics d JOIN metric_registry r ON r.metric = d.metric WHERE d.metric = '$metric' AND d.day > $__timeTo()::date - 7 AND d.day <= $__timeTo()::date",
           "format": "table"
         }
       ]
@@ -230,7 +200,7 @@
       "id": 3,
       "type": "stat",
       "title": "30-Day Minimum ($unit)",
-      "description": "Minimum of the daily aggregated values within the last 30 days.",
+      "description": "Minimum of the daily aggregated values within the 30 days ending at the selected time range's end (today with the default range).",
       "gridPos": {
         "x": 12,
         "y": 1,
@@ -268,7 +238,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT ROUND(MIN(CASE r.agg_default WHEN 'sum' THEN d.sum WHEN 'min' THEN d.vmin WHEN 'max' THEN d.vmax ELSE d.avg END)::numeric, 2) AS \"30-day min\" FROM daily_metrics d JOIN metric_registry r ON r.metric = d.metric WHERE d.metric = '$metric' AND d.day >= CURRENT_DATE - INTERVAL '30 days'",
+          "rawSql": "SELECT ROUND(MIN(CASE r.agg_default WHEN 'sum' THEN d.sum WHEN 'min' THEN d.vmin WHEN 'max' THEN d.vmax ELSE d.avg END)::numeric, 2) AS \"30-day min\" FROM daily_metrics d JOIN metric_registry r ON r.metric = d.metric WHERE d.metric = '$metric' AND d.day > $__timeTo()::date - 30 AND d.day <= $__timeTo()::date",
           "format": "table"
         }
       ]
@@ -277,7 +247,7 @@
       "id": 4,
       "type": "stat",
       "title": "30-Day Maximum ($unit)",
-      "description": "Maximum of the daily aggregated values within the last 30 days.",
+      "description": "Maximum of the daily aggregated values within the 30 days ending at the selected time range's end (today with the default range).",
       "gridPos": {
         "x": 18,
         "y": 1,
@@ -315,7 +285,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT ROUND(MAX(CASE r.agg_default WHEN 'sum' THEN d.sum WHEN 'min' THEN d.vmin WHEN 'max' THEN d.vmax ELSE d.avg END)::numeric, 2) AS \"30-day max\" FROM daily_metrics d JOIN metric_registry r ON r.metric = d.metric WHERE d.metric = '$metric' AND d.day >= CURRENT_DATE - INTERVAL '30 days'",
+          "rawSql": "SELECT ROUND(MAX(CASE r.agg_default WHEN 'sum' THEN d.sum WHEN 'min' THEN d.vmin WHEN 'max' THEN d.vmax ELSE d.avg END)::numeric, 2) AS \"30-day max\" FROM daily_metrics d JOIN metric_registry r ON r.metric = d.metric WHERE d.metric = '$metric' AND d.day > $__timeTo()::date - 30 AND d.day <= $__timeTo()::date",
           "format": "table"
         }
       ]
@@ -373,7 +343,13 @@
             "properties": [
               {
                 "id": "custom.lineStyle",
-                "value": {"fill": "dash", "dash": [8, 4]}
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    8,
+                    4
+                  ]
+                }
               },
               {
                 "id": "custom.lineWidth",
@@ -389,7 +365,10 @@
               },
               {
                 "id": "color",
-                "value": {"mode": "fixed", "fixedColor": "gray"}
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "gray"
+                }
               }
             ]
           }

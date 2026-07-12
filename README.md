@@ -260,7 +260,7 @@ above**, changing only these:
 |---|---|---|
 | Data type | **Workouts** | makes it a workout export |
 | Include Workout Metrics | **on** | delivers the intra-workout HR series — required for zone-based Edwards TRIMP |
-| Include Route Data | **on** for the route map | stores the GPS track of outdoor workouts for the Workout Detail dashboard's route map. Leave **off** to keep payloads smaller and location out of the database — everything except that map works without it |
+| Include Route Data | **on** for the route map | stores the GPS track of outdoor workouts for the route map in the Training dashboard's Workout Detail section. Leave **off** to keep payloads smaller and location out of the database — everything except that map works without it |
 | Time grouping | **minutes** | per-minute HR buckets are the shape the Edwards parser expects |
 
 The nightly analysis folds workouts in as daily training-load series (TRIMP /
@@ -306,8 +306,9 @@ docker exec healthlog healthlog analyze
 ```
 
 A lightweight **intraday refresh** additionally recomputes just the stress +
-Body-Battery timeline over the last two days — so *today* appears on the Stress
-dashboard shortly after each HAE sync instead of after the next nightly run.
+Body-Battery timeline over the last two days — so *today* appears in the Overview
+dashboard's Stress & Body Battery section shortly after each HAE sync instead of
+after the next nightly run.
 Schedule: `INTRADAY_CRON`, default `15 * * * *` (hourly at :15); set it to
 `off` to disable. It computes no findings and sends no notifications.
 
@@ -338,7 +339,8 @@ docker exec healthlog healthlog rederive-workout-hr
 
 HealthLog derives a Garmin-style **stress score** (0–100) and intraday timeline
 from the heart-rate elevation above your personal resting baseline — visualised
-on the **Stress** Grafana dashboard and calibrated with HRV. Activity is gated
+in the **Stress & Body Battery** section of the Overview Grafana dashboard and
+calibrated with HRV. Activity is gated
 out twice: logged **workouts** and, with per-minute **Step Count** data, minutes
 of everyday movement (`stress.active_steps_per_min`, default 60 steps/min — a
 brisk walk elevates the heart rate without being psychological stress). It is a
@@ -367,7 +369,8 @@ timeline, and the combination is validated at config load).
 
 Building on the stress score, HealthLog derives a Garmin-style **Body Battery** — a
 0–100 **energy reserve** integrated over the day: stress and workouts drain it, calm
-rest and (above all) sleep charge it. It shares the Stress dashboard and the same
+rest and (above all) sleep charge it. It shares the Overview dashboard's Stress &
+Body Battery section and the same
 **Time grouping = minutes** requirement, and it is a *proxy on a proxy* — read
 relative to your own baseline, **not** a Garmin value. There is no hard-coded
 overnight reset: sleep re-anchors the battery each night (clamped at 100), so the
