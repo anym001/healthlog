@@ -75,7 +75,7 @@ Dashboards → New → Import → upload JSON file (repeat for each):
 | File | Dashboard |
 |---|---|
 | `dashboards/overview.json` | Overview — daily summary, sleep (phases, efficiency, bedtime, overnight vitals), stress & Body Battery, activity, body weight, findings (30-day window) |
-| `dashboards/training.json` | Training — TRIMP & weekly volume by sport, fitness & form (CTL/ATL/TSB, ACWR), recovery, workouts table with a per-session Workout Detail drill-down (intra-workout HR curve, route map, metadata; 30-day window) |
+| `dashboards/training.json` | Training — TRIMP & weekly volume by sport, nightly load models (Banister vs. Edwards, zone load by sport), fitness & form (CTL/ATL/TSB, ACWR), recovery, workouts table with a per-session Workout Detail drill-down (intra-workout HR curve, route map, metadata; 30-day window) |
 | `dashboards/metrics.json` | Metrics Explorer — raw values for any metric, Apple-Health-style (30-day window) |
 
 ## Option B — provisioning (recommended)
@@ -154,10 +154,22 @@ reads the freshly recomputed stress rows).
 
 The **Training** dashboard covers everything workout-related: weekly KPIs
 (TRIMP, workout count, HRV, resting HR), the daily training load, its split by
-sport and the weekly volume/distance per sport group, a **Fitness & Form**
-section, recovery and performance trends (HRV & resting HR with the walking-HR
-average, cardio recovery, active energy, VO2 max), the **Workouts** table, a
-per-session **Workout Detail** section, and the training-related findings.
+sport and the weekly volume/distance per sport group, the nightly analysis'
+**load-model panels** (below), a **Fitness & Form** section, recovery and
+performance trends (HRV & resting HR with the walking-HR average, cardio
+recovery, active energy, VO2 max), the **Workouts** table, a per-session
+**Workout Detail** section, and the training-related findings.
+
+The two **load-model panels** — *Banister vs. Edwards TRIMP* and *Zone Load by
+Sport (Edwards)* — read the `workout_load_daily` snapshot the nightly analysis
+persists, not the live SQL functions: the zone-based Edwards TRIMP (minutes in
+five HR zones, weights 1–5) and the per-sport series exist only there. They use
+the configured profile (`config.yaml`) rather than the dashboard's HR-Max
+variable, so the Banister line can differ slightly from the live TRIMP panels —
+compare the two models' *shapes* (interval days lift Banister disproportionately,
+long steady sessions accumulate Edwards), not absolute levels. Both panels stay
+empty until the first nightly analysis run after the upgrade (or a manual
+`healthlog analyze`); Edwards additionally needs stored intra-workout HR series.
 
 The **Fitness & Form** section is a performance-management view of the training
 load (the classic CTL/ATL/TSB "fitness & form" chart known from

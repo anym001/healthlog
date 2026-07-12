@@ -588,20 +588,145 @@
       ]
     },
     {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Banister vs. Edwards TRIMP (nightly analysis)",
+      "description": "The nightly analysis' two training-load models side by side, read from the persisted workout_load_daily snapshot: Banister TRIMP (heart-rate-reserve weighted, exponential) vs. Edwards TRIMP (minutes in five HR zones at linear weights 1–5; a session without an intra-workout HR series scores 0 here). Both use the configured profile (config.yaml), not this dashboard's HR Max variable, so the Banister line can differ slightly from the live TRIMP panels above. The two scales differ by construction — compare shapes, not levels: interval days lift Banister disproportionately, long steady sessions accumulate Edwards. Empty until the first nightly analysis run after the upgrade (or a manual `healthlog analyze`).",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 22
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 1,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "spanNulls": false,
+            "showPoints": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Edwards TRIMP"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT day AS time, MAX(value) FILTER (WHERE series = 'workout_trimp') AS \"Banister TRIMP\", MAX(value) FILTER (WHERE series = 'workout_edwards') AS \"Edwards TRIMP\" FROM workout_load_daily WHERE series IN ('workout_trimp', 'workout_edwards') AND $__timeFilter(day::timestamptz) GROUP BY day ORDER BY day"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "barchart",
+      "title": "Zone Load by Sport (Edwards, nightly)",
+      "description": "Daily zone-based (Edwards) TRIMP split by sport, from the nightly analysis' persisted per-sport series (workout_load_daily). Sports are the canonical workout types (workout_types.py / workouts.type_map), not the workout_type_groups display groups the live Load-by-Sport panel uses. Only sessions with an intra-workout HR series carry zone load. Empty until the first nightly analysis run after the upgrade (or a manual `healthlog analyze`).",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 22
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 1,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "stacking": "normal",
+        "barRadius": 0.1,
+        "groupWidth": 0.7,
+        "barWidth": 0.97,
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "sport_group"
+            ],
+            "keepFields": false
+          }
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT day AS time, INITCAP(REPLACE(REPLACE(series, 'workout_edwards_', ''), '_', ' ')) AS sport_group, ROUND(value::numeric, 1) AS edwards FROM workout_load_daily WHERE series LIKE 'workout\\_edwards\\_%' AND value > 0 AND $__timeFilter(day::timestamptz) ORDER BY day, sport_group",
+          "format": "table"
+        }
+      ]
+    },
+    {
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 22
+        "y": 30
       },
-      "id": 11,
+      "id": 13,
       "panels": [],
       "title": "Fitness & Form",
       "type": "row"
     },
     {
-      "id": 12,
+      "id": 14,
       "type": "stat",
       "title": "Fitness (CTL) / Fatigue (ATL) / Form (TSB) – end of selected range",
       "description": "Values of the performance management chart below at the end of the selected time range (capped at today, since later days have no data yet) - move the time picker to read off any historical date. Fitness (CTL) = 42-day exponentially weighted average of daily TRIMP - your training base. Fatigue (ATL) = 7-day exponentially weighted average - the short-term load you are carrying. Form (TSB) = CTL − ATL: negative while training hard (fatigue masks fitness), positive when fresh/tapered, strongly positive for long = detraining. See the chart description for how TRIMP is estimated.",
@@ -609,7 +734,7 @@
         "h": 4,
         "w": 24,
         "x": 0,
-        "y": 23
+        "y": 31
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -679,7 +804,7 @@
       ]
     },
     {
-      "id": 13,
+      "id": 15,
       "type": "timeseries",
       "title": "Performance Management Chart (CTL / ATL / TSB)",
       "description": "Banister impulse-response model on the daily TRIMP estimate. CTL_t = CTL_{t-1} + (TRIMP_t − CTL_{t-1})/42 (fitness, slow EWMA), ATL_t analogous with /7 (fatigue, fast EWMA), TSB = CTL − ATL (form). TRIMP per session is sample-resolved where an intra-workout HR series is stored (the Banister formula applied per sample interval, rescaled to the session duration - so intervals cost more than a steady run with the same average HR), with a fallback to the session's average HR that yields the identical value for steady sessions, keeping every session on one scale. The HR-reserve baseline is a 28-day rolling median of your measured resting HR per day; HR Max comes from the dashboard variable (default 'auto'). Background bands grade the Form scale: below −30 overreaching risk (red), −30…−10 productive training (green), +5…+25 fresh/race-ready (blue), above +25 detraining (yellow). Dashed lines are the projection assuming no further training (TRIMP = 0); it shows up when the dashboard time range ends past 'now' (e.g. set the range end to 'now+14d') and extends as far as that range does. This panel pins its start to the last 90 days regardless of the dashboard range, so the slow CTL trend always has context. Markers along the x-axis are the nightly analysis' training-load findings and recovery alerts. The EWMA warms up from your first recorded workout, so early values are relative. All three series share one axis (TRIMP-derived, unitless).",
@@ -687,7 +812,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 27
+        "y": 35
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -931,7 +1056,7 @@
       "hideTimeOverride": false
     },
     {
-      "id": 14,
+      "id": 16,
       "type": "gauge",
       "title": "Training Load Ratio (ACWR)",
       "description": "Acute:Chronic Workload Ratio = (7-day mean of daily TRIMP) / (28-day mean), anchored on the end of the selected time range (capped at today) - the current point of the history curve to the right, on the same sample-resolved TRIMP basis as the chart above. Blue < 0.8 = detraining (acute load low vs. your chronic base), green 0.8–1.3 = sweet spot, orange 1.3–1.5 = high, red > 1.5 = load spike (overload/injury risk). The nightly analysis computes the same ratio on the last data day and stores a training_load finding when it leaves the safe band (shown here as annotations).",
@@ -939,7 +1064,7 @@
         "h": 8,
         "w": 6,
         "x": 0,
-        "y": 37
+        "y": 45
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -998,7 +1123,7 @@
       ]
     },
     {
-      "id": 15,
+      "id": 17,
       "type": "timeseries",
       "title": "Training Load Ratio – History",
       "description": "Acute:chronic workload ratio per day: 7-day / 28-day mean of daily TRIMP, both windows ending on that day, on the same sample-resolved TRIMP basis as the chart above. Shows how a load spike (or a detraining phase) built up, not just where the ratio stands today. Background bands: blue < 0.8 detraining, green 0.8–1.3 sweet spot, orange 1.3–1.5 high, red > 1.5 spike. The first 27 days of recorded history carry no value (the chronic window is not filled yet); the curve ends at the end of the selected range (capped at today), where the gauge on the left reads the same value.",
@@ -1006,7 +1131,7 @@
         "h": 8,
         "w": 18,
         "x": 6,
-        "y": 37
+        "y": 45
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -1075,7 +1200,7 @@
       ]
     },
     {
-      "id": 16,
+      "id": 18,
       "type": "table",
       "title": "Training Load Focus (selected range)",
       "description": "How the training time in the selected time range distributes across intensity zones, relative to HR Max (dashboard variable, default 'auto'; same zone boundaries as the zone-based Edwards TRIMP in the analysis): anaerobic ≥ 90% HR Max, high aerobic 80–90%, low aerobic 50–80%; time below 50% does not count as training load. Zone time comes from the intra-workout HR samples (workout_hr_samples), credited to the zone of each sample until the next one (gaps capped at 5 min); a workout without an HR series falls back to crediting its whole duration to the zone of its average HR.",
@@ -1083,7 +1208,7 @@
         "h": 6,
         "w": 24,
         "x": 0,
-        "y": 45
+        "y": 53
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -1167,15 +1292,15 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 51
+        "y": 59
       },
-      "id": 17,
+      "id": 19,
       "panels": [],
       "title": "Recovery",
       "type": "row"
     },
     {
-      "id": 18,
+      "id": 20,
       "type": "timeseries",
       "title": "HRV & Resting Heart Rate",
       "description": "HRV (left axis, ms): higher = better autonomic recovery. Resting HR (right axis, bpm): lower = better cardiovascular fitness. Dashed lines show 7-day moving averages.",
@@ -1183,7 +1308,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 52
+        "y": 60
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -1376,7 +1501,7 @@
       ]
     },
     {
-      "id": 19,
+      "id": 21,
       "type": "timeseries",
       "title": "Cardio Recovery",
       "description": "Daily cardio recovery metric (bpm). Dashed line is the 7-day moving average.",
@@ -1384,7 +1509,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 52
+        "y": 60
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -1475,15 +1600,15 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 60
+        "y": 68
       },
-      "id": 20,
+      "id": 22,
       "panels": [],
       "title": "Performance",
       "type": "row"
     },
     {
-      "id": 21,
+      "id": 23,
       "type": "timeseries",
       "title": "Active Energy",
       "description": "Daily active energy burned (kcal). Dashed line is the 7-day moving average.",
@@ -1491,7 +1616,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 61
+        "y": 69
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -1577,7 +1702,7 @@
       ]
     },
     {
-      "id": 22,
+      "id": 24,
       "type": "timeseries",
       "title": "VO2 Max",
       "description": "Estimated VO2 Max (ml/kg/min). Higher = better aerobic capacity. Dashed line is the 7-day moving average.",
@@ -1585,7 +1710,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 61
+        "y": 69
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -1676,15 +1801,15 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 69
+        "y": 77
       },
-      "id": 23,
+      "id": 25,
       "panels": [],
       "title": "Workouts",
       "type": "row"
     },
     {
-      "id": 24,
+      "id": 26,
       "type": "table",
       "title": "Workouts",
       "description": "Individual workout sessions in the selected time range (newest first). Times are shown in the selected Timezone. Group comes from the workout_type_groups table; '—' means the workout type is not yet mapped to a group. Click a Date cell to select that session in the Workout Detail section below (intra-workout HR curve, route, metadata). Sessions marked ✓ in the HR column carry an intra-workout HR series, so the detail section below can show their HR curve.",
@@ -1692,7 +1817,7 @@
         "h": 7,
         "w": 24,
         "x": 0,
-        "y": 70
+        "y": 78
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -1837,15 +1962,15 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 77
+        "y": 85
       },
-      "id": 25,
+      "id": 27,
       "panels": [],
       "title": "Workout Detail",
       "type": "row"
     },
     {
-      "id": 26,
+      "id": 28,
       "type": "stat",
       "title": "Duration",
       "description": "Total duration of the selected workout.",
@@ -1853,7 +1978,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 78
+        "y": 86
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -1900,7 +2025,7 @@
       ]
     },
     {
-      "id": 27,
+      "id": 29,
       "type": "stat",
       "title": "Avg HR",
       "description": "Average heart rate over the selected workout (from the workouts summary).",
@@ -1908,7 +2033,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 78
+        "y": 86
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -1955,7 +2080,7 @@
       ]
     },
     {
-      "id": 28,
+      "id": 30,
       "type": "stat",
       "title": "Max HR",
       "description": "Maximum heart rate over the selected workout (from the workouts summary).",
@@ -1963,7 +2088,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 78
+        "y": 86
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -2010,7 +2135,7 @@
       ]
     },
     {
-      "id": 29,
+      "id": 31,
       "type": "stat",
       "title": "Active Energy",
       "description": "Active energy burned during the selected workout.",
@@ -2018,7 +2143,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 78
+        "y": 86
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -2065,7 +2190,7 @@
       ]
     },
     {
-      "id": 30,
+      "id": 32,
       "type": "trend",
       "title": "Heart Rate — ${workout:text}",
       "description": "Intra-workout heart rate from workout_hr_samples (one point per recorded reading). The x-axis is the recorded wall-clock time of each reading (shown in the dashboard timezone), but is plotted as a data-driven numeric axis rather than the dashboard's time range — so it always matches whichever workout is selected above. The dashed lines mark the session's average and maximum HR for context.",
@@ -2073,7 +2198,7 @@
         "h": 9,
         "w": 24,
         "x": 0,
-        "y": 82
+        "y": 90
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -2238,7 +2363,7 @@
       ]
     },
     {
-      "id": 31,
+      "id": 33,
       "type": "geomap",
       "title": "Route — ${workout:text}",
       "description": "GPS route from workout_route_points along the recorded timestamps. The line is coloured by pace (speed, m/s): green = slow, red = fast. The green marker is the start, the red marker the finish. Only outdoor GPS workouts with route export enabled in Health Auto Export carry this; indoor sessions show an empty map.",
@@ -2246,7 +2371,7 @@
         "h": 12,
         "w": 16,
         "x": 0,
-        "y": 91
+        "y": 99
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -2410,7 +2535,7 @@
       ]
     },
     {
-      "id": 32,
+      "id": 34,
       "type": "trend",
       "title": "Elevation",
       "description": "Altitude (m) over the course of the workout, from workout_route_points. The x-axis is the recorded wall-clock time (shown in the dashboard timezone), plotted as a data-driven numeric axis rather than the dashboard's time range — so it always matches whichever workout is selected above. Empty for indoor sessions and workouts without route data.",
@@ -2418,7 +2543,7 @@
         "h": 12,
         "w": 8,
         "x": 16,
-        "y": 91
+        "y": 99
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -2476,7 +2601,7 @@
       ]
     },
     {
-      "id": 33,
+      "id": 35,
       "type": "table",
       "title": "Session Details",
       "description": "Full metadata for the selected workout. Times are shown in the selected Timezone. Group comes from the workout_type_groups table; '—' marks values not present for this workout.",
@@ -2484,7 +2609,7 @@
         "h": 9,
         "w": 24,
         "x": 0,
-        "y": 103
+        "y": 111
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -2513,15 +2638,15 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 112
+        "y": 120
       },
-      "id": 34,
+      "id": 36,
       "panels": [],
       "title": "Findings",
       "type": "row"
     },
     {
-      "id": 35,
+      "id": 37,
       "type": "table",
       "title": "Training Findings",
       "description": "Automatically detected training patterns. training_load: Acute:Chronic Workload Ratio (ACWR = 7d load / 28d avg); > 1.5 = high injury risk, < 0.8 = undertraining. recovery_alert: combined z-scores of Resting HR and HRV; positive z means HR is elevated or HRV is suppressed relative to your baseline. anomaly: z-score deviation (σ) from personal baseline for any training metric.",
@@ -2529,7 +2654,7 @@
         "h": 6,
         "w": 24,
         "x": 0,
-        "y": 113
+        "y": 121
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -2552,7 +2677,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT TO_CHAR(COALESCE(ref_date, window_end), 'YYYY-MM-DD') AS \"Date\", kind AS \"Kind\", metric_a AS \"Metric\", CASE kind WHEN 'anomaly' THEN ROUND((details->>'z')::numeric,1)::text || 'σ (val: ' || ROUND((details->>'value')::numeric,2)::text || ')' WHEN 'training_load' THEN 'ACWR ' || ROUND((details->>'ratio')::numeric,2)::text WHEN 'consistency' THEN ROUND((details->>'std_hours')::numeric,2)::text || 'h std' WHEN 'recovery_alert' THEN 'RHR z=' || ROUND((details->>'resting_heart_rate_z')::numeric,1)::text || ' HRV z=' || ROUND((details->>'heart_rate_variability_z')::numeric,1)::text WHEN 'correlation' THEN 'r=' || ROUND(coefficient::numeric,2)::text || ' lag=' || COALESCE(lag_days::text,'0') || 'd' ELSE ROUND(severity::numeric,2)::text END AS \"Detail\", note AS \"Note\" FROM findings WHERE kind IN ('training_load', 'recovery_alert', 'anomaly') ORDER BY COALESCE(ref_date, window_end) DESC LIMIT 50",
+          "rawSql": "SELECT TO_CHAR(day, 'YYYY-MM-DD') AS \"Date\", kind AS \"Kind\", metric_a AS \"Metric\", detail AS \"Detail\", note AS \"Note\" FROM findings_feed WHERE kind IN ('training_load', 'recovery_alert', 'anomaly') ORDER BY day DESC LIMIT 50",
           "format": "table"
         }
       ]

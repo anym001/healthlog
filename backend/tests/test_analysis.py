@@ -7,7 +7,7 @@ import uuid
 
 import numpy as np
 import pandas as pd
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from app import analysis
 from app.analysis import (
@@ -52,6 +52,7 @@ from app.models import (
     StressIntraday,
     Workout,
     WorkoutHrSample,
+    WorkoutLoadDaily,
 )
 from app.workout_types import canonical_workout_type
 
@@ -1209,6 +1210,90 @@ def test_run_with_workouts_is_clean_and_snapshots(db):
     first = db.execute(select(func.count()).select_from(Finding)).scalar_one()
     analysis.run(db, "Europe/Vienna", AppConfig())
     assert db.execute(select(func.count()).select_from(Finding)).scalar_one() == first
+
+
+def test_run_persists_workout_load_series_snapshot(db):
+    start = dt.date(2026, 1, 1)
+    for i in range(35):
+        day = start + dt.timedelta(days=i)
+        when = dt.datetime(day.year, day.month, day.day, 18, tzinfo=UTC)
+        hae_id = _add_workout(db, when, duration_s=2400, avg_hr=140, max_hr=175, energy=350)
+        if i % 2 == 0:  # an HR series on every other session -> Edwards self-gates on
+            _add_hr_series(db, hae_id, when, count=40)
+    db.flush()
+
+    cfg = AppConfig(workouts=WorkoutConfig(type_map={"Outdoor Run": "running"}))
+    analysis.run(db, "Europe/Vienna", cfg)
+
+    rows = db.execute(select(WorkoutLoadDaily)).scalars().all()
+    by_series: dict[str, list[WorkoutLoadDaily]] = {}
+    for r in rows:
+        by_series.setdefault(r.series, []).append(r)
+
+    # The aggregate load family, the zone-based parallel and the per-sport child.
+    for name in ("workout_trimp", "workout_load", "workout_edwards", "workout_duration", "workout_count"):
+        assert name in by_series, name
+    assert "workout_trimp_running" in by_series and "workout_edwards_running" in by_series
+    # Densified span: one row per calendar day, real zeros included.
+    assert len(by_series["workout_trimp"]) == 35
+    assert sum(r.value for r in by_series["workout_count"]) == 35
+    # Days with an HR series carry a positive Edwards load; days without stay 0.
+    edwards = {r.day: r.value for r in by_series["workout_edwards"]}
+    assert edwards[start] > 0 and edwards[start + dt.timedelta(days=1)] == 0
+
+    # Re-running replaces, never accumulates (snapshot semantics like findings).
+    analysis.run(db, "Europe/Vienna", cfg)
+    assert db.execute(select(func.count()).select_from(WorkoutLoadDaily)).scalar_one() == len(rows)
+
+
+def test_findings_feed_view_renders_per_kind_detail(db):
+    computed_at = dt.datetime(2026, 7, 1, 2, 0, tzinfo=UTC)
+    db.add_all(
+        [
+            Finding(
+                computed_at=computed_at,
+                kind="training_load",
+                metric_a="workout_trimp",
+                ref_date=dt.date(2026, 6, 28),
+                severity=0.7,
+                details={"ratio": 1.85},
+            ),
+            Finding(
+                computed_at=computed_at,
+                kind="anomaly",
+                metric_a="resting_heart_rate",
+                ref_date=dt.date(2026, 6, 29),
+                severity=0.5,
+                details={"z": 4.2, "value": 61.0},
+            ),
+            Finding(
+                computed_at=computed_at,
+                kind="correlation",
+                metric_a="workout_trimp",
+                metric_b="sleep_total_h",
+                lag_days=2,
+                coefficient=0.8,
+                window_end=dt.date(2026, 6, 30),
+                severity=0.8,
+            ),
+            Finding(
+                computed_at=computed_at,
+                kind="trend",
+                metric_a="vo2_max",
+                window_end=dt.date(2026, 6, 30),
+                severity=0.42,
+            ),
+        ]
+    )
+    db.flush()
+
+    feed = {r.kind: r for r in db.execute(text("SELECT kind, day, detail FROM findings_feed ORDER BY kind")).all()}
+    assert feed["training_load"].detail == "ACWR 1.85"
+    assert feed["training_load"].day == dt.date(2026, 6, 28)  # ref_date wins
+    assert feed["anomaly"].detail == "4.2σ (val: 61.00)"
+    assert feed["correlation"].detail == "r=0.80 lag=2d"
+    assert feed["correlation"].day == dt.date(2026, 6, 30)  # window_end fallback
+    assert feed["trend"].detail == "0.42"  # generic severity fallback
 
 
 def test_build_series_splits_load_by_sport(db):
