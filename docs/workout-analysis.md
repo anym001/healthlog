@@ -184,8 +184,8 @@ training state stands when nothing is alert-worthy.
   EWMA is still warm-up dominated — and when the chronic load is zero.
 - Consumers: the narration renders it as its own section (the report's baseline:
   "productive, base rising"); **notify ignores it** (not an alert; the run
-  summary lists its count only at `level: always`). Grafana's Fitness dashboard
-  computes the same numbers live in SQL — the finding is the nightly snapshot on
+  summary lists its count only at `level: always`). The Fitness & Form section of
+  Grafana's Training dashboard computes the same numbers live in SQL — the finding is the nightly snapshot on
   the analysis' richer profile-driven TRIMP (§3.1), queryable over time via
   `findings_history`.
 
@@ -288,7 +288,8 @@ ATL_t = ATL_{t-1} + (TRIMP_t − ATL_{t-1}) / 7      # "fatigue", fast EWMA
 TSB_t = CTL_t − ATL_t                              # "form"
 ```
 
-This lives **entirely in the Fitness dashboard** (`grafana/dashboards/fitness.json`,
+This lives **entirely in the Training dashboard's Fitness & Form section**
+(`grafana/dashboards/training.json`,
 a recursive SQL CTE over the dense 0-filled daily TRIMP), **not** in the nightly
 analysis, deliberately:
 
