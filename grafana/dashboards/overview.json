@@ -1,7 +1,7 @@
 {
   "uid": "healthlog-overview",
   "title": "HealthLog – Overview",
-  "description": "Daily health snapshot: last night's sleep, HRV & resting heart rate, stress score and Body Battery, sleep trends, overnight vitals, activity, and the nightly analysis' findings. Stress and Body Battery are derived proxies calibrated to your own baseline, not Garmin-comparable values. Bedtime/wake-up clock hours are computed via the hidden 'tz' constant (default Europe/Vienna); other times use the dashboard timezone (Settings → Timezone, default Europe/Vienna). Time window: 30 days.",
+  "description": "Daily health snapshot: last night's sleep, HRV & resting heart rate, stress score and Body Battery, sleep trends, overnight vitals, activity, body weight, and the nightly analysis' findings. Stress and Body Battery are derived proxies calibrated to your own baseline, not Garmin-comparable values. Bedtime/wake-up clock hours are computed via the hidden 'tz' constant (default Europe/Vienna); other times use the dashboard timezone (Settings → Timezone, default Europe/Vienna). Time window: 30 days.",
   "schemaVersion": 39,
   "version": 7,
   "timezone": "Europe/Vienna",
@@ -1404,6 +1404,53 @@
               "format": "time_series"
             }
           ]
+        },
+        {
+          "id": 21,
+          "type": "barchart",
+          "title": "Breathing Disturbances (count / night)",
+          "description": "Nightly breathing-disturbance count from the Apple Watch (the sleep-apnoea indicator, watchOS 11+). Shows data only when the watch records it and HAE exports the breathing_disturbances metric.",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 44
+          },
+          "datasource": {
+            "uid": "healthlog-db"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {}
+            },
+            "overrides": []
+          },
+          "options": {
+            "stacking": "none",
+            "barRadius": 0.1,
+            "groupWidth": 0.7,
+            "barWidth": 0.97,
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "rawSql": "SELECT day AS time, sum AS \"Disturbances\" FROM daily_metrics WHERE metric = 'breathing_disturbances' AND $__timeFilter(day::timestamptz) ORDER BY day",
+              "format": "time_series"
+            }
+          ]
         }
       ],
       "title": "Overnight Vitals",
@@ -1417,10 +1464,10 @@
         "x": 0,
         "y": 36
       },
-      "id": 21,
+      "id": 22,
       "panels": [
         {
-          "id": 22,
+          "id": 23,
           "type": "timeseries",
           "title": "Time in stress zones (per day)",
           "description": "Minutes per day in each stress zone, plus workout (Active) minutes. Stacked bars.",
@@ -1546,7 +1593,7 @@
           ]
         },
         {
-          "id": 23,
+          "id": 24,
           "type": "timeseries",
           "title": "Daily stress score — trend",
           "description": "Overall daily stress score over time. Interpret relative to your own baseline, not Garmin.",
@@ -1622,7 +1669,7 @@
           ]
         },
         {
-          "id": 24,
+          "id": 25,
           "type": "timeseries",
           "title": "Intraday stress timeline",
           "description": "Per-bucket stress (0-100) over the selected range, coloured by zone. Gaps are unmeasured (watch off / workout). For a usable timeline set Health Auto Export's Time Grouping to Minute.",
@@ -1700,7 +1747,7 @@
           ]
         },
         {
-          "id": 25,
+          "id": 26,
           "type": "timeseries",
           "title": "Intraday Body Battery timeline",
           "description": "Per-bucket energy reserve (0-100) over the selected range. Rises during calm rest and sleep, falls with stress and workouts. For a usable timeline set Health Auto Export's Time Grouping to Minute.",
@@ -1774,7 +1821,7 @@
           ]
         },
         {
-          "id": 26,
+          "id": 27,
           "type": "timeseries",
           "title": "Body Battery — daily wake / high / low",
           "description": "Per day: the level you woke with (end of main sleep), the day's peak and trough. Wake and high near 100 = well recharged; a low trough = the tank ran empty.",
@@ -1871,7 +1918,7 @@
           ]
         },
         {
-          "id": 27,
+          "id": 28,
           "type": "timeseries",
           "title": "Charged vs drained (per day)",
           "description": "Total points the battery gained (charged) and lost (drained) each day. Charged should outweigh drained on a well-recovered day.",
@@ -1959,13 +2006,13 @@
         "x": 0,
         "y": 37
       },
-      "id": 28,
+      "id": 29,
       "panels": [],
       "title": "Activity",
       "type": "row"
     },
     {
-      "id": 29,
+      "id": 30,
       "type": "barchart",
       "title": "Daily Steps",
       "description": "Total step count per day (sum of all intraday samples). A common general-health target is ~10,000 steps/day.",
@@ -2012,7 +2059,7 @@
       ]
     },
     {
-      "id": 30,
+      "id": 31,
       "type": "barchart",
       "title": "Active Energy",
       "description": "Active energy burned per day (kcal) — movement on top of basal metabolism. Sum of all intraday samples.",
@@ -2059,20 +2106,276 @@
       ]
     },
     {
+      "id": 32,
+      "type": "barchart",
+      "title": "Exercise Minutes",
+      "description": "Apple exercise-ring minutes per day (apple_exercise_time, sum of all intraday samples). The Apple default goal is 30 min/day.",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 45
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "stacking": "none",
+        "barRadius": 0.1,
+        "groupWidth": 0.7,
+        "barWidth": 0.97,
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT day AS time, sum AS \"Exercise (min)\" FROM daily_metrics WHERE metric = 'apple_exercise_time' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "type": "barchart",
+      "title": "Walking / Running Distance (km)",
+      "description": "Daily walking + running distance (walking_running_distance, sum of all intraday samples) — everyday movement, not just workouts.",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 45
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "stacking": "none",
+        "barRadius": 0.1,
+        "groupWidth": 0.7,
+        "barWidth": 0.97,
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT day AS time, ROUND(sum::numeric, 1) AS \"Distance (km)\" FROM daily_metrics WHERE metric = 'walking_running_distance' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 45
+        "y": 52
       },
-      "id": 31,
+      "id": 34,
+      "panels": [],
+      "title": "Body",
+      "type": "row"
+    },
+    {
+      "id": 35,
+      "type": "stat",
+      "title": "Latest Weight",
+      "description": "Most recent body-mass reading within the selected time range (daily average when the scale reports several).",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 53
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:kg",
+          "decimals": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT day AS time, ROUND(avg::numeric, 1) AS \"Weight\" FROM daily_metrics WHERE metric = 'weight_body_mass' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "id": 36,
+      "type": "timeseries",
+      "title": "Weight Trend",
+      "description": "Daily body mass (average of the day's readings). Sparse by nature — points appear only on days with a measurement.",
+      "gridPos": {
+        "h": 8,
+        "w": 18,
+        "x": 6,
+        "y": 53
+      },
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:kg",
+          "decimals": 1,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "spanNulls": false,
+            "showPoints": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "7d Trend (h)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    8,
+                    4
+                  ]
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "gray"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT day AS time, ROUND(avg::numeric, 1) AS \"Weight\" FROM daily_metrics WHERE metric = 'weight_body_mass' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "format": "time_series"
+        },
+        {
+          "refId": "B",
+          "rawSql": "SELECT sleep_date AS time, ROUND(AVG(total_sleep_h) OVER (ORDER BY sleep_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 2) AS \"7d Trend (h)\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 61
+      },
+      "id": 37,
       "panels": [],
       "title": "Findings",
       "type": "row"
     },
     {
-      "id": 32,
+      "id": 38,
       "type": "table",
       "title": "Recent Findings",
       "description": "Latest findings of every kind from the nightly analysis (anomalies, recovery alerts, training load, consistency, ...). Correlations are excluded here - they have their own panel below.",
@@ -2080,7 +2383,7 @@
         "h": 7,
         "w": 24,
         "x": 0,
-        "y": 46
+        "y": 62
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -2109,7 +2412,7 @@
       ]
     },
     {
-      "id": 33,
+      "id": 39,
       "type": "table",
       "title": "Top Correlations",
       "description": "Lagged Spearman relationships between metrics, ranked by report_priority (analysis.py): cross-domain links (e.g. training load → next-day respiratory rate) rank above expected within-subsystem pairs (total vs deep sleep, average vs resting HR). The Priority column reflects the stored details.priority_tier; r is the de-trended coefficient, lag the strongest lead/lag.",
@@ -2117,7 +2420,7 @@
         "h": 9,
         "w": 24,
         "x": 0,
-        "y": 53
+        "y": 69
       },
       "datasource": {
         "uid": "healthlog-db"

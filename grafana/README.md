@@ -74,8 +74,8 @@ Dashboards → New → Import → upload JSON file (repeat for each):
 
 | File | Dashboard |
 |---|---|
-| `dashboards/overview.json` | Overview — daily summary, sleep (phases, efficiency, bedtime, overnight vitals), stress & Body Battery, activity, findings (30-day window) |
-| `dashboards/training.json` | Training — TRIMP by sport, fitness & form (CTL/ATL/TSB, ACWR), recovery, workouts table with a per-session Workout Detail drill-down (intra-workout HR curve, route map, metadata; 30-day window) |
+| `dashboards/overview.json` | Overview — daily summary, sleep (phases, efficiency, bedtime, overnight vitals), stress & Body Battery, activity, body weight, findings (30-day window) |
+| `dashboards/training.json` | Training — TRIMP & weekly volume by sport, fitness & form (CTL/ATL/TSB, ACWR), recovery, workouts table with a per-session Workout Detail drill-down (intra-workout HR curve, route map, metadata; 30-day window) |
 | `dashboards/metrics.json` | Metrics Explorer — raw values for any metric, Apple-Health-style (30-day window) |
 
 ## Option B — provisioning (recommended)
@@ -125,9 +125,11 @@ sleep (duration, efficiency), today's HRV and resting heart rate, and the
 current stress-score and Body-Battery gauges. Below it: a **Sleep** section
 (7-day averages, the nightly phases chart, duration / efficiency / bedtime /
 wake-up trends), two collapsed rows — **Overnight Vitals** (respiratory rate,
-wrist temperature, SpO₂) and **Stress & Body Battery** (details below) — an
-**Activity** section (steps, active energy), and the nightly analysis'
-**findings** of every kind plus the top correlations.
+wrist temperature, SpO₂, nightly breathing disturbances) and **Stress & Body
+Battery** (details below) — an **Activity** section (steps, active energy,
+exercise minutes, walking/running distance), a **Body** row (latest weight and
+its trend), and the nightly analysis' **findings** of every kind plus the top
+correlations.
 
 The **Stress & Body Battery** section (a collapsed row on the Overview
 dashboard) reads the `stress_daily` / `stress_intraday` tables the nightly
@@ -151,11 +153,11 @@ run `healthlog rederive-body-battery` **after** `rederive-stress` (the battery
 reads the freshly recomputed stress rows).
 
 The **Training** dashboard covers everything workout-related: weekly KPIs
-(TRIMP, workout count, HRV, resting HR), the daily training load and its split
-by sport, a **Fitness & Form** section, recovery and performance trends
-(HRV & resting HR, cardio recovery, active energy, VO2 max), the **Workouts**
-table, a per-session **Workout Detail** section, and the training-related
-findings.
+(TRIMP, workout count, HRV, resting HR), the daily training load, its split by
+sport and the weekly volume/distance per sport group, a **Fitness & Form**
+section, recovery and performance trends (HRV & resting HR with the walking-HR
+average, cardio recovery, active energy, VO2 max), the **Workouts** table, a
+per-session **Workout Detail** section, and the training-related findings.
 
 The **Fitness & Form** section is a performance-management view of the training
 load (the classic CTL/ATL/TSB "fitness & form" chart known from
@@ -194,7 +196,8 @@ samples are stored).
 The **Workout Detail** section is a single-session drill-down for the
 intra-workout HR samples (`workout_hr_samples`) that the ingest already collects.
 The fastest way in is the **Workouts** table above it: click a `Date` cell and
-the session is selected in the detail section below. You can also pick a session
+the session is selected in the detail section below (the ✓/– **HR** column
+flags which sessions carry an HR series). You can also pick a session
 from the `Workout` dropdown (it lists only workouts that carry HR samples). The
 detail panels are scoped to the selected workout by ID, not by the dashboard's
 time range. Panels: duration / avg HR / max HR / active energy KPIs, the
