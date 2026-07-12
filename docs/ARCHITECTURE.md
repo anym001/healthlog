@@ -225,6 +225,14 @@ types fragment across language switches. `app/workout_types.py` handles this (bu
 DE+EN map → canonical slug, extensible via `workouts.type_map` in `config.yaml`).
 `duration` in seconds, energy in `kJ` (→ normalise to kcal, §4.5).
 
+Two **SQL functions** (`workout_trimp(p_tz, p_hr_max, p_since)` per session,
+`daily_trimp(...)` per day; migration `0019_workout_trimp_functions`) provide the
+single live Banister-TRIMP definition every Grafana panel reads — sample-resolved
+over `workout_hr_samples` with an average-HR fallback, same consolidation role
+the `sleep_metrics` view plays for sleep efficiency. They are deliberately
+distinct from the analysis' profile-driven TRIMP series (`workout-analysis.md`
+§3.1): zero-setup, parameterised by the dashboard's HR-Max variable.
+
 ### 4.5 Metric registry (normalisation)
 
 ```sql

@@ -162,8 +162,11 @@ load (the classic CTL/ATL/TSB "fitness & form" chart known from
 Garmin/TrainingPeaks): **Fitness (CTL)** is a 42-day and **Fatigue (ATL)** a
 7-day exponentially weighted average of the daily TRIMP estimate, **Form (TSB)**
 their difference — with background bands grading the Form scale (overreaching /
-productive / fresh / detraining). Everything is computed live in SQL from the
-`workouts` table and works with **zero setup**: TRIMP is *sample-resolved* where
+productive / fresh / detraining). Everything is computed live in SQL and works
+with **zero setup** — every TRIMP panel on the dashboard (the load bars and the
+PMC/ACWR alike) reads the shared `workout_trimp` / `daily_trimp` database
+functions (created by the migrations), so the numbers always agree: TRIMP is
+*sample-resolved* where
 intra-workout HR series exist (the Banister formula per HR sample, so intervals
 cost more than a steady run with the same average HR; sessions without samples
 fall back to the average-HR formula on the same scale), the HR base is a per-day

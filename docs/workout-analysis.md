@@ -289,8 +289,9 @@ TSB_t = CTL_t − ATL_t                              # "form"
 ```
 
 This lives **entirely in the Training dashboard's Fitness & Form section**
-(`grafana/dashboards/training.json`,
-a recursive SQL CTE over the dense 0-filled daily TRIMP), **not** in the nightly
+(the `workout_trimp` / `daily_trimp` SQL functions — migration 0019, shared by
+every TRIMP panel — supply the per-session and daily TRIMP; the panel adds the
+recursive EWMA CTE over the dense 0-filled series), **not** in the nightly
 analysis, deliberately:
 
 - CTL/ATL/TSB are **descriptive smoothings**, not alert-worthy statistics — the

@@ -1,7 +1,7 @@
 {
   "uid": "healthlog-training",
   "title": "HealthLog – Training",
-  "description": "Training load, fitness & form, recovery metrics, and workout history, plus a per-session Workout Detail drill-down (pick a workout via the Workout dropdown or by clicking a Date cell in the Workouts table; the detail panels are scoped to the selected workout by ID, not by the time range). TRIMP is a relative estimate: the resting-HR baseline is auto-derived from your measured resting_heart_rate, and HR Max defaults to 'auto' (highest recorded workout HR, clamped to 160-210); type a number into the HR Max variable to override it with a tested value. The Performance Management Chart always shows the last 90 days; extend the time range past 'now' (e.g. to 'now+14d') to see its dashed no-training projection. Alert markers on the chart come from the nightly analysis' findings history (toggles under the dashboard title). Display times use the dashboard timezone (Settings → Timezone, default Europe/Vienna); daily grouping is bucketed via the hidden 'tz' constant (default Europe/Vienna). Time window: 30 days.",
+  "description": "Training load, fitness & form, recovery metrics, and workout history, plus a per-session Workout Detail drill-down (pick a workout via the Workout dropdown or by clicking a Date cell in the Workouts table; the detail panels are scoped to the selected workout by ID, not by the time range). TRIMP is a relative estimate: the resting-HR baseline is auto-derived from your measured resting_heart_rate, and HR Max defaults to 'auto' (highest recorded workout HR, clamped to 160-210); type a number into the HR Max variable to override it with a tested value. The Performance Management Chart always shows the last 90 days; extend the time range past 'now' (e.g. to 'now+14d') to see its dashed no-training projection. Alert markers on the chart come from the nightly analysis' findings history (toggles under the dashboard title). Display times use the dashboard timezone (Settings → Timezone, default Europe/Vienna); daily grouping is bucketed via the hidden 'tz' constant (default Europe/Vienna). Time window: 30 days. All TRIMP panels read one shared SQL definition (the workout_trimp / daily_trimp database functions, migration 0019), so the load bars and the PMC/ACWR always agree.",
   "schemaVersion": 39,
   "version": 11,
   "timezone": "Europe/Vienna",
@@ -58,23 +58,6 @@
         "hide": 2
       },
       {
-        "name": "hr_rest",
-        "type": "query",
-        "label": "HR Base (bpm)",
-        "description": "Hidden, auto-derived. Resting-HR baseline for the TRIMP estimate, taken from your measured resting_heart_rate over the last 90 days (median of the daily values), so you don't have to type a value that is already in the database. Falls back to 60 if no resting-HR data exists. The measured value is also charted in the Resting HR panel.",
-        "datasource": {
-          "uid": "healthlog-db"
-        },
-        "query": "SELECT COALESCE(ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY vmin))::int, 60) AS hr_rest FROM daily_metrics WHERE metric = 'resting_heart_rate' AND day >= (NOW() - INTERVAL '90 days')::date",
-        "refresh": 1,
-        "sort": 0,
-        "multi": false,
-        "includeAll": false,
-        "hide": 2,
-        "current": {},
-        "options": []
-      },
-      {
         "name": "hr_max",
         "type": "textbox",
         "label": "HR Max (bpm)",
@@ -118,7 +101,7 @@
       "id": 2,
       "type": "stat",
       "title": "TRIMP (last 7d)",
-      "description": "Training Impulse accumulated over the last 7 days (relative estimate). TRIMP = Σ (duration_min × HR-intensity × 0.64·e^(1.92·intensity)). Blue < 100 (light week), green 100–299, yellow 300–499, red ≥ 500 (very high load). HR Base is auto-derived from your measured resting HR; HR Max defaults to 'auto' (max observed workout HR, clamped to 160-210); type a number into the HR Max variable to override it.",
+      "description": "Training Impulse accumulated over the last 7 days (relative estimate), from the shared workout_trimp SQL function: Banister TRIMP per intra-workout HR sample where a series is stored (intervals cost more than a steady session with the same average HR), average-HR fallback otherwise — the same definition the Fitness & Form section uses. Blue < 100 (light week), green 100–299, yellow 300–499, red ≥ 500 (very high load). HR Base is a per-day 28-day rolling median of your measured resting HR; HR Max defaults to 'auto' (max observed workout HR, clamped to 160-210); type a number into the HR Max variable to override it.",
       "gridPos": {
         "h": 4,
         "w": 6,
@@ -176,7 +159,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "WITH params AS (SELECT COALESCE(NULLIF('${hr_max}','auto')::numeric, LEAST(GREATEST((SELECT MAX(max_hr)::numeric FROM workouts),160),210), 190) AS hr_max) SELECT ROUND(SUM(CASE WHEN avg_hr IS NOT NULL AND duration_s IS NOT NULL AND duration_s > 0 THEN (duration_s/60.0) * LEAST(1.0,GREATEST(0.0,(avg_hr-${hr_rest}::numeric)/(p.hr_max - ${hr_rest}::numeric))) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,(avg_hr-${hr_rest}::numeric)/(p.hr_max - ${hr_rest}::numeric))))) ELSE 0 END)::numeric, 0) AS \"TRIMP (7d)\" FROM workouts, params p WHERE start_time >= NOW() - INTERVAL '7 days'",
+          "rawSql": "SELECT ROUND(SUM(trimp)::numeric, 0) AS \"TRIMP (7d)\" FROM daily_trimp('$tz', NULLIF('${hr_max}','auto')::numeric, (NOW() AT TIME ZONE '$tz')::date - 6)",
           "format": "table"
         }
       ]
@@ -387,7 +370,7 @@
       "id": 7,
       "type": "barchart",
       "title": "Training Load (TRIMP)",
-      "description": "Daily total TRIMP (relative estimate). Formula: Σ (duration_min × intensity × 0.64·e^(1.92·intensity)) where intensity = LEAST(1, MAX(0, (AvgHR − HR Base) / (HR Max − HR Base))). HR Base is auto-derived from your measured resting_heart_rate (90-day median); HR Max defaults to 'auto' (max observed workout HR, clamped to 160-210); type a number into the HR Max variable to override it.",
+      "description": "Daily total TRIMP (relative estimate) from the shared workout_trimp SQL function — the same numbers the Fitness & Form section (PMC / ACWR) uses: Banister TRIMP per intra-workout HR sample where a series is stored, rescaled to the session duration (so intervals cost more than a steady run with the same average HR), with an average-HR fallback. HR Base is a per-day 28-day rolling median of your measured resting_heart_rate; HR Max defaults to 'auto' (max observed workout HR, clamped to 160-210); type a number into the HR Max variable to override it.",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -425,7 +408,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "WITH params AS (SELECT COALESCE(NULLIF('${hr_max}','auto')::numeric, LEAST(GREATEST((SELECT MAX(max_hr)::numeric FROM workouts),160),210), 190) AS hr_max) SELECT DATE(start_time AT TIME ZONE '$tz') AS time, ROUND(SUM(CASE WHEN avg_hr IS NOT NULL AND duration_s IS NOT NULL AND duration_s > 0 THEN (duration_s/60.0) * LEAST(1.0,GREATEST(0.0,(avg_hr-${hr_rest}::numeric)/(p.hr_max - ${hr_rest}::numeric))) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,(avg_hr-${hr_rest}::numeric)/(p.hr_max - ${hr_rest}::numeric))))) ELSE 0 END)::numeric, 1) AS \"TRIMP\" FROM workouts, params p WHERE $__timeFilter(start_time) GROUP BY DATE(start_time AT TIME ZONE '$tz') ORDER BY time",
+          "rawSql": "SELECT day AS time, ROUND(trimp::numeric, 1) AS \"TRIMP\" FROM daily_trimp('$tz', NULLIF('${hr_max}','auto')::numeric, ($__timeFrom()::timestamptz AT TIME ZONE '$tz')::date - 1) WHERE $__timeFilter(day::timestamptz) ORDER BY day",
           "format": "time_series"
         }
       ]
@@ -434,7 +417,7 @@
       "id": 8,
       "type": "barchart",
       "title": "Load by Sport",
-      "description": "Daily TRIMP by sport group via workout_type_groups JOIN on canonical_type. Groups are defined in the workout_type_groups table — adding a new sport there automatically creates a new series here without any dashboard edits.",
+      "description": "Daily TRIMP by sport group via workout_type_groups JOIN on canonical_type. Groups are defined in the workout_type_groups table — adding a new sport there automatically creates a new series here without any dashboard edits. TRIMP comes from the shared workout_trimp SQL function (sample-resolved, identical to the other load panels).",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -483,7 +466,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "WITH params AS (SELECT COALESCE(NULLIF('${hr_max}','auto')::numeric, LEAST(GREATEST((SELECT MAX(max_hr)::numeric FROM workouts),160),210), 190) AS hr_max) SELECT DATE(w.start_time AT TIME ZONE '$tz') AS time, COALESCE(g.group_name, 'Other') AS sport_group, ROUND(SUM(CASE WHEN w.avg_hr IS NOT NULL AND w.duration_s IS NOT NULL AND w.duration_s > 0 THEN (w.duration_s/60.0) * LEAST(1.0,GREATEST(0.0,(w.avg_hr-${hr_rest}::numeric)/(p.hr_max - ${hr_rest}::numeric))) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,(w.avg_hr-${hr_rest}::numeric)/(p.hr_max - ${hr_rest}::numeric))))) ELSE 0 END)::numeric, 1) AS trimp FROM workouts w CROSS JOIN params p LEFT JOIN workout_type_groups g ON g.canonical_type = w.canonical_type WHERE $__timeFilter(w.start_time) GROUP BY DATE(w.start_time AT TIME ZONE '$tz'), COALESCE(g.group_name, 'Other'), COALESCE(g.sort_order, 99) ORDER BY time, COALESCE(g.sort_order, 99), sport_group",
+          "rawSql": "SELECT t.day AS time, COALESCE(g.group_name, 'Other') AS sport_group, ROUND(SUM(t.trimp)::numeric, 1) AS trimp FROM workout_trimp('$tz', NULLIF('${hr_max}','auto')::numeric, ($__timeFrom()::timestamptz AT TIME ZONE '$tz')::date - 1) t LEFT JOIN workout_type_groups g ON g.canonical_type = t.canonical_type WHERE $__timeFilter(t.day::timestamptz) GROUP BY t.day, COALESCE(g.group_name, 'Other'), COALESCE(g.sort_order, 99) ORDER BY time, COALESCE(g.sort_order, 99), sport_group",
           "format": "table"
         }
       ]
@@ -574,7 +557,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "WITH RECURSIVE params AS (SELECT COALESCE(NULLIF('${hr_max}','auto')::numeric, LEAST(GREATEST((SELECT MAX(max_hr)::numeric FROM workouts),160),210), 190) AS hr_max), rhr AS (SELECT day, vmin::numeric AS vmin FROM daily_metrics WHERE metric = 'resting_heart_rate' AND vmin IS NOT NULL), w AS (SELECT hae_id, DATE(start_time AT TIME ZONE '$tz') AS day, duration_s, avg_hr FROM workouts), base AS (SELECT d.day, COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY r.vmin), (SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY vmin) FROM rhr), 60) AS hr_rest FROM (SELECT DISTINCT day FROM w) d LEFT JOIN rhr r ON r.day BETWEEN d.day - 27 AND d.day GROUP BY d.day), iv AS (SELECT s.workout_hae_id AS hae_id, s.bpm, EXTRACT(EPOCH FROM (LEAD(s.ts) OVER (PARTITION BY s.workout_hae_id ORDER BY s.ts) - s.ts)) AS sec FROM workout_hr_samples s), sess AS (SELECT iv.hae_id, SUM(iv.sec) AS sec_total, SUM((iv.sec/60.0) * LEAST(1.0,GREATEST(0.0,((iv.bpm)-b.hr_rest)/NULLIF(p.hr_max-b.hr_rest,0))) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,((iv.bpm)-b.hr_rest)/NULLIF(p.hr_max-b.hr_rest,0)))))) AS trimp_raw FROM iv JOIN w ON w.hae_id = iv.hae_id JOIN base b ON b.day = w.day CROSS JOIN params p WHERE iv.sec IS NOT NULL AND iv.sec > 0 GROUP BY iv.hae_id), daily AS (SELECT w.day, SUM(CASE WHEN s.sec_total > 0 AND w.duration_s IS NOT NULL AND w.duration_s > 0 THEN s.trimp_raw * (w.duration_s / s.sec_total) WHEN w.avg_hr IS NOT NULL AND w.duration_s IS NOT NULL AND w.duration_s > 0 THEN (w.duration_s/60.0) * LEAST(1.0,GREATEST(0.0,((w.avg_hr)-b.hr_rest)/NULLIF(p.hr_max-b.hr_rest,0))) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,((w.avg_hr)-b.hr_rest)/NULLIF(p.hr_max-b.hr_rest,0))))) ELSE 0 END) AS trimp FROM w LEFT JOIN sess s ON s.hae_id = w.hae_id JOIN base b ON b.day = w.day CROSS JOIN params p GROUP BY w.day), days AS (SELECT gs::date AS day, ROW_NUMBER() OVER (ORDER BY gs) AS rn, COALESCE(d.trimp, 0) AS trimp FROM generate_series((SELECT MIN(day) FROM daily), LEAST((NOW() AT TIME ZONE '$tz')::date, ($__timeTo()::timestamptz AT TIME ZONE '$tz')::date), INTERVAL '1 day') gs LEFT JOIN daily d ON d.day = gs::date), pmc AS (SELECT rn, day, trimp/42.0 AS ctl, trimp/7.0 AS atl FROM days WHERE rn = 1 UNION ALL SELECT d.rn, d.day, p.ctl + (d.trimp - p.ctl)/42.0, p.atl + (d.trimp - p.atl)/7.0 FROM pmc p JOIN days d ON d.rn = p.rn + 1) SELECT ROUND(ctl::numeric, 0) AS \"Fitness (CTL)\", ROUND(atl::numeric, 0) AS \"Fatigue (ATL)\", ROUND((ctl - atl)::numeric, 0) AS \"Form (TSB)\" FROM pmc ORDER BY day DESC LIMIT 1",
+          "rawSql": "WITH RECURSIVE daily AS (SELECT day, trimp FROM daily_trimp('$tz', NULLIF('${hr_max}','auto')::numeric)), days AS (SELECT gs::date AS day, ROW_NUMBER() OVER (ORDER BY gs) AS rn, COALESCE(d.trimp, 0) AS trimp FROM generate_series((SELECT MIN(day) FROM daily), LEAST((NOW() AT TIME ZONE '$tz')::date, ($__timeTo()::timestamptz AT TIME ZONE '$tz')::date), INTERVAL '1 day') gs LEFT JOIN daily d ON d.day = gs::date), pmc AS (SELECT rn, day, trimp/42.0 AS ctl, trimp/7.0 AS atl FROM days WHERE rn = 1 UNION ALL SELECT d.rn, d.day, p.ctl + (d.trimp - p.ctl)/42.0, p.atl + (d.trimp - p.atl)/7.0 FROM pmc p JOIN days d ON d.rn = p.rn + 1) SELECT ROUND(ctl::numeric, 0) AS \"Fitness (CTL)\", ROUND(atl::numeric, 0) AS \"Fatigue (ATL)\", ROUND((ctl - atl)::numeric, 0) AS \"Form (TSB)\" FROM pmc ORDER BY day DESC LIMIT 1",
           "format": "table"
         }
       ]
@@ -824,7 +807,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "WITH RECURSIVE params AS (SELECT COALESCE(NULLIF('${hr_max}','auto')::numeric, LEAST(GREATEST((SELECT MAX(max_hr)::numeric FROM workouts),160),210), 190) AS hr_max), rhr AS (SELECT day, vmin::numeric AS vmin FROM daily_metrics WHERE metric = 'resting_heart_rate' AND vmin IS NOT NULL), w AS (SELECT hae_id, DATE(start_time AT TIME ZONE '$tz') AS day, duration_s, avg_hr FROM workouts), base AS (SELECT d.day, COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY r.vmin), (SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY vmin) FROM rhr), 60) AS hr_rest FROM (SELECT DISTINCT day FROM w) d LEFT JOIN rhr r ON r.day BETWEEN d.day - 27 AND d.day GROUP BY d.day), iv AS (SELECT s.workout_hae_id AS hae_id, s.bpm, EXTRACT(EPOCH FROM (LEAD(s.ts) OVER (PARTITION BY s.workout_hae_id ORDER BY s.ts) - s.ts)) AS sec FROM workout_hr_samples s), sess AS (SELECT iv.hae_id, SUM(iv.sec) AS sec_total, SUM((iv.sec/60.0) * LEAST(1.0,GREATEST(0.0,((iv.bpm)-b.hr_rest)/NULLIF(p.hr_max-b.hr_rest,0))) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,((iv.bpm)-b.hr_rest)/NULLIF(p.hr_max-b.hr_rest,0)))))) AS trimp_raw FROM iv JOIN w ON w.hae_id = iv.hae_id JOIN base b ON b.day = w.day CROSS JOIN params p WHERE iv.sec IS NOT NULL AND iv.sec > 0 GROUP BY iv.hae_id), daily AS (SELECT w.day, SUM(CASE WHEN s.sec_total > 0 AND w.duration_s IS NOT NULL AND w.duration_s > 0 THEN s.trimp_raw * (w.duration_s / s.sec_total) WHEN w.avg_hr IS NOT NULL AND w.duration_s IS NOT NULL AND w.duration_s > 0 THEN (w.duration_s/60.0) * LEAST(1.0,GREATEST(0.0,((w.avg_hr)-b.hr_rest)/NULLIF(p.hr_max-b.hr_rest,0))) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,((w.avg_hr)-b.hr_rest)/NULLIF(p.hr_max-b.hr_rest,0))))) ELSE 0 END) AS trimp FROM w LEFT JOIN sess s ON s.hae_id = w.hae_id JOIN base b ON b.day = w.day CROSS JOIN params p GROUP BY w.day), days AS (SELECT gs::date AS day, ROW_NUMBER() OVER (ORDER BY gs) AS rn, COALESCE(d.trimp, 0) AS trimp FROM generate_series((SELECT MIN(day) FROM daily), GREATEST((NOW() AT TIME ZONE '$tz')::date + 14, ($__timeTo()::timestamptz AT TIME ZONE '$tz')::date), INTERVAL '1 day') gs LEFT JOIN daily d ON d.day = gs::date), pmc AS (SELECT rn, day, trimp/42.0 AS ctl, trimp/7.0 AS atl FROM days WHERE rn = 1 UNION ALL SELECT d.rn, d.day, p.ctl + (d.trimp - p.ctl)/42.0, p.atl + (d.trimp - p.atl)/7.0 FROM pmc p JOIN days d ON d.rn = p.rn + 1) SELECT day AS time, CASE WHEN day <= (NOW() AT TIME ZONE '$tz')::date THEN ROUND(ctl::numeric, 1) END AS \"Fitness (CTL)\", CASE WHEN day <= (NOW() AT TIME ZONE '$tz')::date THEN ROUND(atl::numeric, 1) END AS \"Fatigue (ATL)\", CASE WHEN day <= (NOW() AT TIME ZONE '$tz')::date THEN ROUND((ctl - atl)::numeric, 1) END AS \"Form (TSB)\", CASE WHEN day >= (NOW() AT TIME ZONE '$tz')::date THEN ROUND(ctl::numeric, 1) END AS \"CTL projected\", CASE WHEN day >= (NOW() AT TIME ZONE '$tz')::date THEN ROUND(atl::numeric, 1) END AS \"ATL projected\", CASE WHEN day >= (NOW() AT TIME ZONE '$tz')::date THEN ROUND((ctl - atl)::numeric, 1) END AS \"TSB projected\" FROM pmc WHERE $__timeFilter(day::timestamptz) ORDER BY day",
+          "rawSql": "WITH RECURSIVE daily AS (SELECT day, trimp FROM daily_trimp('$tz', NULLIF('${hr_max}','auto')::numeric)), days AS (SELECT gs::date AS day, ROW_NUMBER() OVER (ORDER BY gs) AS rn, COALESCE(d.trimp, 0) AS trimp FROM generate_series((SELECT MIN(day) FROM daily), GREATEST((NOW() AT TIME ZONE '$tz')::date + 14, ($__timeTo()::timestamptz AT TIME ZONE '$tz')::date), INTERVAL '1 day') gs LEFT JOIN daily d ON d.day = gs::date), pmc AS (SELECT rn, day, trimp/42.0 AS ctl, trimp/7.0 AS atl FROM days WHERE rn = 1 UNION ALL SELECT d.rn, d.day, p.ctl + (d.trimp - p.ctl)/42.0, p.atl + (d.trimp - p.atl)/7.0 FROM pmc p JOIN days d ON d.rn = p.rn + 1) SELECT day AS time, CASE WHEN day <= (NOW() AT TIME ZONE '$tz')::date THEN ROUND(ctl::numeric, 1) END AS \"Fitness (CTL)\", CASE WHEN day <= (NOW() AT TIME ZONE '$tz')::date THEN ROUND(atl::numeric, 1) END AS \"Fatigue (ATL)\", CASE WHEN day <= (NOW() AT TIME ZONE '$tz')::date THEN ROUND((ctl - atl)::numeric, 1) END AS \"Form (TSB)\", CASE WHEN day >= (NOW() AT TIME ZONE '$tz')::date THEN ROUND(ctl::numeric, 1) END AS \"CTL projected\", CASE WHEN day >= (NOW() AT TIME ZONE '$tz')::date THEN ROUND(atl::numeric, 1) END AS \"ATL projected\", CASE WHEN day >= (NOW() AT TIME ZONE '$tz')::date THEN ROUND((ctl - atl)::numeric, 1) END AS \"TSB projected\" FROM pmc WHERE $__timeFilter(day::timestamptz) ORDER BY day",
           "format": "time_series"
         }
       ],
@@ -893,7 +876,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "WITH params AS (SELECT COALESCE(NULLIF('${hr_max}','auto')::numeric, LEAST(GREATEST((SELECT MAX(max_hr)::numeric FROM workouts),160),210), 190) AS hr_max), rhr AS (SELECT day, vmin::numeric AS vmin FROM daily_metrics WHERE metric = 'resting_heart_rate' AND vmin IS NOT NULL), w AS (SELECT hae_id, DATE(start_time AT TIME ZONE '$tz') AS day, duration_s, avg_hr FROM workouts WHERE start_time >= LEAST(NOW(), $__timeTo()::timestamptz) - INTERVAL '31 days'), base AS (SELECT d.day, COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY r.vmin), (SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY vmin) FROM rhr), 60) AS hr_rest FROM (SELECT DISTINCT day FROM w) d LEFT JOIN rhr r ON r.day BETWEEN d.day - 27 AND d.day GROUP BY d.day), iv AS (SELECT s.workout_hae_id AS hae_id, s.bpm, EXTRACT(EPOCH FROM (LEAD(s.ts) OVER (PARTITION BY s.workout_hae_id ORDER BY s.ts) - s.ts)) AS sec FROM workout_hr_samples s), sess AS (SELECT iv.hae_id, SUM(iv.sec) AS sec_total, SUM((iv.sec/60.0) * LEAST(1.0,GREATEST(0.0,((iv.bpm)-b.hr_rest)/NULLIF(p.hr_max-b.hr_rest,0))) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,((iv.bpm)-b.hr_rest)/NULLIF(p.hr_max-b.hr_rest,0)))))) AS trimp_raw FROM iv JOIN w ON w.hae_id = iv.hae_id JOIN base b ON b.day = w.day CROSS JOIN params p WHERE iv.sec IS NOT NULL AND iv.sec > 0 GROUP BY iv.hae_id), daily AS (SELECT w.day, SUM(CASE WHEN s.sec_total > 0 AND w.duration_s IS NOT NULL AND w.duration_s > 0 THEN s.trimp_raw * (w.duration_s / s.sec_total) WHEN w.avg_hr IS NOT NULL AND w.duration_s IS NOT NULL AND w.duration_s > 0 THEN (w.duration_s/60.0) * LEAST(1.0,GREATEST(0.0,((w.avg_hr)-b.hr_rest)/NULLIF(p.hr_max-b.hr_rest,0))) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,((w.avg_hr)-b.hr_rest)/NULLIF(p.hr_max-b.hr_rest,0))))) ELSE 0 END) AS trimp FROM w LEFT JOIN sess s ON s.hae_id = w.hae_id JOIN base b ON b.day = w.day CROSS JOIN params p GROUP BY w.day), anchor AS (SELECT LEAST((NOW() AT TIME ZONE '$tz')::date, ($__timeTo()::timestamptz AT TIME ZONE '$tz')::date) AS d) SELECT ROUND((((COALESCE(SUM(trimp) FILTER (WHERE day > a.d - 7 AND day <= a.d), 0)) / 7.0) / NULLIF((SUM(trimp) FILTER (WHERE day > a.d - 28 AND day <= a.d)) / 28.0, 0))::numeric, 2) AS \"ACWR\" FROM daily, anchor a GROUP BY a.d",
+          "rawSql": "WITH daily AS (SELECT day, trimp FROM daily_trimp('$tz', NULLIF('${hr_max}','auto')::numeric, (LEAST(NOW(), $__timeTo()::timestamptz) AT TIME ZONE '$tz')::date - 31)), anchor AS (SELECT LEAST((NOW() AT TIME ZONE '$tz')::date, ($__timeTo()::timestamptz AT TIME ZONE '$tz')::date) AS d) SELECT ROUND((((COALESCE(SUM(trimp) FILTER (WHERE day > a.d - 7 AND day <= a.d), 0)) / 7.0) / NULLIF((SUM(trimp) FILTER (WHERE day > a.d - 28 AND day <= a.d)) / 28.0, 0))::numeric, 2) AS \"ACWR\" FROM daily, anchor a GROUP BY a.d",
           "format": "table"
         }
       ]
@@ -970,7 +953,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "WITH params AS (SELECT COALESCE(NULLIF('${hr_max}','auto')::numeric, LEAST(GREATEST((SELECT MAX(max_hr)::numeric FROM workouts),160),210), 190) AS hr_max), rhr AS (SELECT day, vmin::numeric AS vmin FROM daily_metrics WHERE metric = 'resting_heart_rate' AND vmin IS NOT NULL), w AS (SELECT hae_id, DATE(start_time AT TIME ZONE '$tz') AS day, duration_s, avg_hr FROM workouts), base AS (SELECT d.day, COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY r.vmin), (SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY vmin) FROM rhr), 60) AS hr_rest FROM (SELECT DISTINCT day FROM w) d LEFT JOIN rhr r ON r.day BETWEEN d.day - 27 AND d.day GROUP BY d.day), iv AS (SELECT s.workout_hae_id AS hae_id, s.bpm, EXTRACT(EPOCH FROM (LEAD(s.ts) OVER (PARTITION BY s.workout_hae_id ORDER BY s.ts) - s.ts)) AS sec FROM workout_hr_samples s), sess AS (SELECT iv.hae_id, SUM(iv.sec) AS sec_total, SUM((iv.sec/60.0) * LEAST(1.0,GREATEST(0.0,((iv.bpm)-b.hr_rest)/NULLIF(p.hr_max-b.hr_rest,0))) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,((iv.bpm)-b.hr_rest)/NULLIF(p.hr_max-b.hr_rest,0)))))) AS trimp_raw FROM iv JOIN w ON w.hae_id = iv.hae_id JOIN base b ON b.day = w.day CROSS JOIN params p WHERE iv.sec IS NOT NULL AND iv.sec > 0 GROUP BY iv.hae_id), daily AS (SELECT w.day, SUM(CASE WHEN s.sec_total > 0 AND w.duration_s IS NOT NULL AND w.duration_s > 0 THEN s.trimp_raw * (w.duration_s / s.sec_total) WHEN w.avg_hr IS NOT NULL AND w.duration_s IS NOT NULL AND w.duration_s > 0 THEN (w.duration_s/60.0) * LEAST(1.0,GREATEST(0.0,((w.avg_hr)-b.hr_rest)/NULLIF(p.hr_max-b.hr_rest,0))) * (0.64*EXP(1.92*LEAST(1.0,GREATEST(0.0,((w.avg_hr)-b.hr_rest)/NULLIF(p.hr_max-b.hr_rest,0))))) ELSE 0 END) AS trimp FROM w LEFT JOIN sess s ON s.hae_id = w.hae_id JOIN base b ON b.day = w.day CROSS JOIN params p GROUP BY w.day), days AS (SELECT gs::date AS day, ROW_NUMBER() OVER (ORDER BY gs) AS rn, COALESCE(d.trimp, 0) AS trimp FROM generate_series((SELECT MIN(day) FROM daily), LEAST((NOW() AT TIME ZONE '$tz')::date, ($__timeTo()::timestamptz AT TIME ZONE '$tz')::date), INTERVAL '1 day') gs LEFT JOIN daily d ON d.day = gs::date) SELECT time, \"ACWR\" FROM (SELECT day AS time, CASE WHEN rn >= 28 THEN ROUND((AVG(trimp) OVER (ORDER BY rn ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) / NULLIF(AVG(trimp) OVER (ORDER BY rn ROWS BETWEEN 27 PRECEDING AND CURRENT ROW), 0))::numeric, 2) END AS \"ACWR\" FROM days) x WHERE $__timeFilter(time::timestamptz) ORDER BY time",
+          "rawSql": "WITH daily AS (SELECT day, trimp FROM daily_trimp('$tz', NULLIF('${hr_max}','auto')::numeric)), days AS (SELECT gs::date AS day, ROW_NUMBER() OVER (ORDER BY gs) AS rn, COALESCE(d.trimp, 0) AS trimp FROM generate_series((SELECT MIN(day) FROM daily), LEAST((NOW() AT TIME ZONE '$tz')::date, ($__timeTo()::timestamptz AT TIME ZONE '$tz')::date), INTERVAL '1 day') gs LEFT JOIN daily d ON d.day = gs::date) SELECT time, \"ACWR\" FROM (SELECT day AS time, CASE WHEN rn >= 28 THEN ROUND((AVG(trimp) OVER (ORDER BY rn ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) / NULLIF(AVG(trimp) OVER (ORDER BY rn ROWS BETWEEN 27 PRECEDING AND CURRENT ROW), 0))::numeric, 2) END AS \"ACWR\" FROM days) x WHERE $__timeFilter(time::timestamptz) ORDER BY time",
           "format": "time_series"
         }
       ]
