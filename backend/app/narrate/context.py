@@ -388,6 +388,218 @@ def _section_consistency(consistency: list[dict], language: str) -> list[str]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# Weekly-overview sections (narrate --weekly). Descriptive summaries computed
+# by the nightly run (kind=weekly_* / fitness_markers); each renders one
+# section block like the alert sections above.
+# ---------------------------------------------------------------------------
+
+
+def _fmt_clock(hour: float) -> str:
+    """A float clock hour (23.17) as HH:MM (23:10)."""
+    total_min = int(round(hour * 60)) % (24 * 60)
+    return f"{total_min // 60:02d}:{total_min % 60:02d}"
+
+
+def _window_prefix(f: dict) -> str:
+    ws, we = f.get("window_start"), f.get("window_end")
+    return f"[{ws} – {we}] " if ws and we else ""
+
+
+def _section_weekly_training(items: list[dict], language: str) -> list[str]:
+    out = ["=== WOCHE: TRAINING ==="] if language == "de" else ["=== WEEK: TRAINING ==="]
+    if not items:
+        return [*out, "–"]
+    for f in items:
+        d = scrub_details("weekly_training", f.get("details"))
+        unit_word = "sessions" if language == "en" else "Einheiten"
+        parts = [f"{d.get('sessions', 0)} {unit_word}", f"{d.get('duration_h', 0):.1f} h"]
+        if d.get("distance_km"):
+            parts.append(f"{d['distance_km']:.1f} km")
+        if d.get("energy_kcal"):
+            parts.append(f"{d['energy_kcal']:.0f} kcal")
+        if d.get("load") is not None:
+            parts.append(("load=" if language == "en" else "Last=") + f"{d['load']:.0f} ({_label(f, 'metric_a')})")
+        out.append(_window_prefix(f) + ", ".join(parts))
+        prev = d.get("prev")
+        if prev:
+            prev_parts = [f"{prev.get('sessions', 0)} {unit_word}", f"{prev.get('duration_h', 0):.1f} h"]
+            if prev.get("load") is not None:
+                prev_parts.append(("load=" if language == "en" else "Last=") + f"{prev['load']:.0f}")
+            out.append(("  previous week: " if language == "en" else "  Vorwoche: ") + ", ".join(prev_parts))
+        if d.get("baseline_load") is not None:
+            label = "  4-week average load=" if language == "en" else "  4-Wochen-Schnitt Last="
+            out.append(label + f"{d['baseline_load']:.0f}" + ("/week" if language == "en" else "/Woche"))
+        for sport in d.get("per_sport") or []:
+            sport_label = str(sport.get("sport", "?")).replace("_", " ").title()
+            sport_parts = [f"{sport.get('sessions', 0)} {unit_word}", f"{sport.get('duration_h', 0):.1f} h"]
+            if sport.get("distance_km"):
+                sport_parts.append(f"{sport['distance_km']:.1f} km")
+            if sport.get("load") is not None:
+                sport_parts.append(("load=" if language == "en" else "Last=") + f"{sport['load']:.0f}")
+            out.append(f"  – {sport_label}: " + ", ".join(sport_parts))
+    return out
+
+
+def _section_weekly_sleep(items: list[dict], language: str) -> list[str]:
+    out = ["=== WOCHE: SCHLAF ==="] if language == "de" else ["=== WEEK: SLEEP ==="]
+    if not items:
+        return [*out, "–"]
+    for f in items:
+        d = scrub_details("weekly_sleep", f.get("details"))
+        avg = d.get("avg_total_h")
+        parts = [("avg sleep=" if language == "en" else "Ø Schlaf=") + (f"{avg:.2f}h" if avg is not None else "n/a")]
+        stages = []
+        if d.get("avg_deep_h") is not None:
+            pct = f"/{d['deep_pct']:.0f}%" if d.get("deep_pct") is not None else ""
+            stages.append(("deep " if language == "en" else "Tiefschlaf ") + f"{d['avg_deep_h']:.2f}h{pct}")
+        if d.get("avg_rem_h") is not None:
+            pct = f"/{d['rem_pct']:.0f}%" if d.get("rem_pct") is not None else ""
+            stages.append(f"REM {d['avg_rem_h']:.2f}h{pct}")
+        if stages:
+            parts[-1] += " (" + ", ".join(stages) + ")"
+        if d.get("avg_efficiency") is not None:
+            parts.append(("efficiency=" if language == "en" else "Effizienz=") + f"{d['avg_efficiency'] * 100:.0f}%")
+        if d.get("avg_bedtime") is not None:
+            parts.append(("avg bedtime=" if language == "en" else "Ø Zubettgehen=") + _fmt_clock(d["avg_bedtime"]))
+        parts.append(("nights=" if language == "en" else "Nächte=") + str(d.get("nights", "?")))
+        out.append(_window_prefix(f) + ", ".join(parts))
+        prev = d.get("prev")
+        if prev and prev.get("avg_total_h") is not None:
+            prev_parts = [("avg " if language == "en" else "Ø ") + f"{prev['avg_total_h']:.2f}h"]
+            if prev.get("avg_efficiency") is not None:
+                prev_parts.append(
+                    ("efficiency " if language == "en" else "Effizienz ") + f"{prev['avg_efficiency'] * 100:.0f}%"
+                )
+            out.append(("  previous week: " if language == "en" else "  Vorwoche: ") + ", ".join(prev_parts))
+    return out
+
+
+def _section_weekly_stress(items: list[dict], language: str) -> list[str]:
+    out = ["=== WOCHE: STRESS ==="] if language == "de" else ["=== WEEK: STRESS ==="]
+    if not items:
+        return [*out, "–"]
+    for f in items:
+        d = scrub_details("weekly_stress", f.get("details"))
+        avg = d.get("avg_score")
+        avg_str = f"{avg:.0f} ({_stress_zone(avg, language)})" if avg is not None else "n/a"
+        parts = [("avg score=" if language == "en" else "Ø Score=") + avg_str]
+        if d.get("high_min") is not None:
+            parts.append(("high-stress=" if language == "en" else "Hochstress=") + f"{d['high_min']} min")
+        if d.get("medium_min") is not None:
+            parts.append(("medium=" if language == "en" else "Mittel=") + f"{d['medium_min']} min")
+        if d.get("peak_day") is not None and d.get("peak_score") is not None:
+            label = "peak day=" if language == "en" else "Spitzentag="
+            parts.append(f"{label}{d['peak_day']} (Score {d['peak_score']:.0f})")
+        if d.get("calm_day") is not None and d.get("calm_score") is not None:
+            label = "calmest day=" if language == "en" else "ruhigster Tag="
+            parts.append(f"{label}{d['calm_day']} (Score {d['calm_score']:.0f})")
+        parts.append(("days=" if language == "en" else "Tage=") + str(d.get("days", "?")))
+        out.append(_window_prefix(f) + ", ".join(parts))
+        prev = d.get("prev")
+        if prev and prev.get("avg_score") is not None:
+            prev_parts = [("avg " if language == "en" else "Ø ") + f"{prev['avg_score']:.0f}"]
+            if prev.get("high_min") is not None:
+                prev_parts.append(("high-stress " if language == "en" else "Hochstress ") + f"{prev['high_min']} min")
+            out.append(("  previous week: " if language == "en" else "  Vorwoche: ") + ", ".join(prev_parts))
+    return out
+
+
+def _section_weekly_body_battery(items: list[dict], language: str) -> list[str]:
+    out = ["=== WOCHE: BODY BATTERY ==="] if language == "de" else ["=== WEEK: BODY BATTERY ==="]
+    if not items:
+        return [*out, "–"]
+    for f in items:
+        d = scrub_details("weekly_body_battery", f.get("details"))
+        parts = []
+        for key, en, de in (
+            ("avg_wake", "avg wake=", "Ø Weckstand="),
+            ("avg_high", "avg high=", "Ø Hoch="),
+            ("avg_low", "avg low=", "Ø Tief="),
+        ):
+            if d.get(key) is not None:
+                parts.append((en if language == "en" else de) + f"{d[key]:.0f}")
+        if d.get("min_low") is not None:
+            label = "deepest trough=" if language == "en" else "Tiefstwert="
+            day = f" ({d['min_low_day']})" if d.get("min_low_day") else ""
+            parts.append(f"{label}{d['min_low']:.0f}{day}")
+        per_day = "/day" if language == "en" else "/Tag"
+        if d.get("avg_charged") is not None:
+            parts.append(("charged=" if language == "en" else "geladen=") + f"{d['avg_charged']:.0f}{per_day}")
+        if d.get("avg_drained") is not None:
+            parts.append(("drained=" if language == "en" else "entladen=") + f"{d['avg_drained']:.0f}{per_day}")
+        out.append(_window_prefix(f) + ", ".join(parts))
+        prev = d.get("prev")
+        if prev and (prev.get("avg_wake") is not None or prev.get("avg_low") is not None):
+            prev_parts = []
+            if prev.get("avg_wake") is not None:
+                prev_parts.append(("wake " if language == "en" else "Weckstand ") + f"{prev['avg_wake']:.0f}")
+            if prev.get("avg_low") is not None:
+                prev_parts.append(("low " if language == "en" else "Tief ") + f"{prev['avg_low']:.0f}")
+            out.append(("  previous week: " if language == "en" else "  Vorwoche: ") + ", ".join(prev_parts))
+    return out
+
+
+def _section_weekly_vitals(items: list[dict], language: str) -> list[str]:
+    if language == "de":
+        out = ["=== WOCHE: VITALWERTE (vs. 28-Tage-Baseline) ==="]
+    else:
+        out = ["=== WEEK: VITALS (vs. 28-day baseline) ==="]
+    if not items:
+        return [*out, "–"]
+    for f in items:
+        d = scrub_details("weekly_vitals", f.get("details"))
+        unit = f" {d['unit']}" if d.get("unit") else ""
+        label_w = "week mean=" if language == "en" else "Wochenmittel="
+        label_b = "baseline=" if language == "en" else "Baseline="
+        parts = [f"{label_w}{d.get('week_mean', 'n/a')}{unit}", f"{label_b}{d.get('baseline_mean', 'n/a')}{unit}"]
+        if d.get("delta") is not None:
+            pct = f", {d['delta_pct']:+.1f}%" if d.get("delta_pct") is not None else ""
+            parts.append(f"Δ={d['delta']:+.1f}{pct}")
+        out.append(f"{_label(f, 'metric_a')}: " + ", ".join(parts))
+    return out
+
+
+def _section_weekly_activity(items: list[dict], language: str) -> list[str]:
+    out = ["=== WOCHE: AKTIVITÄT ==="] if language == "de" else ["=== WEEK: ACTIVITY ==="]
+    if not items:
+        return [*out, "–"]
+    for f in items:
+        d = scrub_details("weekly_activity", f.get("details"))
+        unit = f" {d['unit']}" if d.get("unit") else ""
+        parts = [("total=" if language == "en" else "gesamt=") + f"{d.get('total', 'n/a')}{unit}"]
+        if d.get("daily_avg") is not None:
+            per_day = "/day" if language == "en" else "/Tag"
+            parts.append(("avg " if language == "en" else "Ø ") + f"{d['daily_avg']}{per_day}")
+        if d.get("prev_total") is not None:
+            parts.append(("previous week " if language == "en" else "Vorwoche ") + f"{d['prev_total']}")
+        if d.get("baseline_weekly") is not None:
+            label = "4-week average " if language == "en" else "4-Wochen-Schnitt "
+            per_week = "/week" if language == "en" else "/Woche"
+            parts.append(label + f"{d['baseline_weekly']}{per_week}")
+        out.append(f"{_label(f, 'metric_a')}: " + ", ".join(parts))
+    return out
+
+
+def _section_fitness_markers(items: list[dict], language: str) -> list[str]:
+    out = ["=== FITNESS-MARKER ==="] if language == "de" else ["=== FITNESS MARKERS ==="]
+    if not items:
+        return [*out, "–"]
+    for f in items:
+        d = scrub_details("fitness_markers", f.get("details"))
+        unit = f" {d['unit']}" if d.get("unit") else ""
+        date_label = " on " if language == "en" else " am "
+        line = f"{_label(f, 'metric_a')}: {d.get('latest', 'n/a')}{unit}{date_label}{d.get('latest_date', '?')}"
+        if d.get("delta") is not None:
+            line += f" (Δ={d['delta']:+.2f} vs. {d.get('prev_date', '?')})"
+        elif language == "de":
+            line += " (keine ältere Vergleichsmessung)"
+        else:
+            line += " (no older reading to compare)"
+        out.append(line)
+    return out
+
+
 def build_context(
     findings: list[dict],
     lookback_days: int,
@@ -396,6 +608,7 @@ def build_context(
     note: str | None = None,
     language: str = "de",
     max_correlations: int | None = None,
+    weekly: bool = False,
 ) -> str:
     """Format findings as a structured plain-text context for the LLM.
 
@@ -430,8 +643,26 @@ def build_context(
     for f in findings:
         by_kind.setdefault(f["kind"], []).append(f)
 
+    # The weekly overview leads the report (the descriptive backbone); the
+    # alert/statistics sections follow. Daily reports skip the weekly blocks
+    # entirely instead of printing seven empty placeholders.
+    weekly_blocks: list[list[str]] = (
+        [
+            _section_weekly_training(by_kind.get("weekly_training", []), language),
+            _section_weekly_sleep(by_kind.get("weekly_sleep", []), language),
+            _section_weekly_stress(by_kind.get("weekly_stress", []), language),
+            _section_weekly_body_battery(by_kind.get("weekly_body_battery", []), language),
+            _section_weekly_vitals(by_kind.get("weekly_vitals", []), language),
+            _section_weekly_activity(by_kind.get("weekly_activity", []), language),
+            _section_fitness_markers(by_kind.get("fitness_markers", []), language),
+        ]
+        if weekly
+        else []
+    )
+
     blocks: list[list[str]] = [
         header,
+        *weekly_blocks,
         _section_anomalies(by_kind.get("anomaly", []), language, lookback_days),
         _section_recovery(by_kind.get("recovery_alert", []), language),
         _section_stress(by_kind.get("stress", []), language),

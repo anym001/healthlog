@@ -2,10 +2,11 @@
 
 Builds the analysis series (core metrics + derived sleep + workout-load) and the
 finding kinds (correlation, anomaly, trend, seasonality, recovery_alert,
-consistency, training_load, training_status, stress, body_battery) on top of the
-pure helpers and DB loaders. The stress and body_battery findings are alert-only;
-their continuous scores/timelines live in their own tables (see ``stress.py`` /
-``body_battery.py``).
+consistency, training_load, training_status, stress, body_battery, plus the
+descriptive weekly_* summaries and fitness_markers for the weekly report) on top
+of the pure helpers and DB loaders. The stress and body_battery findings are
+alert-only; their continuous scores/timelines live in their own tables (see
+``stress.py`` / ``body_battery.py``).
 """
 
 from __future__ import annotations
@@ -52,6 +53,7 @@ from .pure import (
     edwards_trimp,
     fdr_adjust,
     fill_zero_within_span,
+    latest_marker_delta,
     resolve_hr_max,
     resolve_hr_rest,
     robust_z,
@@ -60,6 +62,12 @@ from .pure import (
     training_status,
     trend_monotonicity,
     trend_slope,
+    weekly_baseline_delta,
+    weekly_body_battery_summary,
+    weekly_sessions_summary,
+    weekly_sleep_summary,
+    weekly_stress_summary,
+    weekly_window,
 )
 from .stress import load_stress_daily
 
@@ -76,6 +84,13 @@ class AnalysisResult:
     training_status: int = 0
     stress: int = 0
     body_battery: int = 0
+    weekly_training: int = 0
+    weekly_sleep: int = 0
+    weekly_stress: int = 0
+    weekly_body_battery: int = 0
+    weekly_vitals: int = 0
+    weekly_activity: int = 0
+    fitness_markers: int = 0
 
     def counts(self) -> list[tuple[str, int]]:
         """The (category, count) pairs in declaration order — the single source
@@ -996,3 +1011,311 @@ def _training_status_findings(
             details=details,
         )
     ]
+
+
+# --- Weekly summaries (descriptive status findings, docs/ARCHITECTURE.md §4.8) ---
+# Written every run like training_status/consistency — they give the weekly
+# report its descriptive backbone ("how the week actually went") even when no
+# alert fired. The narration includes them only in --weekly mode.
+
+_WEEKLY_VITALS_METRICS = ("resting_heart_rate", "heart_rate_variability")
+_WEEKLY_ACTIVITY_METRICS = ("step_count", "active_energy", "apple_exercise_time", "time_in_daylight")
+_FITNESS_MARKER_METRICS = ("vo2_max", "cardio_recovery", "weight_body_mass")
+
+
+def series_anchor(series: dict[str, pd.Series]) -> pd.Timestamp | None:
+    """The last day holding any data across all series — the shared "current
+    week" anchor, so a lagging single metric can't shift its own window while a
+    lagging export can't produce an empty week."""
+    dates = [s.dropna().index.max() for s in series.values() if not s.dropna().empty]
+    return max(dates) if dates else None
+
+
+def _opt_round(value: float | None, ndigits: int = 2) -> float | None:
+    return round(value, ndigits) if value is not None else None
+
+
+def _volume_details(totals: dict) -> dict:
+    """Round a ``weekly_sessions_summary`` totals dict for the finding JSON."""
+    return {
+        "sessions": totals["sessions"],
+        "duration_h": round(totals["duration_h"], 2),
+        "distance_km": round(totals["distance_km"], 1),
+        "energy_kcal": round(totals["energy_kcal"]),
+    }
+
+
+def _weekly_training_findings(
+    db: Session,
+    tz: str,
+    series: dict[str, pd.Series],
+    computed_at: dt.datetime,
+    workouts: WorkoutConfig,
+    anchor: pd.Timestamp | None = None,
+) -> list[Finding]:
+    """One descriptive training-week snapshot: session volume plus load totals.
+
+    Session counts/duration/distance/kcal come from the workouts table
+    (``weekly_sessions_summary``); the load totals reuse the daily load series
+    the pipeline already built, preferring TRIMP over the kcal load — the same
+    preference the ACWR/status findings apply. A week without any workout is a
+    real zero, not an omission; only a DB without workouts yields no finding.
+    """
+    sessions = load_workout_frame(db, tz)
+    if sessions.empty:
+        return []
+    types = sessions["name"].map(lambda n: canonical_workout_type(n, workouts.type_map))
+    summary = weekly_sessions_summary(sessions, types, anchor=anchor)
+    if summary is None:
+        return []
+
+    load_name = next((n for n in ("workout_trimp", "workout_load") if n in series), None)
+    details: dict = {
+        **_volume_details(summary["current"]),
+        "prev": _volume_details(summary["previous"]),
+        "per_sport": [{"sport": s["sport"], **_volume_details(s)} for s in summary["per_sport"]],
+    }
+    if load_name is not None:
+        ww = weekly_window(series[load_name], agg="sum", anchor=anchor)
+        if ww is not None:
+            # Outside the series' 0-filled span means "no workouts" — a real 0.
+            details["load"] = round(ww.value if ww.value is not None else 0.0, 1)
+            details["prev"]["load"] = round(ww.prev_value if ww.prev_value is not None else 0.0, 1)
+            details["baseline_load"] = _opt_round(ww.baseline_value, 1)
+        for sport_entry in details["per_sport"]:
+            sport_series = series.get(f"{load_name}_{sport_entry['sport']}")
+            if sport_series is not None:
+                sw = weekly_window(sport_series, agg="sum", anchor=anchor)
+                if sw is not None and sw.value is not None:
+                    sport_entry["load"] = round(sw.value, 1)
+    return [
+        Finding(
+            computed_at=computed_at,
+            kind="weekly_training",
+            metric_a=load_name or "workout_trimp",
+            ref_date=summary["window_end"].date(),
+            window_start=summary["window_start"].date(),
+            window_end=summary["window_end"].date(),
+            details=details,
+        )
+    ]
+
+
+def _weekly_sleep_findings(sleep: pd.DataFrame, computed_at: dt.datetime) -> list[Finding]:
+    """One descriptive sleep-week snapshot: averages the alert kinds never show."""
+    summary = weekly_sleep_summary(sleep)
+    if summary is None:
+        return []
+
+    def _stats_details(stats: dict | None) -> dict | None:
+        if stats is None:
+            return None
+        return {
+            "nights": stats["nights"],
+            "avg_total_h": _opt_round(stats["avg_total_h"]),
+            "avg_deep_h": _opt_round(stats["avg_deep_h"]),
+            "avg_rem_h": _opt_round(stats["avg_rem_h"]),
+            "deep_pct": _opt_round(stats["deep_pct"], 1),
+            "rem_pct": _opt_round(stats["rem_pct"], 1),
+            "avg_efficiency": _opt_round(stats["avg_efficiency"], 3),
+            "avg_bedtime": _opt_round(stats["avg_bedtime"]),
+        }
+
+    details = _stats_details(summary["current"]) or {}
+    details["prev"] = _stats_details(summary["previous"])
+    return [
+        Finding(
+            computed_at=computed_at,
+            kind="weekly_sleep",
+            metric_a="sleep_total_h",
+            ref_date=summary["window_end"].date(),
+            window_start=summary["window_start"].date(),
+            window_end=summary["window_end"].date(),
+            details=details,
+        )
+    ]
+
+
+def _weekly_stress_findings(db: Session, computed_at: dt.datetime, cfg: StressConfig | None = None) -> list[Finding]:
+    """One descriptive stress-week snapshot off ``stress_daily`` (every day has
+    a score there — the alert finding only ever shows the bad days)."""
+    cfg = cfg or StressConfig()
+    if not cfg.enabled:
+        return []
+    daily = load_stress_daily(db, since_days=14)  # current + previous week
+    summary = weekly_stress_summary(daily)
+    if summary is None:
+        return []
+    cur = summary["current"]
+    details: dict = {
+        "days": cur["days"],
+        "avg_score": round(cur["avg_score"], 1),
+        "high_min": cur["high_min"],
+        "medium_min": cur["medium_min"],
+        "peak_day": cur["peak_day"].isoformat(),
+        "peak_score": round(cur["peak_score"], 1),
+        "calm_day": cur["calm_day"].isoformat(),
+        "calm_score": round(cur["calm_score"], 1),
+    }
+    prev = summary["previous"]
+    details["prev"] = (
+        {"days": prev["days"], "avg_score": round(prev["avg_score"], 1), "high_min": prev["high_min"]}
+        if prev is not None
+        else None
+    )
+    return [
+        Finding(
+            computed_at=computed_at,
+            kind="weekly_stress",
+            metric_a="stress",
+            ref_date=summary["window_end"].date(),
+            window_start=summary["window_start"].date(),
+            window_end=summary["window_end"].date(),
+            details=details,
+        )
+    ]
+
+
+def _weekly_body_battery_findings(
+    db: Session, computed_at: dt.datetime, cfg: BodyBatteryConfig | None = None
+) -> list[Finding]:
+    """One descriptive Body-Battery week snapshot off ``body_battery_daily``
+    (mirrors ``_weekly_stress_findings``)."""
+    cfg = cfg or BodyBatteryConfig()
+    if not cfg.enabled:
+        return []
+    daily = load_body_battery_daily(db, since_days=14)  # current + previous week
+    summary = weekly_body_battery_summary(daily)
+    if summary is None:
+        return []
+    cur = summary["current"]
+    details: dict = {
+        "days": cur["days"],
+        "avg_wake": _opt_round(cur["avg_wake"], 1),
+        "avg_low": _opt_round(cur["avg_low"], 1),
+        "avg_high": _opt_round(cur["avg_high"], 1),
+        "avg_charged": _opt_round(cur["avg_charged"], 1),
+        "avg_drained": _opt_round(cur["avg_drained"], 1),
+    }
+    if "min_low" in cur:
+        details["min_low"] = round(cur["min_low"], 1)
+        details["min_low_day"] = cur["min_low_day"].isoformat()
+    prev = summary["previous"]
+    details["prev"] = (
+        {"days": prev["days"], "avg_wake": _opt_round(prev["avg_wake"], 1), "avg_low": _opt_round(prev["avg_low"], 1)}
+        if prev is not None
+        else None
+    )
+    return [
+        Finding(
+            computed_at=computed_at,
+            kind="weekly_body_battery",
+            metric_a="body_battery",
+            ref_date=summary["window_end"].date(),
+            window_start=summary["window_start"].date(),
+            window_end=summary["window_end"].date(),
+            details=details,
+        )
+    ]
+
+
+def _weekly_vitals_findings(series: dict[str, pd.Series], computed_at: dt.datetime) -> list[Finding]:
+    """Weekly RHR/HRV means against their trailing 28-day baseline — the
+    recovery context the alert finding only surfaces when both cross a z
+    threshold. One finding per metric so the registry display name applies."""
+    findings: list[Finding] = []
+    for metric in _WEEKLY_VITALS_METRICS:
+        s = series.get(metric)
+        if s is None:
+            continue
+        delta = weekly_baseline_delta(s)
+        if delta is None:
+            continue
+        details = {
+            "week_mean": round(delta["week_mean"], 1),
+            "baseline_mean": round(delta["baseline_mean"], 1),
+            "delta": round(delta["delta"], 1),
+            "week_days": delta["week_days"],
+            "baseline_days": delta["baseline_days"],
+            "unit": METRIC_REGISTRY[metric]["unit_canonical"],
+        }
+        if "delta_pct" in delta:
+            details["delta_pct"] = round(delta["delta_pct"], 1)
+        findings.append(
+            Finding(
+                computed_at=computed_at,
+                kind="weekly_vitals",
+                metric_a=metric,
+                ref_date=delta["window_end"].date(),
+                window_start=delta["window_start"].date(),
+                window_end=delta["window_end"].date(),
+                details=details,
+            )
+        )
+    return findings
+
+
+def _weekly_activity_findings(
+    series: dict[str, pd.Series], computed_at: dt.datetime, anchor: pd.Timestamp | None = None
+) -> list[Finding]:
+    """Weekly totals of the everyday activity metrics (steps, active energy,
+    exercise minutes, daylight) with previous-week and 4-week comparisons.
+    One finding per metric so the registry display name and unit apply."""
+    findings: list[Finding] = []
+    for metric in _WEEKLY_ACTIVITY_METRICS:
+        s = series.get(metric)
+        if s is None:
+            continue
+        ww = weekly_window(s, agg="sum", anchor=anchor)
+        if ww is None or ww.value is None:
+            continue
+        findings.append(
+            Finding(
+                computed_at=computed_at,
+                kind="weekly_activity",
+                metric_a=metric,
+                ref_date=ww.window_end.date(),
+                window_start=ww.window_start.date(),
+                window_end=ww.window_end.date(),
+                details={
+                    "total": round(ww.value, 1),
+                    "daily_avg": round(ww.value / ww.n_days, 1),
+                    "days": ww.n_days,
+                    "prev_total": _opt_round(ww.prev_value, 1),
+                    "baseline_weekly": _opt_round(ww.baseline_value, 1),
+                    "unit": METRIC_REGISTRY[metric]["unit_canonical"],
+                },
+            )
+        )
+    return findings
+
+
+def _fitness_marker_findings(series: dict[str, pd.Series], computed_at: dt.datetime) -> list[Finding]:
+    """Latest value + ~monthly drift of the slow fitness markers (VO2 Max,
+    cardio recovery, body mass). These move too slowly for weekly windows;
+    the last reading and its month-over-month change are the story."""
+    findings: list[Finding] = []
+    for metric in _FITNESS_MARKER_METRICS:
+        s = series.get(metric)
+        if s is None:
+            continue
+        marker = latest_marker_delta(s)
+        if marker is None:
+            continue
+        findings.append(
+            Finding(
+                computed_at=computed_at,
+                kind="fitness_markers",
+                metric_a=metric,
+                ref_date=marker["latest_date"],
+                details={
+                    "latest": round(marker["latest"], 2),
+                    "latest_date": marker["latest_date"].isoformat(),
+                    "prev": _opt_round(marker["prev"]),
+                    "prev_date": marker["prev_date"].isoformat() if marker["prev_date"] is not None else None,
+                    "delta": _opt_round(marker["delta"]),
+                    "unit": METRIC_REGISTRY[metric]["unit_canonical"],
+                },
+            )
+        )
+    return findings

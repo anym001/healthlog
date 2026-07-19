@@ -417,6 +417,8 @@ docker exec healthlog healthlog narrate --language de --lookback-days 14
 docker exec healthlog healthlog narrate --audience expert
 # One-off short summary:
 docker exec healthlog healthlog narrate --max-words 300
+# Weekly report: lead with the descriptive week review (see below):
+docker exec healthlog healthlog narrate --weekly
 # Inspect what the model would receive — no Ollama call, no report written:
 docker exec healthlog healthlog narrate --dry-run
 ```
@@ -446,6 +448,19 @@ To keep the report focused, only the highest-priority correlations are narrated
 above expected within-subsystem pairs like total vs deep sleep); the rest are
 summarised as a count. Tune the cap with `narrate.max_correlations` (default 15,
 `0` = narrate them all).
+
+**`--weekly`** turns the report into a weekly review: in addition to the
+alert-based findings, the model receives the descriptive week summaries the
+nightly analysis computes — training volume (sessions, duration, distance,
+energy and weekly load, overall and per sport), sleep averages (duration,
+deep/REM shares, efficiency, bedtime), the stress and Body-Battery week
+profiles, weekly resting-heart-rate/HRV means against their 28-day baseline,
+activity totals (steps, active energy, exercise minutes, daylight) and the
+slow fitness markers (VO2 Max, cardio recovery, body mass with their ~monthly
+change) — each compared to the previous week. The report then leads with the
+week review before interpreting alerts. All windows are trailing 7 days ending
+on the last day with data, so the flag works on any weekday. Combine with
+`--dry-run` to inspect the weekly context.
 
 ### Running Ollama for narration
 

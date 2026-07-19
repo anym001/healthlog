@@ -47,6 +47,11 @@ WHERE
         AND f.ref_date >= :cutoff
     )
     OR f.kind IN ('correlation', 'trend', 'seasonality', 'consistency', 'training_status')
+    OR (
+        :include_weekly
+        AND f.kind IN ('weekly_training', 'weekly_sleep', 'weekly_stress', 'weekly_body_battery',
+                       'weekly_vitals', 'weekly_activity', 'fitness_markers')
+    )
 ORDER BY f.kind, f.ref_date DESC NULLS LAST, f.severity DESC NULLS LAST
 """
 
@@ -82,19 +87,23 @@ def _handwired_label(key: str) -> str | None:
     return None
 
 
-def load_findings(db: Session, lookback_days: int) -> list[dict]:
+def load_findings(db: Session, lookback_days: int, include_weekly: bool = False) -> list[dict]:
     """Query the current findings snapshot, joining display names from the registry.
 
     The lookback cutoff is computed here in the configured local timezone:
     ``ref_date`` is a local-TZ day (ARCHITECTURE.md — daily buckets are local,
     not UTC), while the DB server typically runs on UTC, so Postgres'
     ``CURRENT_DATE`` would shift the window around local midnight.
+
+    ``include_weekly`` adds the descriptive weekly-report kinds (``weekly_*``,
+    ``fitness_markers``) — snapshot findings like ``training_status``, so the
+    lookback cutoff does not apply to them; the daily report leaves them out.
     """
     from sqlalchemy import text
 
     today = dt.datetime.now(ZoneInfo(get_settings().local_tz)).date()
     cutoff = today - dt.timedelta(days=lookback_days)
-    rows = db.execute(text(_FINDINGS_SQL), {"cutoff": cutoff}).mappings().all()
+    rows = db.execute(text(_FINDINGS_SQL), {"cutoff": cutoff, "include_weekly": include_weekly}).mappings().all()
     result = []
     for row in rows:
         d = dict(row)

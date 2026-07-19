@@ -385,12 +385,21 @@ def test_run_dry_run_renders_context_without_ollama(tmp_path, monkeypatch, capsy
     monkeypatch.setattr(
         narrate_cli,
         "load_findings",
-        lambda _db, _lookback: [_finding("anomaly", details={"z": 3.9, "value": 72.5}, severity=3.9)],
+        lambda _db, _lookback, include_weekly=False: [
+            _finding("anomaly", details={"z": 3.9, "value": 72.5}, severity=3.9)
+        ],
     )
     monkeypatch.setattr(narrate_cli, "OllamaClient", _no_client)
 
     args = argparse.Namespace(
-        lookback_days=None, output_dir=None, language=None, audience=None, max_words=None, note=None, dry_run=True
+        lookback_days=None,
+        output_dir=None,
+        language=None,
+        audience=None,
+        max_words=None,
+        note=None,
+        dry_run=True,
+        weekly=False,
     )
     rc = narrate_cli.run(args)
 
@@ -760,3 +769,247 @@ def test_build_context_body_battery_empty_placeholder():
 def test_system_prompt_documents_body_battery_both_languages():
     assert "Body Battery" in _system_prompt("de")
     assert "Body Battery" in _system_prompt("en")
+
+
+# ---------------------------------------------------------------------------
+# Weekly-overview sections (narrate --weekly)
+# ---------------------------------------------------------------------------
+
+
+def _weekly_training_finding() -> dict:
+    return _finding(
+        "weekly_training",
+        metric_a="workout_trimp",
+        metric_a_label="Training Load (TRIMP)",
+        window_start=dt.date(2026, 6, 16),
+        window_end=dt.date(2026, 6, 22),
+        details={
+            "sessions": 4,
+            "duration_h": 4.5,
+            "distance_km": 52.3,
+            "energy_kcal": 2100,
+            "load": 350.0,
+            "prev": {"sessions": 3, "duration_h": 2.9, "distance_km": 30.0, "energy_kcal": 1500, "load": 250.0},
+            "baseline_load": 280.0,
+            "per_sport": [
+                {
+                    "sport": "running",
+                    "sessions": 2,
+                    "duration_h": 2.0,
+                    "distance_km": 22.3,
+                    "energy_kcal": 1200,
+                    "load": 200.0,
+                },
+                {
+                    "sport": "cycling",
+                    "sessions": 2,
+                    "duration_h": 2.5,
+                    "distance_km": 30.0,
+                    "energy_kcal": 900,
+                    "load": 150.0,
+                },
+            ],
+        },
+    )
+
+
+def test_build_context_weekly_training_section():
+    ctx = build_context([_weekly_training_finding()], 7, _TODAY, weekly=True)
+    assert "=== WOCHE: TRAINING ===" in ctx
+    assert "4 Einheiten" in ctx
+    assert "Last=350 (Training Load (TRIMP))" in ctx
+    assert "Vorwoche: 3 Einheiten" in ctx
+    assert "4-Wochen-Schnitt Last=280/Woche" in ctx
+    assert "– Running: 2 Einheiten" in ctx
+    assert "52.3 km" in ctx
+
+
+def test_build_context_weekly_sections_absent_without_flag():
+    # The same findings render nothing in daily mode: the weekly blocks are
+    # only assembled with weekly=True.
+    ctx = build_context([_weekly_training_finding()], 7, _TODAY, weekly=False)
+    assert "WOCHE" not in ctx
+    ctx_en = build_context([_weekly_training_finding()], 7, _TODAY, language="en", weekly=False)
+    assert "WEEK:" not in ctx_en
+
+
+def test_build_context_weekly_placeholders_when_no_data():
+    ctx = build_context([], 7, _TODAY, weekly=True)
+    for header in (
+        "=== WOCHE: TRAINING ===",
+        "=== WOCHE: SCHLAF ===",
+        "=== WOCHE: STRESS ===",
+        "=== WOCHE: BODY BATTERY ===",
+        "=== WOCHE: VITALWERTE (vs. 28-Tage-Baseline) ===",
+        "=== WOCHE: AKTIVITÄT ===",
+        "=== FITNESS-MARKER ===",
+    ):
+        assert header in ctx
+
+
+def test_build_context_weekly_sleep_formats_bedtime_clock():
+    f = _finding(
+        "weekly_sleep",
+        metric_a="sleep_total_h",
+        metric_a_label="Total Sleep",
+        window_start=dt.date(2026, 6, 16),
+        window_end=dt.date(2026, 6, 22),
+        details={
+            "nights": 7,
+            "avg_total_h": 7.25,
+            "avg_deep_h": 1.1,
+            "avg_rem_h": 1.5,
+            "deep_pct": 15.2,
+            "rem_pct": 20.7,
+            "avg_efficiency": 0.92,
+            "avg_bedtime": 23.17,
+            "prev": {"nights": 6, "avg_total_h": 6.8, "avg_efficiency": 0.9},
+        },
+    )
+    ctx = build_context([f], 7, _TODAY, weekly=True)
+    assert "Ø Schlaf=7.25h" in ctx
+    assert "Ø Zubettgehen=23:10" in ctx
+    assert "Effizienz=92%" in ctx
+    assert "Vorwoche: Ø 6.80h, Effizienz 90%" in ctx
+
+
+def test_build_context_weekly_stress_and_battery_sections():
+    stress = _finding(
+        "weekly_stress",
+        metric_a="stress",
+        metric_a_label="Stress",
+        window_start=dt.date(2026, 6, 16),
+        window_end=dt.date(2026, 6, 22),
+        details={
+            "days": 7,
+            "avg_score": 38.0,
+            "high_min": 45,
+            "medium_min": 120,
+            "peak_day": "2026-06-20",
+            "peak_score": 62.0,
+            "calm_day": "2026-06-17",
+            "calm_score": 21.0,
+            "prev": {"days": 7, "avg_score": 42.0, "high_min": 80},
+        },
+    )
+    battery = _finding(
+        "weekly_body_battery",
+        metric_a="body_battery",
+        metric_a_label="Body Battery",
+        window_start=dt.date(2026, 6, 16),
+        window_end=dt.date(2026, 6, 22),
+        details={
+            "days": 7,
+            "avg_wake": 78.0,
+            "avg_low": 25.0,
+            "avg_high": 88.0,
+            "avg_charged": 68.0,
+            "avg_drained": 70.0,
+            "min_low": 12.0,
+            "min_low_day": "2026-06-19",
+            "prev": {"days": 7, "avg_wake": 74.0, "avg_low": 22.0},
+        },
+    )
+    ctx = build_context([stress, battery], 7, _TODAY, weekly=True)
+    assert "Ø Score=38 (niedrig)" in ctx
+    assert "Spitzentag=2026-06-20 (Score 62)" in ctx
+    assert "Vorwoche: Ø 42, Hochstress 80 min" in ctx
+    assert "Ø Weckstand=78" in ctx
+    assert "Tiefstwert=12 (2026-06-19)" in ctx
+    assert "Vorwoche: Weckstand 74, Tief 22" in ctx
+
+
+def test_build_context_weekly_vitals_activity_markers():
+    vitals = _finding(
+        "weekly_vitals",
+        metric_a="resting_heart_rate",
+        metric_a_label="Resting Heart Rate",
+        window_start=dt.date(2026, 6, 16),
+        window_end=dt.date(2026, 6, 22),
+        details={
+            "week_mean": 52.1,
+            "baseline_mean": 50.3,
+            "delta": 1.8,
+            "delta_pct": 3.6,
+            "week_days": 7,
+            "baseline_days": 28,
+            "unit": "count/min",
+        },
+    )
+    activity = _finding(
+        "weekly_activity",
+        metric_a="step_count",
+        metric_a_label="Steps",
+        window_start=dt.date(2026, 6, 16),
+        window_end=dt.date(2026, 6, 22),
+        details={
+            "total": 68500.0,
+            "daily_avg": 9786.0,
+            "days": 7,
+            "prev_total": 61200.0,
+            "baseline_weekly": 64000.0,
+            "unit": "count",
+        },
+    )
+    marker = _finding(
+        "fitness_markers",
+        metric_a="vo2_max",
+        metric_a_label="VO2 Max",
+        details={
+            "latest": 43.2,
+            "latest_date": "2026-06-20",
+            "prev": 42.8,
+            "prev_date": "2026-05-18",
+            "delta": 0.4,
+            "unit": "ml/(kg·min)",
+        },
+    )
+    ctx = build_context([vitals, activity, marker], 7, _TODAY, weekly=True)
+    assert "Resting Heart Rate: Wochenmittel=52.1 count/min, Baseline=50.3 count/min, Δ=+1.8, +3.6%" in ctx
+    assert "Steps: gesamt=68500.0 count, Ø 9786.0/Tag, Vorwoche 61200.0, 4-Wochen-Schnitt 64000.0/Woche" in ctx
+    assert "VO2 Max: 43.2 ml/(kg·min) am 2026-06-20 (Δ=+0.40 vs. 2026-05-18)" in ctx
+
+
+def test_build_context_weekly_english_labels():
+    ctx = build_context([_weekly_training_finding()], 7, _TODAY, language="en", weekly=True)
+    assert "=== WEEK: TRAINING ===" in ctx
+    assert "4 sessions" in ctx
+    assert "previous week: 3 sessions" in ctx
+    assert "4-week average load=280/week" in ctx
+
+
+def test_system_prompt_weekly_swaps_structure():
+    daily = _system_prompt("de")
+    weekly = _system_prompt("de", weekly=True)
+    assert "Wochenübersicht" not in daily
+    assert "Wochenübersicht" in weekly
+    assert "Wochenbilanz" in weekly
+    assert "Fitness-Marker" in weekly
+    # The safety rules survive in both modes.
+    assert "keine erfundenen Zahlen" in weekly
+
+    weekly_en = _system_prompt("en", weekly=True)
+    assert "Week overview" in weekly_en
+    assert "Week review" in weekly_en
+
+
+def test_load_findings_weekly_kinds_only_with_flag(db):
+    from app.models import Finding
+    from app.narrate import load_findings
+
+    db.add(Finding(kind="weekly_training", metric_a="workout_trimp", ref_date=dt.date(2026, 6, 22)))
+    db.add(Finding(kind="fitness_markers", metric_a="vo2_max", ref_date=dt.date(2026, 6, 20)))
+    db.add(Finding(kind="correlation", metric_a="step_count", metric_b="resting_heart_rate"))
+    db.flush()
+
+    daily_kinds = {r["kind"] for r in load_findings(db, 7)}
+    assert "weekly_training" not in daily_kinds
+    assert "fitness_markers" not in daily_kinds
+    assert "correlation" in daily_kinds
+
+    weekly_kinds = {r["kind"] for r in load_findings(db, 7, include_weekly=True)}
+    assert {"weekly_training", "fitness_markers", "correlation"} <= weekly_kinds
+    # The hand-wired label map applies to the weekly kinds too.
+    rows = load_findings(db, 7, include_weekly=True)
+    training = next(r for r in rows if r["kind"] == "weekly_training")
+    assert training["metric_a_label"] == "Training Load (TRIMP)"

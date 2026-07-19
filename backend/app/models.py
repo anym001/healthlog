@@ -318,7 +318,7 @@ class _FindingColumns:
     tables cannot drift."""
 
     computed_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    kind: Mapped[str] = mapped_column(String(16))
+    kind: Mapped[str] = mapped_column(String(32))
     metric_a: Mapped[str] = mapped_column(Text)
     metric_b: Mapped[str | None] = mapped_column(Text, nullable=True)  # correlation only
     lag_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -358,7 +358,9 @@ class Finding(_FindingColumns, Base):
     Written as a fresh snapshot each run (the analysis deletes the previous
     batch). ``kind`` is one of: correlation, anomaly, trend, seasonality,
     recovery_alert, consistency, training_load, training_status, stress,
-    body_battery. Fields not relevant to a kind stay NULL.
+    body_battery, plus the weekly-report kinds weekly_training, weekly_sleep,
+    weekly_stress, weekly_body_battery, weekly_vitals, weekly_activity and
+    fitness_markers. Fields not relevant to a kind stay NULL.
     """
 
     __tablename__ = "findings"

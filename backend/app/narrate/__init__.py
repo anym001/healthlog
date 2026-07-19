@@ -12,6 +12,7 @@ Usage::
     docker exec healthlog healthlog narrate
     docker exec healthlog healthlog narrate --note "Focus on the HRV/training link."
     docker exec healthlog healthlog narrate --lookback-days 14 --language en
+    docker exec healthlog healthlog narrate --weekly
 
 The report is written to ``/config/narration/YYYY-MM-DD.md`` and printed to
 stdout. Configure the Ollama endpoint and model under ``narrate:`` in

@@ -110,7 +110,7 @@ def load_workout_frame(db: Session, tz: str) -> pd.DataFrame:
             """
             SELECT hae_id,
                    (start_time AT TIME ZONE :tz)::date AS day,
-                   name, duration_s, active_energy_kcal, avg_hr, max_hr, intensity
+                   name, duration_s, active_energy_kcal, distance_km, avg_hr, max_hr, intensity
             FROM workouts
             WHERE start_time IS NOT NULL
             ORDER BY start_time
@@ -127,6 +127,7 @@ def load_workout_frame(db: Session, tz: str) -> pd.DataFrame:
             "name": r.name,
             "duration_s": r.duration_s,
             "active_energy_kcal": r.active_energy_kcal,
+            "distance_km": r.distance_km,
             "avg_hr": r.avg_hr,
             "max_hr": r.max_hr,
             "intensity": r.intensity,

@@ -64,6 +64,13 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         help="override narrate.max_words from config.yaml for this report",
     )
     parser.add_argument(
+        "--weekly",
+        action="store_true",
+        help="weekly report: include the descriptive week-summary findings "
+        "(training/sleep/stress/body-battery/vitals/activity week overview + fitness markers) "
+        "and lead the report with the week review",
+    )
+    parser.add_argument(
         "--note",
         default=None,
         metavar="TEXT",
@@ -96,9 +103,9 @@ def run(args: argparse.Namespace) -> int:
         return 1
 
     with db_session() as db:
-        findings = load_findings(db, lookback_days)
+        findings = load_findings(db, lookback_days, include_weekly=args.weekly)
 
-    log.info("narrate: loaded %d findings (lookback_days=%d)", len(findings), lookback_days)
+    log.info("narrate: loaded %d findings (lookback_days=%d, weekly=%s)", len(findings), lookback_days, args.weekly)
 
     today = dt.date.today()
     context = build_context(
@@ -108,6 +115,7 @@ def run(args: argparse.Namespace) -> int:
         note=args.note,
         language=language,
         max_correlations=cfg.max_correlations,
+        weekly=args.weekly,
     )
 
     if args.dry_run:
@@ -119,7 +127,7 @@ def run(args: argparse.Namespace) -> int:
 
     client = OllamaClient(cfg.ollama_url, cfg.model, timeout=float(cfg.timeout_s), thinking=cfg.thinking)
     try:
-        report = client.generate(_system_prompt(language, audience, max_words), context)
+        report = client.generate(_system_prompt(language, audience, max_words, weekly=args.weekly), context)
     except httpx.HTTPError as exc:
         log.error("ollama call failed: %s", safe(str(exc)))
         return 1

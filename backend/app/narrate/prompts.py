@@ -297,6 +297,50 @@ _CONNECTIONS: dict[str, str] = {
 """,
 }
 
+# Only assembled in --weekly mode: what the descriptive WOCHE/WEEK sections
+# contain and how their windows are defined, so the model reads them as the
+# report's factual backbone instead of guessing.
+_WEEKLY_OVERVIEW: dict[str, str] = {
+    "de": """\
+## Wochenübersicht (beschreibende Abschnitte)
+
+Zusätzlich zu den Befunden erhältst du beschreibende WOCHE-Abschnitte: \
+Training (Einheiten, Dauer, Distanz, Energie, Wochenlast — gesamt und je \
+Sportart), Schlaf-Wochenmittel (Dauer, Tiefschlaf/REM-Anteile, Effizienz, \
+Zubettgehzeit), Stress-Wochenprofil, Body-Battery-Wochenprofil, Vitalwerte \
+(Wochenmittel von Ruhepuls und HRV gegenüber der 28-Tage-Baseline), \
+Aktivitäts-Wochensummen (Schritte, Aktivenergie, Trainingsminuten, \
+Tageslicht) sowie Fitness-Marker (letzter Messwert von VO2max, Cardio \
+Recovery, Gewicht mit Veränderung über ~einen Monat).
+
+Alle Fenster sind rollierende 7 Tage bis zum letzten Datentag; "Vorwoche" \
+ist das Fenster unmittelbar davor, der 4-Wochen-Schnitt der Mittelwert der \
+vier Fenster davor. Diese Abschnitte sind das beschreibende Fundament der \
+Wochenbilanz: beschreibe zuerst, wie die Woche tatsächlich war (inkl. \
+Vergleich zur Vorwoche), und ordne erst dann Warnungen und Auffälligkeiten \
+ein. Eine Woche ohne Training ist eine echte Null, kein Datenfehler.\
+""",
+    "en": """\
+## Week overview (descriptive sections)
+
+In addition to the findings you receive descriptive WEEK sections: training \
+(sessions, duration, distance, energy, weekly load — overall and per sport), \
+sleep weekly averages (duration, deep/REM shares, efficiency, bedtime), the \
+weekly stress profile, the weekly Body-Battery profile, vitals (weekly means \
+of resting heart rate and HRV against the 28-day baseline), weekly activity \
+totals (steps, active energy, exercise minutes, daylight) and fitness \
+markers (latest VO2 max, cardio recovery and body-mass reading with the \
+change over ~a month).
+
+All windows are rolling 7 days up to the last day with data; "previous \
+week" is the window immediately before, the 4-week average the mean of the \
+four windows before that. These sections are the descriptive backbone of \
+the weekly review: first describe how the week actually went (including the \
+previous-week comparison), then interpret alerts and anomalies. A week \
+without training is a real zero, not missing data.\
+""",
+}
+
 _STRUCTURE: dict[str, str] = {
     "de": """\
 ## Berichtsstruktur
@@ -319,6 +363,39 @@ load-ratio zone; give a recommendation)
 5. Sleep (consistency and recovery quality)
 6. Correlations & Trends (only significant ones, with mechanism explanation)
 7. Recommendations (2–3 concrete, actionable steps for the coming week)\
+""",
+}
+
+# --weekly report structure: the descriptive week review leads, the alert and
+# statistics sections follow, and the slow fitness markers get their own slot.
+_STRUCTURE_WEEKLY: dict[str, str] = {
+    "de": """\
+## Berichtsstruktur
+1. Zusammenfassung (2–3 Sätze: was ist diese Woche das Wichtigste?)
+2. Wochenbilanz (Training, Aktivität, Schlaf, Stress & Body Battery, \
+Vitalwerte — aus den WOCHE-Abschnitten, mit Vergleich zur Vorwoche)
+3. Anomalien & Warnungen (Zahl interpretieren + physiologische Erklärung)
+4. Stress & Erholung (Stress-Score- und Body-Battery-Tage benennen, mit HRV/RHR verknüpfen)
+5. Training (Trainingszustand Fitness/Ermüdung/Form einordnen; \
+Belastungsverhältnis-Zone benennen; Empfehlung geben)
+6. Schlaf (Konsistenz und Erholungsqualität)
+7. Korrelationen & Trends (nur bedeutsame, mit Erklärung des Mechanismus)
+8. Fitness-Marker (VO2max, Cardio Recovery, Gewicht — Langzeitentwicklung)
+9. Empfehlungen (2–3 konkrete, umsetzbare Maßnahmen für die kommende Woche)\
+""",
+    "en": """\
+## Report structure
+1. Summary (2–3 sentences: what is most important this week?)
+2. Week review (training, activity, sleep, stress & Body Battery, vitals — \
+from the WEEK sections, compared to the previous week)
+3. Anomalies & Alerts (interpret the number + physiological explanation)
+4. Stress & Recovery (name high-stress-score and low-Body-Battery days, tie them to HRV/RHR)
+5. Training (assess the training status fitness/fatigue/form; name the \
+load-ratio zone; give a recommendation)
+6. Sleep (consistency and recovery quality)
+7. Correlations & Trends (only significant ones, with mechanism explanation)
+8. Fitness markers (VO2 max, cardio recovery, body mass — long-term development)
+9. Recommendations (2–3 concrete, actionable steps for the coming week)\
 """,
 }
 
@@ -346,22 +423,31 @@ level only changes how much is explained, never what is included.
 }
 
 
-def _system_prompt(language: str, audience: str = DEFAULT_AUDIENCE, max_words: int = DEFAULT_MAX_WORDS) -> str:
+def _system_prompt(
+    language: str, audience: str = DEFAULT_AUDIENCE, max_words: int = DEFAULT_MAX_WORDS, weekly: bool = False
+) -> str:
     """Assemble the system prompt for a language and audience level.
 
     Unknown languages fall back to German (the project default), unknown
     audience values to ``standard`` — narration must never fail on a bad
-    selector, and config validation rejects them upstream anyway.
+    selector, and config validation rejects them upstream anyway. ``weekly``
+    adds the week-overview explainer and swaps in the weekly report structure
+    (the descriptive week review leads); the safety rules are shared.
     """
     lang = language if language in _INTRO else "de"
     aud = audience if audience in _AUDIENCE[lang] else DEFAULT_AUDIENCE
-    return "\n\n".join(
+    blocks = [
+        _INTRO[lang],
+        _AUDIENCE[lang][aud],
+        _BACKGROUND[lang],
+    ]
+    if weekly:
+        blocks.append(_WEEKLY_OVERVIEW[lang])
+    blocks.extend(
         [
-            _INTRO[lang],
-            _AUDIENCE[lang][aud],
-            _BACKGROUND[lang],
             _CONNECTIONS[lang],
-            _STRUCTURE[lang],
+            (_STRUCTURE_WEEKLY if weekly else _STRUCTURE)[lang],
             _RULES[lang].format(max_words=max_words),
         ]
     )
+    return "\n\n".join(blocks)
