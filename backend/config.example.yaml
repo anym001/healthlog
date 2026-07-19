@@ -61,7 +61,9 @@
 #   # Anomaly (robust rolling median + MAD)
 #   anomaly_window: 28        # trailing days for the baseline
 #   anomaly_threshold: 3.5    # robust z above which a day is flagged
-#   anomaly_recent_days: 14   # only report anomalies this recent
+#   anomaly_recent_days: 31   # only report anomalies this recent (31 keeps the
+#                             # snapshot wide enough for the monthly report's
+#                             # 28-day lookback; shorter reports filter further)
 #   anomaly_min_global_z: 2.5 # also require |robust z vs full history| >= this
 #                             # (drops window-only spikes, e.g. a hard day after a taper)
 #   # Trend / seasonality (STL/MSTL strength)
@@ -72,7 +74,7 @@
 #   seasonality_reproducibility_min: 0.30  # year-over-year shape recurrence; rejects
 #                                          # one-off clusters MSTL over-fits as "seasonal"
 #   # Recovery early-warning (HRV low AND resting HR high)
-#   recovery_recent_days: 14
+#   recovery_recent_days: 31
 #   recovery_z: 1.5
 #   recovery_sleep_z: -1.0    # short sleep that reinforces the alert
 #   # Consistency (rolling variability of sleep)
@@ -119,7 +121,7 @@
 #                            #   (self-disables on coarser data); 0 turns it off
 #   min_measured_min: 60     # min measured minutes/day before a score is stored
 #   alert_score: 60          # daily score at/above which a high-stress finding fires
-#   alert_recent_days: 14    # only alert on days this recent
+#   alert_recent_days: 31    # only alert on days this recent
 
 # --- Body Battery ----------------------------------------------------------
 # A Garmin-style energy-reserve score (0-100): the stress timeline above,
@@ -154,25 +156,33 @@
 #                            #   row is stored (a barely-worn day is a gap, not a
 #                            #   flat battery); the intraday timeline always stays
 #   alert_level: 20          # day whose low reaches at/below this fires an alert
-#   alert_recent_days: 14    # only alert on days this recent
+#   alert_recent_days: 31    # only alert on days this recent
 
 # --- LLM narration ---------------------------------------------------------
 # On-demand health report from a local Ollama instance. Reads the current
-# findings snapshot and asks the model to narrate it as a weekly summary.
+# findings snapshot and asks the model to narrate it. Three report types
+# (default via `report`, per run via --report / --weekly / --monthly):
+# status = short exception check, weekly = week review, monthly = month
+# review over rolling 28-day windows with a week-by-week course.
 # Run manually: docker exec healthlog healthlog narrate [--note "…"]
-# Output: /config/narration/YYYY-MM-DD.md (also printed to stdout).
-# Off by default (no ollama_url set). Defaults shown.
+# Output: /config/narration/YYYY-MM-DD[-weekly|-monthly].md (also printed to
+# stdout). Off by default (no ollama_url set). Defaults shown.
 # narrate:
 #   ollama_url:               # required: http://192.168.1.100:11434
 #   model: qwen2.5:14b
 #   language: en              # en | de
+#   report: status            # report type of a bare `healthlog narrate`:
+#                             # status | weekly | monthly
 #   audience: standard        # simple | standard | expert — how much the report
 #                             # explains (same findings at every level: simple =
 #                             # everyday words only, standard = fitness terms like
 #                             # HRV used directly but statistics terms translated
 #                             # on first use, expert = everything used directly)
-#   max_words: 700            # soft word budget the model is told to respect
-#   lookback_days: 7          # ref_date window for anomalies / recovery / load
+#   max_words:                # soft word budget the model is told to respect;
+#                             # empty = per-report default (status 300,
+#                             # weekly 700, monthly 1000)
+#   lookback_days:            # ref_date window for anomalies / recovery / load;
+#                             # empty = per-report default (7; 28 for monthly)
 #   timeout_s: 300            # generous — 14B models take time
 #   max_correlations: 15      # cap the correlations narrated, highest-priority
 #                             # first (cross-domain + effect size + lag); 0 = all

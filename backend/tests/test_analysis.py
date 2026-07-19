@@ -1991,3 +1991,372 @@ def test_run_refresh_recomputes_last_two_days(db):
     bb_days = {r.day for r in db.execute(select(BodyBatteryDaily)).scalars()}
     assert stress_days == {dt.date(2026, 4, 8), dt.date(2026, 4, 9)}
     assert bb_days == {dt.date(2026, 4, 8), dt.date(2026, 4, 9)}
+
+
+# --- Weekly summaries (pure helpers + series-dict builders) -----------------
+
+
+def test_weekly_window_sum_with_comparisons():
+    # 4 baseline weeks at 10/day, current week at 20/day.
+    s = _daily([10.0] * 28 + [20.0] * 7)
+    ww = analysis.weekly_window(s)
+    assert ww is not None
+    assert ww.value == 140.0
+    assert ww.prev_value == 70.0
+    assert ww.baseline_value == 70.0
+    assert ww.n_days == 7
+    assert (ww.window_end - ww.window_start).days == 6
+
+
+def test_weekly_window_mean_skips_missing_days():
+    s = _daily([np.nan, 50.0, np.nan, 60.0, np.nan, np.nan, 70.0])
+    ww = analysis.weekly_window(s, agg="mean")
+    assert ww is not None
+    assert ww.value == 60.0
+    assert ww.n_days == 3
+    assert ww.prev_value is None  # nothing before the current window
+
+
+def test_weekly_window_external_anchor_shifts_the_window():
+    # Data ends 2026-01-07; an anchor 3 days later leaves 4 data days in the
+    # current window (a lagging series against the global anchor).
+    s = _daily([10.0] * 7)
+    anchor = s.index.max() + pd.Timedelta(days=3)
+    ww = analysis.weekly_window(s, anchor=anchor)
+    assert ww is not None
+    assert ww.value == 40.0
+    assert ww.n_days == 4
+    assert ww.window_end == anchor
+
+
+def test_weekly_window_empty_series():
+    assert analysis.weekly_window(pd.Series(dtype="float64")) is None
+
+
+def _sessions_frame(rows):
+    return pd.DataFrame.from_records(
+        [
+            {
+                "hae_id": str(i),
+                "day": pd.Timestamp(day),
+                "name": name,
+                "duration_s": dur_s,
+                "active_energy_kcal": kcal,
+                "distance_km": dist,
+                "avg_hr": None,
+                "max_hr": None,
+                "intensity": None,
+            }
+            for i, (day, name, dur_s, kcal, dist) in enumerate(rows)
+        ]
+    )
+
+
+def test_weekly_sessions_summary_totals_and_per_sport():
+    sessions = _sessions_frame(
+        [
+            ("2026-01-01", "Laufen", 3600.0, 500.0, 10.0),  # previous week
+            ("2026-01-08", "Laufen", 1800.0, 250.0, 5.0),
+            ("2026-01-09", "Radfahren", 7200.0, 800.0, 40.0),
+            ("2026-01-10", "Laufen", 1800.0, 250.0, 5.0),
+        ]
+    )
+    # A plain mapping, so the test doesn't depend on the workout-type map.
+    types = sessions["name"].map({"Laufen": "running", "Radfahren": "cycling"})
+    summary = analysis.weekly_sessions_summary(sessions, types)
+    assert summary is not None
+    cur = summary["current"]
+    assert cur["sessions"] == 3
+    assert cur["duration_h"] == 3.0
+    assert cur["distance_km"] == 50.0
+    assert cur["energy_kcal"] == 1300.0
+    assert summary["previous"]["sessions"] == 1
+    sports = {s["sport"]: s for s in summary["per_sport"]}
+    assert sports["running"]["sessions"] == 2
+    assert sports["cycling"]["distance_km"] == 40.0
+
+
+def test_weekly_sessions_summary_training_free_week_is_zero():
+    sessions = _sessions_frame([("2026-01-01", "Laufen", 3600.0, 500.0, 10.0)])
+    anchor = pd.Timestamp("2026-01-20")  # no session in the anchored week
+    summary = analysis.weekly_sessions_summary(sessions, None, anchor=anchor)
+    assert summary is not None
+    assert summary["current"]["sessions"] == 0
+    assert summary["current"]["duration_h"] == 0.0
+
+
+def _sleep_frame(days, totals, deeps, rems, effs, bedtimes):
+    idx = pd.date_range(days, periods=len(totals), freq="D")
+    return pd.DataFrame(
+        {
+            "total_sleep_h": totals,
+            "deep_h": deeps,
+            "rem_h": rems,
+            "in_bed_h": [t + 0.5 for t in totals],
+            "bedtime": bedtimes,
+            "efficiency": effs,
+        },
+        index=idx,
+    )
+
+
+def test_weekly_sleep_summary_averages_and_circular_bedtime():
+    frame = _sleep_frame(
+        "2026-01-01",
+        totals=[7.0] * 7 + [8.0] * 7,
+        deeps=[1.0] * 14,
+        rems=[2.0] * 14,
+        effs=[0.9] * 14,
+        bedtimes=[22.0] * 7 + [23.0, 1.0] * 3 + [23.0],  # current week straddles midnight
+    )
+    summary = analysis.weekly_sleep_summary(frame)
+    assert summary is not None
+    cur = summary["current"]
+    assert cur["nights"] == 7
+    assert cur["avg_total_h"] == 8.0
+    assert abs(cur["deep_pct"] - 12.5) < 1e-9
+    assert abs(cur["rem_pct"] - 25.0) < 1e-9
+    # Circular mean of 4x23:00 + 3x01:00: naive mean would be ~13:34.
+    assert abs(cur["avg_bedtime"] - ((4 * 5 + 3 * 7) / 7 + 18.0) % 24.0) < 1e-9
+    assert summary["previous"]["avg_total_h"] == 7.0
+
+
+def test_weekly_stress_summary_profile():
+    idx = pd.date_range("2026-01-01", periods=14, freq="D")
+    daily = pd.DataFrame(
+        {
+            "score": [30.0] * 7 + [40.0, 50.0, 60.0, 20.0, 40.0, 40.0, 30.0],
+            "rest_min": [100] * 14,
+            "low_min": [100] * 14,
+            "medium_min": [30] * 14,
+            "high_min": [0] * 7 + [10] * 7,
+            "active_min": [30] * 14,
+            "unmeasurable_min": [0] * 14,
+            "hrv_z": [None] * 14,
+        },
+        index=idx,
+    )
+    summary = analysis.weekly_stress_summary(daily)
+    assert summary is not None
+    cur = summary["current"]
+    assert cur["avg_score"] == 40.0
+    assert cur["high_min"] == 70
+    assert cur["peak_day"] == dt.date(2026, 1, 10)
+    assert cur["calm_day"] == dt.date(2026, 1, 11)
+    assert summary["previous"]["avg_score"] == 30.0
+
+
+def test_weekly_body_battery_summary_profile():
+    idx = pd.date_range("2026-01-01", periods=7, freq="D")
+    daily = pd.DataFrame(
+        {
+            "wake_level": [80, 70, 60, 90, 80, 70, 80],
+            "high_level": [90] * 7,
+            "low_level": [30, 20, 10, 40, 30, 20, 30],
+            "charged": [60.0] * 7,
+            "drained": [70.0] * 7,
+        },
+        index=idx,
+    )
+    summary = analysis.weekly_body_battery_summary(daily)
+    assert summary is not None
+    cur = summary["current"]
+    assert cur["days"] == 7
+    assert abs(cur["avg_wake"] - 530 / 7) < 1e-9
+    assert cur["min_low"] == 10.0
+    assert cur["min_low_day"] == dt.date(2026, 1, 3)
+    assert summary["previous"] is None  # no data before the window
+
+
+def test_weekly_baseline_delta_week_vs_baseline():
+    s = _daily([50.0] * 28 + [55.0] * 7)
+    delta = analysis.weekly_baseline_delta(s)
+    assert delta is not None
+    assert delta["week_mean"] == 55.0
+    assert delta["baseline_mean"] == 50.0
+    assert delta["delta"] == 5.0
+    assert abs(delta["delta_pct"] - 10.0) < 1e-9
+
+
+def test_weekly_baseline_delta_requires_enough_days():
+    assert analysis.weekly_baseline_delta(_daily([50.0] * 8)) is None  # baseline too thin
+
+
+def test_latest_marker_delta_monthly_drift():
+    idx = pd.to_datetime(["2026-01-01", "2026-02-01", "2026-03-05"])
+    s = pd.Series([40.0, 41.0, 42.5], index=idx)
+    marker = analysis.latest_marker_delta(s)
+    assert marker is not None
+    assert marker["latest"] == 42.5
+    assert marker["latest_date"] == dt.date(2026, 3, 5)
+    assert marker["prev"] == 41.0  # most recent reading >= 28 days older
+    assert marker["delta"] == 1.5
+
+    young = pd.Series([40.0, 41.0], index=pd.to_datetime(["2026-03-01", "2026-03-05"]))
+    no_prev = analysis.latest_marker_delta(young)
+    assert no_prev is not None and no_prev["prev"] is None and no_prev["delta"] is None
+
+
+def test_weekly_vitals_findings_delta_details():
+    series = {
+        "resting_heart_rate": _daily([50.0] * 28 + [55.0] * 7),
+        "heart_rate_variability": _daily([60.0] * 28 + [54.0] * 7),
+    }
+    findings = analysis._weekly_vitals_findings(series, dt.datetime.now(UTC))
+    assert [f.kind for f in findings] == ["weekly_vitals", "weekly_vitals"]
+    by_metric = {f.metric_a: f for f in findings}
+    rhr = by_metric["resting_heart_rate"]
+    assert rhr.details["week_mean"] == 55.0
+    assert rhr.details["baseline_mean"] == 50.0
+    assert rhr.details["delta"] == 5.0
+    assert rhr.details["unit"] == "count/min"
+    hrv = by_metric["heart_rate_variability"]
+    assert hrv.details["delta"] == -6.0
+
+
+def test_weekly_activity_findings_totals_and_units():
+    series = {"step_count": _daily([8000.0] * 28 + [10000.0] * 7)}
+    findings = analysis._weekly_activity_findings(series, dt.datetime.now(UTC))
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.kind == "weekly_activity"
+    assert f.metric_a == "step_count"
+    assert f.details["total"] == 70000.0
+    assert f.details["daily_avg"] == 10000.0
+    assert f.details["prev_total"] == 56000.0
+    assert f.details["baseline_weekly"] == 56000.0
+    assert f.details["unit"] == "count"
+
+
+def test_fitness_marker_findings_latest_and_delta():
+    idx = pd.to_datetime(["2026-01-01", "2026-02-15"])
+    series = {"vo2_max": pd.Series([40.0, 42.0], index=idx)}
+    findings = analysis._fitness_marker_findings(series, dt.datetime.now(UTC))
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.kind == "fitness_markers"
+    assert f.ref_date == dt.date(2026, 2, 15)
+    assert f.details["latest"] == 42.0
+    assert f.details["prev"] == 40.0
+    assert f.details["delta"] == 2.0
+    assert f.details["unit"] == "ml/(kg·min)"
+
+
+def test_weekly_sleep_findings_build_finding():
+    frame = _sleep_frame(
+        "2026-01-01",
+        totals=[7.0] * 14,
+        deeps=[1.0] * 14,
+        rems=[1.5] * 14,
+        effs=[0.9] * 14,
+        bedtimes=[22.5] * 14,
+    )
+    findings = analysis._weekly_sleep_findings(frame, dt.datetime.now(UTC))
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.kind == "weekly_sleep"
+    assert f.metric_a == "sleep_total_h"
+    assert f.details["avg_total_h"] == 7.0
+    assert f.details["nights"] == 7
+    assert f.details["prev"]["avg_total_h"] == 7.0
+    assert f.window_end == dt.date(2026, 1, 14)
+
+
+# ---------------------------------------------------------------------------
+# Monthly summaries (week_breakdown + monthly finding builders)
+# ---------------------------------------------------------------------------
+
+
+def test_week_breakdown_oldest_first():
+    s = _daily([1.0] * 7 + [2.0] * 7 + [3.0] * 7 + [4.0] * 7)
+    weeks = analysis.week_breakdown(s)
+    assert weeks is not None and len(weeks) == 4
+    assert [w["value"] for w in weeks] == [7.0, 14.0, 21.0, 28.0]
+    assert all(w["n_days"] == 7 for w in weeks)
+    assert weeks[-1]["end"] == s.index.max()
+    assert (weeks[0]["end"] - weeks[0]["start"]).days == 6
+
+
+def test_week_breakdown_mean_marks_dataless_weeks_none():
+    # Only the last two weeks hold data; the two older windows have none.
+    s = _daily([50.0] * 14)
+    anchor = s.index.max() + pd.Timedelta(days=0)
+    weeks = analysis.week_breakdown(s, agg="mean", anchor=anchor)
+    assert weeks is not None
+    assert [w["value"] for w in weeks] == [None, None, 50.0, 50.0]
+
+
+def test_week_breakdown_empty_series():
+    assert analysis.week_breakdown(pd.Series(dtype="float64")) is None
+
+
+def test_latest_marker_delta_long_gap():
+    idx = pd.to_datetime(["2026-01-01", "2026-02-01", "2026-04-15"])
+    s = pd.Series([40.0, 41.0, 43.0], index=idx)
+    marker = analysis.latest_marker_delta(s, long_gap_days=90)
+    assert marker is not None
+    assert marker["prev"] == 41.0 and marker["delta"] == 2.0
+    assert marker["prev_long"] == 40.0
+    assert marker["prev_long_date"] == dt.date(2026, 1, 1)
+    assert marker["delta_long"] == 3.0
+
+    # Too little history for the quarter view: the long fields stay None.
+    young = analysis.latest_marker_delta(s[1:], long_gap_days=90)
+    assert young is not None and young["prev_long"] is None and young["delta_long"] is None
+
+
+def test_fitness_marker_findings_include_quarter_comparison():
+    idx = pd.to_datetime(["2026-01-01", "2026-04-01", "2026-05-15"])
+    series = {"vo2_max": pd.Series([40.0, 42.0, 43.0], index=idx)}
+    findings = analysis._fitness_marker_findings(series, dt.datetime.now(UTC))
+    assert len(findings) == 1
+    d = findings[0].details
+    assert d["prev"] == 42.0 and d["delta"] == 1.0
+    assert d["prev_90d"] == 40.0 and d["delta_90d"] == 3.0
+    assert d["prev_90d_date"] == "2026-01-01"
+
+
+def test_monthly_vitals_findings_details_and_weeks():
+    series = {"resting_heart_rate": _daily([50.0] * 84 + [55.0] * 28)}
+    findings = analysis._monthly_vitals_findings(series, dt.datetime.now(UTC))
+    assert [f.kind for f in findings] == ["monthly_vitals"]
+    d = findings[0].details
+    assert d["month_mean"] == 55.0
+    assert d["baseline_mean"] == 50.0
+    assert d["delta"] == 5.0
+    assert d["baseline_days"] == 84
+    assert d["unit"] == "count/min"
+    assert [w["mean"] for w in d["weeks"]] == [55.0, 55.0, 55.0, 55.0]
+    assert (findings[0].window_end - findings[0].window_start).days == 27
+
+
+def test_monthly_activity_findings_totals_and_weeks():
+    series = {"step_count": _daily([8000.0] * 84 + [10000.0] * 28)}
+    findings = analysis._monthly_activity_findings(series, dt.datetime.now(UTC))
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.kind == "monthly_activity"
+    assert f.details["total"] == 280000.0
+    assert f.details["daily_avg"] == 10000.0
+    assert f.details["prev_total"] == 224000.0
+    assert f.details["baseline_monthly"] == 224000.0
+    assert [w["total"] for w in f.details["weeks"]] == [70000.0] * 4
+
+
+def test_monthly_sleep_findings_build_finding():
+    frame = _sleep_frame(
+        "2026-01-01",
+        totals=[7.0] * 28 + [8.0] * 28,
+        deeps=[1.0] * 56,
+        rems=[1.5] * 56,
+        effs=[0.9] * 56,
+        bedtimes=[22.5] * 56,
+    )
+    findings = analysis._monthly_sleep_findings(frame, dt.datetime.now(UTC))
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.kind == "monthly_sleep"
+    assert f.details["avg_total_h"] == 8.0
+    assert f.details["nights"] == 28
+    assert f.details["prev"]["avg_total_h"] == 7.0
+    assert [w["avg_total_h"] for w in f.details["weeks"]] == [8.0] * 4

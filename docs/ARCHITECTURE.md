@@ -332,7 +332,7 @@ recomputable from the raw archive.
 ### 4.8 Pipeline findings (pure statistics, no LLM)
 
 ```sql
-findings (id, computed_at, kind TEXT,            -- correlation|anomaly|trend|seasonality|recovery_alert|consistency|training_load|training_status|stress|body_battery
+findings (id, computed_at, kind TEXT,            -- correlation|anomaly|trend|seasonality|recovery_alert|consistency|training_load|training_status|stress|body_battery|weekly_*|monthly_*|fitness_markers
           metric_a TEXT, metric_b TEXT,          -- metric_b only for correlation
           lag_days INT, coefficient DOUBLE PRECISION,
           p_value DOUBLE PRECISION, p_value_adj DOUBLE PRECISION,  -- FDR
@@ -412,6 +412,34 @@ instead of each duplicating the CASE expression.
   `body_battery.alert_level`, recent days only); the continuous 0-100 reserve +
   timeline live in their own tables (§4.10), this only lets the narration flag a day
   the tank ran near empty.
+- **weekly_\*** — descriptive week summaries for the weekly report (`narrate
+  --report weekly`); status findings like `training_status`, written **every** run.
+  All windows are trailing 7 days anchored on the **last day with any data** (shared
+  anchor via `series_anchor`, so a lagging export can't produce an empty week);
+  "previous week" is the window immediately before, the 4-week baseline the mean of
+  the four windows before that. Five kinds: **weekly_training** (session count,
+  duration, distance, kcal from `workouts` + the weekly load total off the daily
+  load series, overall and per sport), **weekly_sleep** (nightly averages: duration,
+  deep/REM shares, efficiency, circular-mean bedtime), **weekly_stress** /
+  **weekly_body_battery** (week profile off `stress_daily` / `body_battery_daily` —
+  the whole week, not just alert days), **weekly_vitals** (RHR/HRV week mean vs the
+  trailing 28-day baseline) and **weekly_activity** (weekly totals of steps, active
+  energy, exercise minutes, daylight). Pure math in `weekly_window` /
+  `weekly_*_summary` (`pure.py`).
+- **monthly_\*** — the monthly analogues (`narrate --report monthly`), same five
+  kinds and anchoring over a rolling **28-day** window (`MONTH_PERIOD` = four full
+  weeks, so every weekday is represented equally): "previous month" is the 28 days
+  before, the baseline the mean of the three prior windows (~a quarter; vitals
+  compare against the trailing 84 days). Each finding's details additionally carry
+  a `weeks` list — the window split into four 7-day aggregates, oldest first
+  (`week_breakdown` in `pure.py`) — so the monthly narration can describe the
+  month's course, not just its totals. The alert kinds' `*_recent_days` tunables
+  default to 31 so the stored snapshot covers the monthly report's 28-day lookback.
+- **fitness_markers** — latest reading of the slow markers (VO2 Max, cardio
+  recovery, body mass) plus the change against the most recent reading ≥28 days
+  older, and against ≥90 days older for the monthly report's ~quarter view
+  (`latest_marker_delta`); they move too slowly for weekly windows. Shared by the
+  weekly and monthly reports.
 
 The pure analysis math is DB-free and tested against synthetic series (known
 lag/anomaly/trend/yearly-season) with a fixed seed (§7); plus a DB end-to-end test.
