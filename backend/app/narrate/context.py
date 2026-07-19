@@ -389,9 +389,12 @@ def _section_consistency(consistency: list[dict], language: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Weekly-overview sections (narrate --weekly). Descriptive summaries computed
-# by the nightly run (kind=weekly_* / fitness_markers); each renders one
-# section block like the alert sections above.
+# Week/month-overview sections (narrate --report weekly|monthly). Descriptive
+# summaries computed by the nightly run (kind=weekly_* / monthly_* /
+# fitness_markers); each renders one section block like the alert sections
+# above. ``period`` ("week"/"month") selects the headers, comparison labels
+# and detail keys — the weekly and monthly findings share their shape, the
+# monthly ones add a per-week ``weeks`` trajectory.
 # ---------------------------------------------------------------------------
 
 
@@ -406,8 +409,41 @@ def _window_prefix(f: dict) -> str:
     return f"[{ws} – {we}] " if ws and we else ""
 
 
-def _section_weekly_training(items: list[dict], language: str) -> list[str]:
-    out = ["=== WOCHE: TRAINING ==="] if language == "de" else ["=== WEEK: TRAINING ==="]
+def _period_header(period: str, language: str, topic_de: str, topic_en: str) -> str:
+    if language == "de":
+        return f"=== {'WOCHE' if period == 'week' else 'MONAT'}: {topic_de} ==="
+    return f"=== {'WEEK' if period == 'week' else 'MONTH'}: {topic_en} ==="
+
+
+def _prev_label(period: str, language: str) -> str:
+    if language == "de":
+        return "  Vorwoche: " if period == "week" else "  Vormonat: "
+    return "  previous week: " if period == "week" else "  previous month: "
+
+
+def _weeks_line(weeks: list[dict] | None, language: str, specs: list[tuple[str, str, str, str]]) -> str | None:
+    """The month's week-by-week course, e.g. "  Wochenverlauf: Last 220 → 260 → 310 → 180".
+
+    ``specs`` is a list of ``(details_key, en_label, de_label, format)``; a key
+    absent from every week is skipped, a week missing one value renders "–".
+    """
+    if not weeks:
+        return None
+    rendered = []
+    for key, label_en, label_de, fmt in specs:
+        vals = [w.get(key) for w in weeks]
+        if all(v is None for v in vals):
+            continue
+        seq = " → ".join(fmt.format(v) if v is not None else "–" for v in vals)
+        label = label_en if language == "en" else label_de
+        rendered.append((label + " " if label else "") + seq)
+    if not rendered:
+        return None
+    return ("  week by week: " if language == "en" else "  Wochenverlauf: ") + ", ".join(rendered)
+
+
+def _section_weekly_training(items: list[dict], language: str, period: str = "week") -> list[str]:
+    out = [_period_header(period, language, "TRAINING", "TRAINING")]
     if not items:
         return [*out, "–"]
     for f in items:
@@ -426,10 +462,22 @@ def _section_weekly_training(items: list[dict], language: str) -> list[str]:
             prev_parts = [f"{prev.get('sessions', 0)} {unit_word}", f"{prev.get('duration_h', 0):.1f} h"]
             if prev.get("load") is not None:
                 prev_parts.append(("load=" if language == "en" else "Last=") + f"{prev['load']:.0f}")
-            out.append(("  previous week: " if language == "en" else "  Vorwoche: ") + ", ".join(prev_parts))
+            out.append(_prev_label(period, language) + ", ".join(prev_parts))
         if d.get("baseline_load") is not None:
-            label = "  4-week average load=" if language == "en" else "  4-Wochen-Schnitt Last="
-            out.append(label + f"{d['baseline_load']:.0f}" + ("/week" if language == "en" else "/Woche"))
+            if period == "week":
+                label = "  4-week average load=" if language == "en" else "  4-Wochen-Schnitt Last="
+                per = "/week" if language == "en" else "/Woche"
+            else:
+                label = "  3-month average load=" if language == "en" else "  3-Monats-Schnitt Last="
+                per = "/month" if language == "en" else "/Monat"
+            out.append(label + f"{d['baseline_load']:.0f}" + per)
+        line = _weeks_line(
+            d.get("weeks"),
+            language,
+            [("load", "load", "Last", "{:.0f}"), ("sessions", "sessions", "Einheiten", "{:.0f}")],
+        )
+        if line:
+            out.append(line)
         for sport in d.get("per_sport") or []:
             sport_label = str(sport.get("sport", "?")).replace("_", " ").title()
             sport_parts = [f"{sport.get('sessions', 0)} {unit_word}", f"{sport.get('duration_h', 0):.1f} h"]
@@ -441,8 +489,8 @@ def _section_weekly_training(items: list[dict], language: str) -> list[str]:
     return out
 
 
-def _section_weekly_sleep(items: list[dict], language: str) -> list[str]:
-    out = ["=== WOCHE: SCHLAF ==="] if language == "de" else ["=== WEEK: SLEEP ==="]
+def _section_weekly_sleep(items: list[dict], language: str, period: str = "week") -> list[str]:
+    out = [_period_header(period, language, "SCHLAF", "SLEEP")]
     if not items:
         return [*out, "–"]
     for f in items:
@@ -471,12 +519,15 @@ def _section_weekly_sleep(items: list[dict], language: str) -> list[str]:
                 prev_parts.append(
                     ("efficiency " if language == "en" else "Effizienz ") + f"{prev['avg_efficiency'] * 100:.0f}%"
                 )
-            out.append(("  previous week: " if language == "en" else "  Vorwoche: ") + ", ".join(prev_parts))
+            out.append(_prev_label(period, language) + ", ".join(prev_parts))
+        line = _weeks_line(d.get("weeks"), language, [("avg_total_h", "avg", "Ø", "{:.1f}h")])
+        if line:
+            out.append(line)
     return out
 
 
-def _section_weekly_stress(items: list[dict], language: str) -> list[str]:
-    out = ["=== WOCHE: STRESS ==="] if language == "de" else ["=== WEEK: STRESS ==="]
+def _section_weekly_stress(items: list[dict], language: str, period: str = "week") -> list[str]:
+    out = [_period_header(period, language, "STRESS", "STRESS")]
     if not items:
         return [*out, "–"]
     for f in items:
@@ -501,12 +552,15 @@ def _section_weekly_stress(items: list[dict], language: str) -> list[str]:
             prev_parts = [("avg " if language == "en" else "Ø ") + f"{prev['avg_score']:.0f}"]
             if prev.get("high_min") is not None:
                 prev_parts.append(("high-stress " if language == "en" else "Hochstress ") + f"{prev['high_min']} min")
-            out.append(("  previous week: " if language == "en" else "  Vorwoche: ") + ", ".join(prev_parts))
+            out.append(_prev_label(period, language) + ", ".join(prev_parts))
+        line = _weeks_line(d.get("weeks"), language, [("avg_score", "avg", "Ø", "{:.0f}")])
+        if line:
+            out.append(line)
     return out
 
 
-def _section_weekly_body_battery(items: list[dict], language: str) -> list[str]:
-    out = ["=== WOCHE: BODY BATTERY ==="] if language == "de" else ["=== WEEK: BODY BATTERY ==="]
+def _section_weekly_body_battery(items: list[dict], language: str, period: str = "week") -> list[str]:
+    out = [_period_header(period, language, "BODY BATTERY", "BODY BATTERY")]
     if not items:
         return [*out, "–"]
     for f in items:
@@ -536,32 +590,47 @@ def _section_weekly_body_battery(items: list[dict], language: str) -> list[str]:
                 prev_parts.append(("wake " if language == "en" else "Weckstand ") + f"{prev['avg_wake']:.0f}")
             if prev.get("avg_low") is not None:
                 prev_parts.append(("low " if language == "en" else "Tief ") + f"{prev['avg_low']:.0f}")
-            out.append(("  previous week: " if language == "en" else "  Vorwoche: ") + ", ".join(prev_parts))
+            out.append(_prev_label(period, language) + ", ".join(prev_parts))
+        line = _weeks_line(
+            d.get("weeks"),
+            language,
+            [("avg_wake", "wake", "Weckstand", "{:.0f}"), ("avg_low", "low", "Tief", "{:.0f}")],
+        )
+        if line:
+            out.append(line)
     return out
 
 
-def _section_weekly_vitals(items: list[dict], language: str) -> list[str]:
+def _section_weekly_vitals(items: list[dict], language: str, period: str = "week") -> list[str]:
+    baseline_days = 28 if period == "week" else 84
     if language == "de":
-        out = ["=== WOCHE: VITALWERTE (vs. 28-Tage-Baseline) ==="]
+        out = [_period_header(period, language, f"VITALWERTE (vs. {baseline_days}-Tage-Baseline)", "")]
     else:
-        out = ["=== WEEK: VITALS (vs. 28-day baseline) ==="]
+        out = [_period_header(period, language, "", f"VITALS (vs. {baseline_days}-day baseline)")]
     if not items:
         return [*out, "–"]
+    mean_key = "week_mean" if period == "week" else "month_mean"
     for f in items:
         d = scrub_details("weekly_vitals", f.get("details"))
         unit = f" {d['unit']}" if d.get("unit") else ""
-        label_w = "week mean=" if language == "en" else "Wochenmittel="
+        if period == "week":
+            label_m = "week mean=" if language == "en" else "Wochenmittel="
+        else:
+            label_m = "month mean=" if language == "en" else "Monatsmittel="
         label_b = "baseline=" if language == "en" else "Baseline="
-        parts = [f"{label_w}{d.get('week_mean', 'n/a')}{unit}", f"{label_b}{d.get('baseline_mean', 'n/a')}{unit}"]
+        parts = [f"{label_m}{d.get(mean_key, 'n/a')}{unit}", f"{label_b}{d.get('baseline_mean', 'n/a')}{unit}"]
         if d.get("delta") is not None:
             pct = f", {d['delta_pct']:+.1f}%" if d.get("delta_pct") is not None else ""
             parts.append(f"Δ={d['delta']:+.1f}{pct}")
         out.append(f"{_label(f, 'metric_a')}: " + ", ".join(parts))
+        line = _weeks_line(d.get("weeks"), language, [("mean", "", "", "{:.1f}")])
+        if line:
+            out.append(line)
     return out
 
 
-def _section_weekly_activity(items: list[dict], language: str) -> list[str]:
-    out = ["=== WOCHE: AKTIVITÄT ==="] if language == "de" else ["=== WEEK: ACTIVITY ==="]
+def _section_weekly_activity(items: list[dict], language: str, period: str = "week") -> list[str]:
+    out = [_period_header(period, language, "AKTIVITÄT", "ACTIVITY")]
     if not items:
         return [*out, "–"]
     for f in items:
@@ -572,16 +641,24 @@ def _section_weekly_activity(items: list[dict], language: str) -> list[str]:
             per_day = "/day" if language == "en" else "/Tag"
             parts.append(("avg " if language == "en" else "Ø ") + f"{d['daily_avg']}{per_day}")
         if d.get("prev_total") is not None:
-            parts.append(("previous week " if language == "en" else "Vorwoche ") + f"{d['prev_total']}")
-        if d.get("baseline_weekly") is not None:
-            label = "4-week average " if language == "en" else "4-Wochen-Schnitt "
-            per_week = "/week" if language == "en" else "/Woche"
-            parts.append(label + f"{d['baseline_weekly']}{per_week}")
+            parts.append(_prev_label(period, language).strip().rstrip(":") + f" {d['prev_total']}")
+        baseline_key = "baseline_weekly" if period == "week" else "baseline_monthly"
+        if d.get(baseline_key) is not None:
+            if period == "week":
+                label = "4-week average " if language == "en" else "4-Wochen-Schnitt "
+                per = "/week" if language == "en" else "/Woche"
+            else:
+                label = "3-month average " if language == "en" else "3-Monats-Schnitt "
+                per = "/month" if language == "en" else "/Monat"
+            parts.append(label + f"{d[baseline_key]}{per}")
         out.append(f"{_label(f, 'metric_a')}: " + ", ".join(parts))
+        line = _weeks_line(d.get("weeks"), language, [("total", "", "", "{:.0f}")])
+        if line:
+            out.append(line)
     return out
 
 
-def _section_fitness_markers(items: list[dict], language: str) -> list[str]:
+def _section_fitness_markers(items: list[dict], language: str, period: str = "week") -> list[str]:
     out = ["=== FITNESS-MARKER ==="] if language == "de" else ["=== FITNESS MARKERS ==="]
     if not items:
         return [*out, "–"]
@@ -591,7 +668,11 @@ def _section_fitness_markers(items: list[dict], language: str) -> list[str]:
         date_label = " on " if language == "en" else " am "
         line = f"{_label(f, 'metric_a')}: {d.get('latest', 'n/a')}{unit}{date_label}{d.get('latest_date', '?')}"
         if d.get("delta") is not None:
-            line += f" (Δ={d['delta']:+.2f} vs. {d.get('prev_date', '?')})"
+            comparison = f"Δ={d['delta']:+.2f} vs. {d.get('prev_date', '?')}"
+            # The monthly report adds the ~quarter drift for the longer horizon.
+            if period == "month" and d.get("delta_90d") is not None:
+                comparison += f", Δ90d={d['delta_90d']:+.2f} vs. {d.get('prev_90d_date', '?')}"
+            line += f" ({comparison})"
         elif language == "de":
             line += " (keine ältere Vergleichsmessung)"
         else:
@@ -608,7 +689,7 @@ def build_context(
     note: str | None = None,
     language: str = "de",
     max_correlations: int | None = None,
-    weekly: bool = False,
+    report: str = "status",
 ) -> str:
     """Format findings as a structured plain-text context for the LLM.
 
@@ -616,6 +697,8 @@ def build_context(
     values when using a local LLM). Only metric display names (never the raw
     snake_case keys) are used for labels. Each finding kind is rendered by its
     own ``_section_*`` helper; the sections are joined with one blank line.
+    ``report`` ("status"/"weekly"/"monthly") selects whether the descriptive
+    WEEK or MONTH overview sections lead the context.
     """
     computed_at: dt.datetime | None = None
     for f in findings:
@@ -643,26 +726,26 @@ def build_context(
     for f in findings:
         by_kind.setdefault(f["kind"], []).append(f)
 
-    # The weekly overview leads the report (the descriptive backbone); the
-    # alert/statistics sections follow. Daily reports skip the weekly blocks
+    # The week/month overview leads the report (the descriptive backbone); the
+    # alert/statistics sections follow. Status reports skip the overview blocks
     # entirely instead of printing seven empty placeholders.
-    weekly_blocks: list[list[str]] = (
-        [
-            _section_weekly_training(by_kind.get("weekly_training", []), language),
-            _section_weekly_sleep(by_kind.get("weekly_sleep", []), language),
-            _section_weekly_stress(by_kind.get("weekly_stress", []), language),
-            _section_weekly_body_battery(by_kind.get("weekly_body_battery", []), language),
-            _section_weekly_vitals(by_kind.get("weekly_vitals", []), language),
-            _section_weekly_activity(by_kind.get("weekly_activity", []), language),
-            _section_fitness_markers(by_kind.get("fitness_markers", []), language),
+    overview_blocks: list[list[str]] = []
+    if report in ("weekly", "monthly"):
+        period = "week" if report == "weekly" else "month"
+        prefix = "weekly" if report == "weekly" else "monthly"
+        overview_blocks = [
+            _section_weekly_training(by_kind.get(f"{prefix}_training", []), language, period),
+            _section_weekly_sleep(by_kind.get(f"{prefix}_sleep", []), language, period),
+            _section_weekly_stress(by_kind.get(f"{prefix}_stress", []), language, period),
+            _section_weekly_body_battery(by_kind.get(f"{prefix}_body_battery", []), language, period),
+            _section_weekly_vitals(by_kind.get(f"{prefix}_vitals", []), language, period),
+            _section_weekly_activity(by_kind.get(f"{prefix}_activity", []), language, period),
+            _section_fitness_markers(by_kind.get("fitness_markers", []), language, period),
         ]
-        if weekly
-        else []
-    )
 
     blocks: list[list[str]] = [
         header,
-        *weekly_blocks,
+        *overview_blocks,
         _section_anomalies(by_kind.get("anomaly", []), language, lookback_days),
         _section_recovery(by_kind.get("recovery_alert", []), language),
         _section_stress(by_kind.get("stress", []), language),

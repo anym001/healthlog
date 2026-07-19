@@ -358,8 +358,9 @@ class Finding(_FindingColumns, Base):
     Written as a fresh snapshot each run (the analysis deletes the previous
     batch). ``kind`` is one of: correlation, anomaly, trend, seasonality,
     recovery_alert, consistency, training_load, training_status, stress,
-    body_battery, plus the weekly-report kinds weekly_training, weekly_sleep,
-    weekly_stress, weekly_body_battery, weekly_vitals, weekly_activity and
+    body_battery, plus the report kinds weekly_training, weekly_sleep,
+    weekly_stress, weekly_body_battery, weekly_vitals, weekly_activity, their
+    monthly_* analogues (28-day windows with a per-week breakdown) and
     fitness_markers. Fields not relevant to a kind stay NULL.
     """
 

@@ -853,12 +853,13 @@ def training_status(s: pd.Series) -> TrainingStatus | None:
     return TrainingStatus(ctl=ctl, atl=atl, tsb=tsb, tsb_pct=tsb / ctl, ctl_ago=ctl_ago)
 
 
-# --- Weekly summaries (descriptive, for the weekly report) ------------------
-# All helpers aggregate a trailing 7-day window plus comparison windows and
-# return plain dicts/dataclasses for the finding builders. Anchoring is
-# data-driven: the caller passes the last day that has any data (so a lagging
-# export doesn't produce an empty "current week"), falling back to the series'
-# own last observation.
+# --- Weekly/monthly summaries (descriptive, for the weekly/monthly reports) --
+# All helpers aggregate a trailing window (7 days by default; the monthly
+# builders pass ``days=MONTH_PERIOD``) plus comparison windows and return plain
+# dicts/dataclasses for the finding builders. Anchoring is data-driven: the
+# caller passes the last day that has any data (so a lagging export doesn't
+# produce an empty "current week"), falling back to the series' own last
+# observation.
 
 
 @dataclass(frozen=True)
@@ -917,6 +918,35 @@ def weekly_window(
         window_end=end,
         n_days=int(len(current)),
     )
+
+
+def week_breakdown(
+    s: pd.Series,
+    agg: str = "sum",
+    anchor: pd.Timestamp | None = None,
+    weeks: int = 4,
+) -> list[dict] | None:
+    """Split the trailing ``weeks`` x 7-day span into per-week aggregates.
+
+    Returns one dict per week — ``{start, end, value, n_days}`` — oldest first,
+    so the sequence reads as the trajectory toward ``anchor`` (default: the
+    series' last observation). ``value`` is None for a week without data; for
+    0-filled series (workout load) a rest week inside the span is a real 0.
+    None for an empty series. The monthly report uses this to narrate the
+    month's course instead of just its totals.
+    """
+    s = s.dropna()
+    if s.empty:
+        return None
+    end = anchor if anchor is not None else s.index.max()
+    out = []
+    for i in range(weeks - 1, -1, -1):
+        w_end = end - pd.Timedelta(days=WEEK_PERIOD * i)
+        w_start = w_end - pd.Timedelta(days=WEEK_PERIOD - 1)
+        win = s[(s.index >= w_start) & (s.index <= w_end)]
+        value = None if win.empty else (float(win.sum()) if agg == "sum" else float(win.mean()))
+        out.append({"start": w_start, "end": w_end, "value": value, "n_days": int(len(win))})
+    return out
 
 
 def weekly_sessions_summary(
@@ -1130,25 +1160,34 @@ def weekly_baseline_delta(
     return out
 
 
-def latest_marker_delta(s: pd.Series, min_gap_days: int = 28) -> dict | None:
+def latest_marker_delta(s: pd.Series, min_gap_days: int = 28, long_gap_days: int | None = None) -> dict | None:
     """Latest observation of a slow-moving marker plus its change over ~a month.
 
     Returns ``{latest, latest_date, prev, prev_date, delta}`` where ``prev`` is
     the most recent observation at least ``min_gap_days`` older than the latest
-    one (``prev``/``delta`` are None when history is too short). None for an
-    empty series. Meant for markers like VO2 Max or body mass, where the last
-    reading and its monthly drift say more than any weekly aggregate.
+    one (``prev``/``delta`` are None when history is too short). With
+    ``long_gap_days`` set, ``prev_long``/``prev_long_date``/``delta_long`` add
+    a second comparison over that longer gap (the monthly report's ~quarter
+    view). None for an empty series. Meant for markers like VO2 Max or body
+    mass, where the last reading and its drift say more than any window mean.
     """
     s = s.dropna()
     if s.empty:
         return None
     latest_date = s.index.max()
     out: dict = {"latest": float(s.loc[latest_date]), "latest_date": latest_date.date()}
-    older = s[s.index <= latest_date - pd.Timedelta(days=min_gap_days)]
-    if older.empty:
-        out.update({"prev": None, "prev_date": None, "delta": None})
-        return out
-    prev_date = older.index.max()
-    prev = float(older.loc[prev_date])
-    out.update({"prev": prev, "prev_date": prev_date.date(), "delta": out["latest"] - prev})
+
+    def _compare(gap_days: int, key: str) -> None:
+        older = s[s.index <= latest_date - pd.Timedelta(days=gap_days)]
+        if older.empty:
+            out.update({key: None, f"{key}_date": None, f"delta{key.removeprefix('prev')}": None})
+            return
+        prev_date = older.index.max()
+        prev = float(older.loc[prev_date])
+        delta_key = f"delta{key.removeprefix('prev')}"
+        out.update({key: prev, f"{key}_date": prev_date.date(), delta_key: out["latest"] - prev})
+
+    _compare(min_gap_days, "prev")
+    if long_gap_days is not None:
+        _compare(long_gap_days, "prev_long")
     return out

@@ -34,14 +34,19 @@ Findings (ARCHITECTURE.md §4.8), all derived, never medical advice:
                  timeline + daily summary live in the body-battery tables (see
                  body_battery.py, §4.10).
 - weekly_*       descriptive week summaries for the weekly report (narrate
-                 --weekly): weekly_training (session volume + load totals),
-                 weekly_sleep (nightly averages), weekly_stress /
+                 --report weekly): weekly_training (session volume + load
+                 totals), weekly_sleep (nightly averages), weekly_stress /
                  weekly_body_battery (week profile off the daily tables),
                  weekly_vitals (RHR/HRV week mean vs 28-day baseline),
                  weekly_activity (steps/energy/exercise/daylight totals).
                  Status findings like training_status — written every run.
+- monthly_*      the monthly analogues (narrate --report monthly): rolling
+                 28-day windows (previous month = the 28 days before, baseline
+                 = mean of the three prior windows), each with a per-week
+                 ``weeks`` breakdown so the report can tell the month's course.
 - fitness_markers  latest VO2 Max / cardio recovery / body mass reading plus
-                 its ~monthly drift (slow markers, no weekly window).
+                 its ~monthly drift and ~quarter (90-day) comparison (slow
+                 markers, no weekly window; shared by both report types).
 """
 
 from __future__ import annotations
@@ -69,6 +74,7 @@ from .constants import (
     HR_REST_WINDOW,
     MAX_LAG,
     MIN_OVERLAP,
+    MONTH_PERIOD,
     RECOVERY_RECENT_DAYS,
     RECOVERY_SLEEP_Z,
     RECOVERY_Z,
@@ -100,6 +106,12 @@ from .findings import (
     _is_workout_load_family,
     _load_columns,
     _metric_domain,
+    _monthly_activity_findings,
+    _monthly_body_battery_findings,
+    _monthly_sleep_findings,
+    _monthly_stress_findings,
+    _monthly_training_findings,
+    _monthly_vitals_findings,
     _pair_tier,
     _recovery_findings,
     _residual_for_correlation,
@@ -165,6 +177,7 @@ from .pure import (
     training_status,
     trend_monotonicity,
     trend_slope,
+    week_breakdown,
     weekly_baseline_delta,
     weekly_body_battery_summary,
     weekly_sessions_summary,
@@ -202,6 +215,7 @@ __all__ = [
     "HR_REST_WINDOW",
     "MAX_LAG",
     "MIN_OVERLAP",
+    "MONTH_PERIOD",
     "RECOVERY_RECENT_DAYS",
     "RECOVERY_SLEEP_Z",
     "RECOVERY_Z",
@@ -226,6 +240,12 @@ __all__ = [
     "_detrended_series",
     "_emit_edwards",
     "_fitness_marker_findings",
+    "_monthly_activity_findings",
+    "_monthly_body_battery_findings",
+    "_monthly_sleep_findings",
+    "_monthly_stress_findings",
+    "_monthly_training_findings",
+    "_monthly_vitals_findings",
     "_global_robust_z",
     "_hr_zone_weight",
     "_is_activity_volume",
@@ -289,6 +309,7 @@ __all__ = [
     "training_status",
     "trend_monotonicity",
     "trend_slope",
+    "week_breakdown",
     "weekly_baseline_delta",
     "weekly_body_battery_summary",
     "weekly_sessions_summary",

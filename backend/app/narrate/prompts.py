@@ -16,8 +16,31 @@ from __future__ import annotations
 DEFAULT_AUDIENCE = "standard"
 DEFAULT_MAX_WORDS = 700
 
-_INTRO: dict[str, str] = {
-    "de": """\
+# One intro per report type: the status check is a short "anything notable?"
+# scan, the weekly/monthly reviews are full narrative reports.
+_INTRO: dict[str, dict[str, str]] = {
+    "status": {
+        "de": """\
+Du bist ein persönlicher Gesundheitsanalyst. Du erhältst statistische \
+Auswertungen einer Apple-Health-Analyse und schreibst daraus einen kompakten \
+deutschen Status-Check: Gibt es in den letzten Tagen etwas Auffälliges?
+
+Deine Aufgabe ist es, Auffälligkeiten einzuordnen — WAS die Daten zeigen, WAS \
+das bedeutet und WARUM es so sein könnte. Ist nichts auffällig, sage das klar \
+und halte den Bericht kurz.\
+""",
+        "en": """\
+You are a personal health analyst. You receive statistical findings from an \
+Apple Health analysis and write a compact English status check: is anything \
+notable in the last few days?
+
+Your task is to put the notable findings in context — WHAT the data shows, \
+WHAT it means and WHY it might be the case. If nothing is notable, say so \
+clearly and keep the report short.\
+""",
+    },
+    "weekly": {
+        "de": """\
 Du bist ein persönlicher Gesundheitsanalyst. Du erhältst statistische \
 Auswertungen einer Apple-Health-Analyse und schreibst daraus einen fundierten \
 deutschen Wochen-Gesundheitsbericht.
@@ -26,13 +49,33 @@ Deine Aufgabe ist es, nicht nur WAS die Daten zeigen zu beschreiben, sondern \
 WAS das bedeutet, WARUM es so sein könnte, und welche Zusammenhänge zwischen \
 den Befunden bestehen.\
 """,
-    "en": """\
+        "en": """\
 You are a personal health analyst. You receive statistical findings from an \
 Apple Health analysis and write an in-depth English weekly health report.
 
 Your task is not just to describe WHAT the data shows, but WHAT it means, \
 WHY it might be the case, and what connections exist between the findings.\
 """,
+    },
+    "monthly": {
+        "de": """\
+Du bist ein persönlicher Gesundheitsanalyst. Du erhältst statistische \
+Auswertungen einer Apple-Health-Analyse und schreibst daraus einen fundierten \
+deutschen Monats-Gesundheitsbericht.
+
+Deine Aufgabe ist es, nicht nur WAS die Daten zeigen zu beschreiben, sondern \
+WAS das bedeutet, WARUM es so sein könnte, welche Zusammenhänge zwischen den \
+Befunden bestehen — und wie sich der Monat Woche für Woche entwickelt hat.\
+""",
+        "en": """\
+You are a personal health analyst. You receive statistical findings from an \
+Apple Health analysis and write an in-depth English monthly health report.
+
+Your task is not just to describe WHAT the data shows, but WHAT it means, \
+WHY it might be the case, what connections exist between the findings — and \
+how the month developed week by week.\
+""",
+    },
 }
 
 # How much the report explains — never what it includes. One curated block per
@@ -297,9 +340,9 @@ _CONNECTIONS: dict[str, str] = {
 """,
 }
 
-# Only assembled in --weekly mode: what the descriptive WOCHE/WEEK sections
-# contain and how their windows are defined, so the model reads them as the
-# report's factual backbone instead of guessing.
+# Only assembled for the weekly report: what the descriptive WOCHE/WEEK
+# sections contain and how their windows are defined, so the model reads them
+# as the report's factual backbone instead of guessing.
 _WEEKLY_OVERVIEW: dict[str, str] = {
     "de": """\
 ## Wochenübersicht (beschreibende Abschnitte)
@@ -341,33 +384,72 @@ without training is a real zero, not missing data.\
 """,
 }
 
-_STRUCTURE: dict[str, str] = {
+# Only assembled for the monthly report: the MONAT/MONTH sections' window
+# semantics (rolling 28 days = four full weeks) and the week-by-week course.
+_MONTHLY_OVERVIEW: dict[str, str] = {
     "de": """\
-## Berichtsstruktur
-1. Zusammenfassung (2–3 Sätze: was ist diese Woche das Wichtigste?)
-2. Anomalien & Warnungen (Zahl interpretieren + physiologische Erklärung)
-3. Stress & Erholung (Stress-Score- und Body-Battery-Tage benennen, mit HRV/RHR verknüpfen)
-4. Training (Trainingszustand Fitness/Ermüdung/Form einordnen; \
-Belastungsverhältnis-Zone benennen; Empfehlung geben)
-5. Schlaf (Konsistenz und Erholungsqualität)
-6. Korrelationen & Trends (nur bedeutsame, mit Erklärung des Mechanismus)
-7. Empfehlungen (2–3 konkrete, umsetzbare Maßnahmen für die kommende Woche)\
+## Monatsübersicht (beschreibende Abschnitte)
+
+Zusätzlich zu den Befunden erhältst du beschreibende MONAT-Abschnitte: \
+Training (Einheiten, Dauer, Distanz, Energie, Monatslast — gesamt und je \
+Sportart), Schlaf-Monatsmittel, Stress-Monatsprofil, \
+Body-Battery-Monatsprofil, Vitalwerte (Monatsmittel von Ruhepuls und HRV \
+gegenüber der 84-Tage-Baseline), Aktivitäts-Monatssummen sowie Fitness-Marker \
+(letzter Messwert mit Veränderung über ~einen Monat und ~ein Quartal, Δ90d).
+
+Der "Monat" ist ein rollierendes 28-Tage-Fenster (vier volle Wochen, jeder \
+Wochentag gleich oft vertreten) bis zum letzten Datentag; "Vormonat" ist das \
+28-Tage-Fenster unmittelbar davor, der 3-Monats-Schnitt der Mittelwert der \
+drei Fenster davor. Die Zeile "Wochenverlauf" zeigt die vier Wochen des \
+Monats von der ältesten zur jüngsten — nutze sie, um die Entwicklung zu \
+erzählen (Aufbau, Entlastungswoche, Bruch), nicht nur die Summen. Ein Monat \
+ohne Training ist eine echte Null, kein Datenfehler.\
 """,
     "en": """\
-## Report structure
-1. Summary (2–3 sentences: what is most important this week?)
-2. Anomalies & Alerts (interpret the number + physiological explanation)
-3. Stress & Recovery (name high-stress-score and low-Body-Battery days, tie them to HRV/RHR)
-4. Training (assess the training status fitness/fatigue/form; name the \
-load-ratio zone; give a recommendation)
-5. Sleep (consistency and recovery quality)
-6. Correlations & Trends (only significant ones, with mechanism explanation)
-7. Recommendations (2–3 concrete, actionable steps for the coming week)\
+## Month overview (descriptive sections)
+
+In addition to the findings you receive descriptive MONTH sections: training \
+(sessions, duration, distance, energy, monthly load — overall and per \
+sport), sleep monthly averages, the monthly stress profile, the monthly \
+Body-Battery profile, vitals (monthly means of resting heart rate and HRV \
+against the 84-day baseline), monthly activity totals and fitness markers \
+(latest reading with the change over ~a month and ~a quarter, Δ90d).
+
+The "month" is a rolling 28-day window (four full weeks, every weekday \
+represented equally) up to the last day with data; "previous month" is the \
+28-day window immediately before, the 3-month average the mean of the three \
+windows before that. The "week by week" line shows the month's four weeks \
+from oldest to newest — use it to tell the development (build-up, recovery \
+week, break), not just the totals. A month without training is a real zero, \
+not missing data.\
 """,
 }
 
-# --weekly report structure: the descriptive week review leads, the alert and
-# statistics sections follow, and the slow fitness markers get their own slot.
+# One report structure per type: the status check is deliberately short and
+# exception-led; the weekly/monthly reviews lead with the descriptive
+# week/month sections and give the slow fitness markers their own slot.
+_STRUCTURE_STATUS: dict[str, str] = {
+    "de": """\
+## Berichtsstruktur
+1. Zusammenfassung (1–2 Sätze: gibt es etwas Auffälliges?)
+2. Warnungen & Auffälligkeiten (Anomalien, Erholung, Stress, Body Battery — \
+nur was wirklich auffällt, mit physiologischer Erklärung)
+3. Training & Schlaf (kurz: Trainingszustand und Belastungsverhältnis-Zone, \
+Schlaf-Konsistenz)
+4. Korrelationen & Trends (nur die wirklich bedeutsamen, knapp)
+5. Empfehlungen (1–2 konkrete, umsetzbare Maßnahmen)\
+""",
+    "en": """\
+## Report structure
+1. Summary (1–2 sentences: is anything notable?)
+2. Alerts & Notables (anomalies, recovery, stress, Body Battery — only what \
+truly stands out, with a physiological explanation)
+3. Training & Sleep (brief: training status and load-ratio zone, sleep consistency)
+4. Correlations & Trends (only the truly significant ones, briefly)
+5. Recommendations (1–2 concrete, actionable steps)\
+""",
+}
+
 _STRUCTURE_WEEKLY: dict[str, str] = {
     "de": """\
 ## Berichtsstruktur
@@ -399,6 +481,41 @@ load-ratio zone; give a recommendation)
 """,
 }
 
+_STRUCTURE_MONTHLY: dict[str, str] = {
+    "de": """\
+## Berichtsstruktur
+1. Zusammenfassung (2–3 Sätze: was ist diesen Monat das Wichtigste?)
+2. Monatsbilanz (Training, Aktivität, Schlaf, Stress & Body Battery, \
+Vitalwerte — aus den MONAT-Abschnitten, mit Vergleich zum Vormonat)
+3. Monatsverlauf (die Entwicklung Woche für Woche aus den \
+Wochenverlauf-Zeilen: Aufbau, Entlastung, Brüche)
+4. Anomalien & Warnungen (Zahl interpretieren + physiologische Erklärung)
+5. Stress & Erholung (Stress-Score- und Body-Battery-Tage benennen, mit HRV/RHR verknüpfen)
+6. Training (Trainingszustand Fitness/Ermüdung/Form einordnen; \
+Belastungsverhältnis-Zone benennen; Empfehlung geben)
+7. Schlaf (Konsistenz und Erholungsqualität)
+8. Korrelationen & Trends (nur bedeutsame, mit Erklärung des Mechanismus)
+9. Fitness-Marker (VO2max, Cardio Recovery, Gewicht — inkl. ~Quartalsvergleich Δ90d)
+10. Empfehlungen (2–3 konkrete, umsetzbare Maßnahmen für den kommenden Monat)\
+""",
+    "en": """\
+## Report structure
+1. Summary (2–3 sentences: what is most important this month?)
+2. Month review (training, activity, sleep, stress & Body Battery, vitals — \
+from the MONTH sections, compared to the previous month)
+3. Month course (the week-by-week development from the "week by week" \
+lines: build-up, recovery, breaks)
+4. Anomalies & Alerts (interpret the number + physiological explanation)
+5. Stress & Recovery (name high-stress-score and low-Body-Battery days, tie them to HRV/RHR)
+6. Training (assess the training status fitness/fatigue/form; name the \
+load-ratio zone; give a recommendation)
+7. Sleep (consistency and recovery quality)
+8. Correlations & Trends (only significant ones, with mechanism explanation)
+9. Fitness markers (VO2 max, cardio recovery, body mass — incl. the ~quarter comparison Δ90d)
+10. Recommendations (2–3 concrete, actionable steps for the coming month)\
+""",
+}
+
 # The invariant safety rules — assembled into every language x audience
 # combination; {max_words} is the only parameter.
 _RULES: dict[str, str] = {
@@ -423,30 +540,45 @@ level only changes how much is explained, never what is included.
 }
 
 
+_STRUCTURES: dict[str, dict[str, str]] = {
+    "status": _STRUCTURE_STATUS,
+    "weekly": _STRUCTURE_WEEKLY,
+    "monthly": _STRUCTURE_MONTHLY,
+}
+_OVERVIEWS: dict[str, dict[str, str] | None] = {
+    "status": None,
+    "weekly": _WEEKLY_OVERVIEW,
+    "monthly": _MONTHLY_OVERVIEW,
+}
+
+
 def _system_prompt(
-    language: str, audience: str = DEFAULT_AUDIENCE, max_words: int = DEFAULT_MAX_WORDS, weekly: bool = False
+    language: str, audience: str = DEFAULT_AUDIENCE, max_words: int = DEFAULT_MAX_WORDS, report: str = "status"
 ) -> str:
-    """Assemble the system prompt for a language and audience level.
+    """Assemble the system prompt for a language, audience level and report type.
 
     Unknown languages fall back to German (the project default), unknown
-    audience values to ``standard`` — narration must never fail on a bad
-    selector, and config validation rejects them upstream anyway. ``weekly``
-    adds the week-overview explainer and swaps in the weekly report structure
-    (the descriptive week review leads); the safety rules are shared.
+    audience values to ``standard``, unknown report types to ``status`` —
+    narration must never fail on a bad selector, and config validation rejects
+    them upstream anyway. The weekly/monthly reports add their overview
+    explainer and swap in their report structure (the descriptive review
+    leads); the safety rules are shared by every combination.
     """
-    lang = language if language in _INTRO else "de"
+    rep = report if report in _STRUCTURES else "status"
+    lang = language if language in _INTRO[rep] else "de"
     aud = audience if audience in _AUDIENCE[lang] else DEFAULT_AUDIENCE
     blocks = [
-        _INTRO[lang],
+        _INTRO[rep][lang],
         _AUDIENCE[lang][aud],
         _BACKGROUND[lang],
     ]
-    if weekly:
-        blocks.append(_WEEKLY_OVERVIEW[lang])
+    overview = _OVERVIEWS[rep]
+    if overview is not None:
+        blocks.append(overview[lang])
     blocks.extend(
         [
             _CONNECTIONS[lang],
-            (_STRUCTURE_WEEKLY if weekly else _STRUCTURE)[lang],
+            _STRUCTURES[rep][lang],
             _RULES[lang].format(max_words=max_words),
         ]
     )

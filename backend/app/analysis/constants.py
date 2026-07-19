@@ -42,6 +42,10 @@ ANOMALY_MIN_GLOBAL_Z = _DEFAULTS.anomaly_min_global_z  # global-corroboration fl
 
 # Structural periods are domain constants, not operator tunables.
 WEEK_PERIOD = 7
+# The rolling "month" of the monthly summaries: exactly four full weeks, so
+# every weekday is represented equally (sleep and training follow weekly
+# rhythms) and comparison windows are always the same length.
+MONTH_PERIOD = 4 * WEEK_PERIOD
 SEASONAL_PERIOD = 365
 SEASONAL_MIN_PEAK_TROUGH_GAP = 2  # months; a near-adjacent peak/trough means the
 #                                   annual phase estimate is unreliable (flagged)

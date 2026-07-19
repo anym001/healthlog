@@ -3,8 +3,8 @@
 Builds the analysis series (core metrics + derived sleep + workout-load) and the
 finding kinds (correlation, anomaly, trend, seasonality, recovery_alert,
 consistency, training_load, training_status, stress, body_battery, plus the
-descriptive weekly_* summaries and fitness_markers for the weekly report) on top
-of the pure helpers and DB loaders. The stress and body_battery findings are
+descriptive weekly_*/monthly_* summaries and fitness_markers for the weekly and
+monthly reports) on top of the pure helpers and DB loaders. The stress and body_battery findings are
 alert-only; their continuous scores/timelines live in their own tables (see
 ``stress.py`` / ``body_battery.py``).
 """
@@ -31,6 +31,7 @@ from .constants import (
     CTL_DAYS,
     CTL_TREND_LOOKBACK_DAYS,
     CTL_TREND_REL,
+    MONTH_PERIOD,
     log,
 )
 from .load import (
@@ -62,6 +63,7 @@ from .pure import (
     training_status,
     trend_monotonicity,
     trend_slope,
+    week_breakdown,
     weekly_baseline_delta,
     weekly_body_battery_summary,
     weekly_sessions_summary,
@@ -90,6 +92,12 @@ class AnalysisResult:
     weekly_body_battery: int = 0
     weekly_vitals: int = 0
     weekly_activity: int = 0
+    monthly_training: int = 0
+    monthly_sleep: int = 0
+    monthly_stress: int = 0
+    monthly_body_battery: int = 0
+    monthly_vitals: int = 0
+    monthly_activity: int = 0
     fitness_markers: int = 0
 
     def counts(self) -> list[tuple[str, int]]:
@@ -1021,6 +1029,7 @@ def _training_status_findings(
 _WEEKLY_VITALS_METRICS = ("resting_heart_rate", "heart_rate_variability")
 _WEEKLY_ACTIVITY_METRICS = ("step_count", "active_energy", "apple_exercise_time", "time_in_daylight")
 _FITNESS_MARKER_METRICS = ("vo2_max", "cardio_recovery", "weight_body_mass")
+_MARKER_LONG_GAP_DAYS = 90  # the fitness markers' ~quarter comparison (monthly report)
 
 
 def series_anchor(series: dict[str, pd.Series]) -> pd.Timestamp | None:
@@ -1293,13 +1302,15 @@ def _weekly_activity_findings(
 def _fitness_marker_findings(series: dict[str, pd.Series], computed_at: dt.datetime) -> list[Finding]:
     """Latest value + ~monthly drift of the slow fitness markers (VO2 Max,
     cardio recovery, body mass). These move too slowly for weekly windows;
-    the last reading and its month-over-month change are the story."""
+    the last reading and its month-over-month change are the story. The
+    ``*_90d`` fields add the ~quarter comparison the monthly report narrates
+    (shared kind: the same finding serves both report types)."""
     findings: list[Finding] = []
     for metric in _FITNESS_MARKER_METRICS:
         s = series.get(metric)
         if s is None:
             continue
-        marker = latest_marker_delta(s)
+        marker = latest_marker_delta(s, long_gap_days=_MARKER_LONG_GAP_DAYS)
         if marker is None:
             continue
         findings.append(
@@ -1314,8 +1325,343 @@ def _fitness_marker_findings(series: dict[str, pd.Series], computed_at: dt.datet
                     "prev": _opt_round(marker["prev"]),
                     "prev_date": marker["prev_date"].isoformat() if marker["prev_date"] is not None else None,
                     "delta": _opt_round(marker["delta"]),
+                    "prev_90d": _opt_round(marker["prev_long"]),
+                    "prev_90d_date": marker["prev_long_date"].isoformat() if marker["prev_long_date"] else None,
+                    "delta_90d": _opt_round(marker["delta_long"]),
                     "unit": METRIC_REGISTRY[metric]["unit_canonical"],
                 },
+            )
+        )
+    return findings
+
+
+# --- Monthly summaries (descriptive status findings, docs/ARCHITECTURE.md §4.8) ---
+# The monthly analogues of the weekly summaries, for ``narrate --report
+# monthly``: rolling 28-day windows (MONTH_PERIOD — four full weeks, so every
+# weekday is represented equally) anchored the same way, "previous month" = the
+# 28 days before, baseline = mean of the three prior 28-day windows (~ a
+# quarter). Each finding also carries a ``weeks`` breakdown (oldest first) so
+# the narration can tell the month's trajectory, not just its totals.
+
+_MONTHLY_BASELINE_WINDOWS = 3
+_MONTHLY_VITALS_BASELINE_DAYS = 84  # three prior 28-day windows
+
+
+def _weeks_details(breakdown: list[dict] | None, key: str = "value", ndigits: int = 1) -> list[dict] | None:
+    """Serialise a ``week_breakdown`` result for the finding JSON, naming the
+    per-week value ``key`` so the details stay self-describing."""
+    if breakdown is None:
+        return None
+    return [
+        {
+            "start": w["start"].date().isoformat(),
+            "end": w["end"].date().isoformat(),
+            key: _opt_round(w["value"], ndigits),
+        }
+        for w in breakdown
+    ]
+
+
+def _merge_weeks(*lists: list[dict] | None) -> list[dict] | None:
+    """Zip parallel ``_weeks_details`` lists (same windows) into one entry per week."""
+    present = [entries for entries in lists if entries]
+    if not present:
+        return None
+    merged = [dict(entry) for entry in present[0]]
+    for entries in present[1:]:
+        for target, entry in zip(merged, entries, strict=False):
+            target.update({k: v for k, v in entry.items() if k not in ("start", "end")})
+    return merged
+
+
+def _monthly_training_findings(
+    db: Session,
+    tz: str,
+    series: dict[str, pd.Series],
+    computed_at: dt.datetime,
+    workouts: WorkoutConfig,
+    anchor: pd.Timestamp | None = None,
+) -> list[Finding]:
+    """The training-month snapshot: 28-day session volume and load totals plus
+    the per-week trajectory (mirrors ``_weekly_training_findings``)."""
+    sessions = load_workout_frame(db, tz)
+    if sessions.empty:
+        return []
+    types = sessions["name"].map(lambda n: canonical_workout_type(n, workouts.type_map))
+    summary = weekly_sessions_summary(sessions, types, days=MONTH_PERIOD, anchor=anchor)
+    if summary is None:
+        return []
+    end = summary["window_end"]
+
+    load_name = next((n for n in ("workout_trimp", "workout_load") if n in series), None)
+    details: dict = {
+        **_volume_details(summary["current"]),
+        "prev": _volume_details(summary["previous"]),
+        "per_sport": [{"sport": s["sport"], **_volume_details(s)} for s in summary["per_sport"]],
+    }
+    # Per-week trajectory: session counts off the frame (as a daily count
+    # series) and the load sums. A week without workouts is a real zero.
+    counts = sessions.groupby("day").size().astype(float)
+    sessions_weeks = week_breakdown(counts, agg="sum", anchor=end)
+    if sessions_weeks is not None:
+        for w in sessions_weeks:
+            w["value"] = w["value"] or 0.0
+    weeks = _weeks_details(sessions_weeks, key="sessions", ndigits=0)
+    if load_name is not None:
+        ww = weekly_window(
+            series[load_name], agg="sum", days=MONTH_PERIOD, baseline_windows=_MONTHLY_BASELINE_WINDOWS, anchor=anchor
+        )
+        if ww is not None:
+            details["load"] = round(ww.value if ww.value is not None else 0.0, 1)
+            details["prev"]["load"] = round(ww.prev_value if ww.prev_value is not None else 0.0, 1)
+            details["baseline_load"] = _opt_round(ww.baseline_value, 1)
+        load_weeks = week_breakdown(series[load_name], agg="sum", anchor=end)
+        if load_weeks is not None:
+            for w in load_weeks:
+                w["value"] = w["value"] or 0.0
+        weeks = _merge_weeks(weeks, _weeks_details(load_weeks, key="load"))
+        for sport_entry in details["per_sport"]:
+            sport_series = series.get(f"{load_name}_{sport_entry['sport']}")
+            if sport_series is not None:
+                sw = weekly_window(
+                    sport_series,
+                    agg="sum",
+                    days=MONTH_PERIOD,
+                    baseline_windows=_MONTHLY_BASELINE_WINDOWS,
+                    anchor=anchor,
+                )
+                if sw is not None and sw.value is not None:
+                    sport_entry["load"] = round(sw.value, 1)
+    if weeks is not None:
+        details["weeks"] = weeks
+    return [
+        Finding(
+            computed_at=computed_at,
+            kind="monthly_training",
+            metric_a=load_name or "workout_trimp",
+            ref_date=end.date(),
+            window_start=summary["window_start"].date(),
+            window_end=end.date(),
+            details=details,
+        )
+    ]
+
+
+def _monthly_sleep_findings(sleep: pd.DataFrame, computed_at: dt.datetime) -> list[Finding]:
+    """The sleep-month snapshot: 28-night averages plus the per-week course
+    of the nightly mean (mirrors ``_weekly_sleep_findings``)."""
+    summary = weekly_sleep_summary(sleep, days=MONTH_PERIOD)
+    if summary is None:
+        return []
+
+    def _stats_details(stats: dict | None) -> dict | None:
+        if stats is None:
+            return None
+        return {
+            "nights": stats["nights"],
+            "avg_total_h": _opt_round(stats["avg_total_h"]),
+            "avg_deep_h": _opt_round(stats["avg_deep_h"]),
+            "avg_rem_h": _opt_round(stats["avg_rem_h"]),
+            "deep_pct": _opt_round(stats["deep_pct"], 1),
+            "rem_pct": _opt_round(stats["rem_pct"], 1),
+            "avg_efficiency": _opt_round(stats["avg_efficiency"], 3),
+            "avg_bedtime": _opt_round(stats["avg_bedtime"]),
+        }
+
+    details = _stats_details(summary["current"]) or {}
+    details["prev"] = _stats_details(summary["previous"])
+    weeks = _weeks_details(
+        week_breakdown(sleep["total_sleep_h"].dropna(), agg="mean", anchor=summary["window_end"]),
+        key="avg_total_h",
+        ndigits=2,
+    )
+    if weeks is not None:
+        details["weeks"] = weeks
+    return [
+        Finding(
+            computed_at=computed_at,
+            kind="monthly_sleep",
+            metric_a="sleep_total_h",
+            ref_date=summary["window_end"].date(),
+            window_start=summary["window_start"].date(),
+            window_end=summary["window_end"].date(),
+            details=details,
+        )
+    ]
+
+
+def _monthly_stress_findings(db: Session, computed_at: dt.datetime, cfg: StressConfig | None = None) -> list[Finding]:
+    """The stress-month snapshot off ``stress_daily`` plus the per-week course
+    of the mean score (mirrors ``_weekly_stress_findings``)."""
+    cfg = cfg or StressConfig()
+    if not cfg.enabled:
+        return []
+    daily = load_stress_daily(db, since_days=2 * MONTH_PERIOD)  # current + previous month
+    summary = weekly_stress_summary(daily, days=MONTH_PERIOD)
+    if summary is None:
+        return []
+    cur = summary["current"]
+    details: dict = {
+        "days": cur["days"],
+        "avg_score": round(cur["avg_score"], 1),
+        "high_min": cur["high_min"],
+        "medium_min": cur["medium_min"],
+        "peak_day": cur["peak_day"].isoformat(),
+        "peak_score": round(cur["peak_score"], 1),
+        "calm_day": cur["calm_day"].isoformat(),
+        "calm_score": round(cur["calm_score"], 1),
+    }
+    prev = summary["previous"]
+    details["prev"] = (
+        {"days": prev["days"], "avg_score": round(prev["avg_score"], 1), "high_min": prev["high_min"]}
+        if prev is not None
+        else None
+    )
+    weeks = _weeks_details(
+        week_breakdown(daily["score"].dropna(), agg="mean", anchor=summary["window_end"]), key="avg_score"
+    )
+    if weeks is not None:
+        details["weeks"] = weeks
+    return [
+        Finding(
+            computed_at=computed_at,
+            kind="monthly_stress",
+            metric_a="stress",
+            ref_date=summary["window_end"].date(),
+            window_start=summary["window_start"].date(),
+            window_end=summary["window_end"].date(),
+            details=details,
+        )
+    ]
+
+
+def _monthly_body_battery_findings(
+    db: Session, computed_at: dt.datetime, cfg: BodyBatteryConfig | None = None
+) -> list[Finding]:
+    """The Body-Battery month snapshot off ``body_battery_daily`` plus the
+    per-week wake/low course (mirrors ``_weekly_body_battery_findings``)."""
+    cfg = cfg or BodyBatteryConfig()
+    if not cfg.enabled:
+        return []
+    daily = load_body_battery_daily(db, since_days=2 * MONTH_PERIOD)  # current + previous month
+    summary = weekly_body_battery_summary(daily, days=MONTH_PERIOD)
+    if summary is None:
+        return []
+    cur = summary["current"]
+    details: dict = {
+        "days": cur["days"],
+        "avg_wake": _opt_round(cur["avg_wake"], 1),
+        "avg_low": _opt_round(cur["avg_low"], 1),
+        "avg_high": _opt_round(cur["avg_high"], 1),
+        "avg_charged": _opt_round(cur["avg_charged"], 1),
+        "avg_drained": _opt_round(cur["avg_drained"], 1),
+    }
+    if "min_low" in cur:
+        details["min_low"] = round(cur["min_low"], 1)
+        details["min_low_day"] = cur["min_low_day"].isoformat()
+    prev = summary["previous"]
+    details["prev"] = (
+        {"days": prev["days"], "avg_wake": _opt_round(prev["avg_wake"], 1), "avg_low": _opt_round(prev["avg_low"], 1)}
+        if prev is not None
+        else None
+    )
+    end = summary["window_end"]
+    weeks = _merge_weeks(
+        _weeks_details(week_breakdown(daily["wake_level"].dropna(), agg="mean", anchor=end), key="avg_wake"),
+        _weeks_details(week_breakdown(daily["low_level"].dropna(), agg="mean", anchor=end), key="avg_low"),
+    )
+    if weeks is not None:
+        details["weeks"] = weeks
+    return [
+        Finding(
+            computed_at=computed_at,
+            kind="monthly_body_battery",
+            metric_a="body_battery",
+            ref_date=end.date(),
+            window_start=summary["window_start"].date(),
+            window_end=end.date(),
+            details=details,
+        )
+    ]
+
+
+def _monthly_vitals_findings(series: dict[str, pd.Series], computed_at: dt.datetime) -> list[Finding]:
+    """Monthly RHR/HRV means against their trailing 84-day baseline, with the
+    per-week course (mirrors ``_weekly_vitals_findings``)."""
+    findings: list[Finding] = []
+    for metric in _WEEKLY_VITALS_METRICS:
+        s = series.get(metric)
+        if s is None:
+            continue
+        delta = weekly_baseline_delta(
+            s,
+            days=MONTH_PERIOD,
+            baseline_days=_MONTHLY_VITALS_BASELINE_DAYS,
+            min_week_days=10,
+            min_baseline_days=21,
+        )
+        if delta is None:
+            continue
+        details = {
+            "month_mean": round(delta["week_mean"], 1),
+            "baseline_mean": round(delta["baseline_mean"], 1),
+            "delta": round(delta["delta"], 1),
+            "month_days": delta["week_days"],
+            "baseline_days": delta["baseline_days"],
+            "unit": METRIC_REGISTRY[metric]["unit_canonical"],
+        }
+        if "delta_pct" in delta:
+            details["delta_pct"] = round(delta["delta_pct"], 1)
+        weeks = _weeks_details(week_breakdown(s, agg="mean", anchor=delta["window_end"]), key="mean")
+        if weeks is not None:
+            details["weeks"] = weeks
+        findings.append(
+            Finding(
+                computed_at=computed_at,
+                kind="monthly_vitals",
+                metric_a=metric,
+                ref_date=delta["window_end"].date(),
+                window_start=delta["window_start"].date(),
+                window_end=delta["window_end"].date(),
+                details=details,
+            )
+        )
+    return findings
+
+
+def _monthly_activity_findings(
+    series: dict[str, pd.Series], computed_at: dt.datetime, anchor: pd.Timestamp | None = None
+) -> list[Finding]:
+    """Monthly totals of the everyday activity metrics with previous-month and
+    3-month comparisons plus the per-week sums (mirrors ``_weekly_activity_findings``)."""
+    findings: list[Finding] = []
+    for metric in _WEEKLY_ACTIVITY_METRICS:
+        s = series.get(metric)
+        if s is None:
+            continue
+        ww = weekly_window(s, agg="sum", days=MONTH_PERIOD, baseline_windows=_MONTHLY_BASELINE_WINDOWS, anchor=anchor)
+        if ww is None or ww.value is None:
+            continue
+        details = {
+            "total": round(ww.value, 1),
+            "daily_avg": round(ww.value / ww.n_days, 1),
+            "days": ww.n_days,
+            "prev_total": _opt_round(ww.prev_value, 1),
+            "baseline_monthly": _opt_round(ww.baseline_value, 1),
+            "unit": METRIC_REGISTRY[metric]["unit_canonical"],
+        }
+        weeks = _weeks_details(week_breakdown(s, agg="sum", anchor=ww.window_end), key="total")
+        if weeks is not None:
+            details["weeks"] = weeks
+        findings.append(
+            Finding(
+                computed_at=computed_at,
+                kind="monthly_activity",
+                metric_a=metric,
+                ref_date=ww.window_end.date(),
+                window_start=ww.window_start.date(),
+                window_end=ww.window_end.date(),
+                details=details,
             )
         )
     return findings
