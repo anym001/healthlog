@@ -1,5 +1,5 @@
-fastapi==0.139.0
-uvicorn[standard]==0.51.0
+fastapi==0.141.0
+uvicorn[standard]==0.52.0
 sqlalchemy==2.0.51
 alembic==1.18.5
 psycopg[binary]==3.3.4
@@ -11,10 +11,10 @@ pyyaml==6.0.3
 # Push notifications (run outcomes / health alerts) to a Gotify-compatible API.
 httpx==0.28.1
 # Opt-in Prometheus /metrics endpoint (METRICS_ENABLED): ingest counters.
-prometheus-client==0.25.0
+prometheus-client==0.26.0
 
 # Analysis pipeline (Phase 3): nightly statistical findings.
 numpy==2.5.1
-pandas==3.0.3
+pandas==3.0.5
 scipy==1.18.0
 statsmodels==0.14.6
