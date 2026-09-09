@@ -47,6 +47,16 @@ WHERE
         AND f.ref_date >= :cutoff
     )
     OR f.kind IN ('correlation', 'trend', 'seasonality', 'consistency', 'training_status')
+    OR (
+        :include_weekly
+        AND f.kind IN ('weekly_training', 'weekly_sleep', 'weekly_stress', 'weekly_body_battery',
+                       'weekly_vitals', 'weekly_activity', 'fitness_markers')
+    )
+    OR (
+        :include_monthly
+        AND f.kind IN ('monthly_training', 'monthly_sleep', 'monthly_stress', 'monthly_body_battery',
+                       'monthly_vitals', 'monthly_activity', 'fitness_markers')
+    )
 ORDER BY f.kind, f.ref_date DESC NULLS LAST, f.severity DESC NULLS LAST
 """
 
@@ -82,19 +92,26 @@ def _handwired_label(key: str) -> str | None:
     return None
 
 
-def load_findings(db: Session, lookback_days: int) -> list[dict]:
+def load_findings(db: Session, lookback_days: int, report: str = "status") -> list[dict]:
     """Query the current findings snapshot, joining display names from the registry.
 
     The lookback cutoff is computed here in the configured local timezone:
     ``ref_date`` is a local-TZ day (ARCHITECTURE.md — daily buckets are local,
     not UTC), while the DB server typically runs on UTC, so Postgres'
     ``CURRENT_DATE`` would shift the window around local midnight.
+
+    ``report`` selects the descriptive summary kinds: ``weekly`` adds the
+    ``weekly_*`` kinds, ``monthly`` the ``monthly_*`` kinds (both include
+    ``fitness_markers``). They are snapshot findings like ``training_status``,
+    so the lookback cutoff does not apply to them; the default ``status``
+    report leaves them all out.
     """
     from sqlalchemy import text
 
     today = dt.datetime.now(ZoneInfo(get_settings().local_tz)).date()
     cutoff = today - dt.timedelta(days=lookback_days)
-    rows = db.execute(text(_FINDINGS_SQL), {"cutoff": cutoff}).mappings().all()
+    params = {"cutoff": cutoff, "include_weekly": report == "weekly", "include_monthly": report == "monthly"}
+    rows = db.execute(text(_FINDINGS_SQL), params).mappings().all()
     result = []
     for row in rows:
         d = dict(row)

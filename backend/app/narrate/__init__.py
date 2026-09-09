@@ -3,19 +3,24 @@
 Reads the ``findings`` table, renders it as a compact statistical context
 (z-scores, slopes, ratios and coefficients — plus the measured value where a
 finding carries one, e.g. an anomaly's reading), and calls Ollama's
-``/api/chat`` endpoint to produce a weekly health report. The context is sent
-only to the operator-configured endpoint (``narrate.ollama_url``) — run Ollama
-on your own hardware to keep the data inside your network.
+``/api/chat`` endpoint to produce a health report. Three report types
+(``--report`` / ``narrate.report``): ``status`` (default) is a short exception
+check over the lookback window, ``weekly``/``monthly`` are full reviews led by
+the descriptive WEEK/MONTH summary findings. The context is sent only to the
+operator-configured endpoint (``narrate.ollama_url``) — run Ollama on your own
+hardware to keep the data inside your network.
 
 Usage::
 
     docker exec healthlog healthlog narrate
     docker exec healthlog healthlog narrate --note "Focus on the HRV/training link."
     docker exec healthlog healthlog narrate --lookback-days 14 --language en
+    docker exec healthlog healthlog narrate --weekly
+    docker exec healthlog healthlog narrate --monthly
 
-The report is written to ``/config/narration/YYYY-MM-DD.md`` and printed to
-stdout. Configure the Ollama endpoint and model under ``narrate:`` in
-``config.yaml``.
+The report is written to ``/config/narration/YYYY-MM-DD[-weekly|-monthly].md``
+and printed to stdout. Configure the Ollama endpoint and model under
+``narrate:`` in ``config.yaml``.
 
 The module is split by role:
 

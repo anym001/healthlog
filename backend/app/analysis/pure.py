@@ -851,3 +851,343 @@ def training_status(s: pd.Series) -> TrainingStatus | None:
     )
     tsb = ctl - atl
     return TrainingStatus(ctl=ctl, atl=atl, tsb=tsb, tsb_pct=tsb / ctl, ctl_ago=ctl_ago)
+
+
+# --- Weekly/monthly summaries (descriptive, for the weekly/monthly reports) --
+# All helpers aggregate a trailing window (7 days by default; the monthly
+# builders pass ``days=MONTH_PERIOD``) plus comparison windows and return plain
+# dicts/dataclasses for the finding builders. Anchoring is data-driven: the
+# caller passes the last day that has any data (so a lagging export doesn't
+# produce an empty "current week"), falling back to the series' own last
+# observation.
+
+
+@dataclass(frozen=True)
+class WeeklyWindow:
+    """Aggregate of a trailing window plus its comparison windows."""
+
+    value: float | None  # aggregate of the current window (None: no data in it)
+    prev_value: float | None  # aggregate of the window immediately before
+    baseline_value: float | None  # mean per-window aggregate of the preceding windows
+    window_start: pd.Timestamp
+    window_end: pd.Timestamp
+    n_days: int  # days with data inside the current window
+
+
+def weekly_window(
+    s: pd.Series,
+    agg: str = "sum",
+    days: int = WEEK_PERIOD,
+    baseline_windows: int = 4,
+    anchor: pd.Timestamp | None = None,
+) -> WeeklyWindow | None:
+    """Aggregate the trailing ``days`` window of a daily series, with comparisons.
+
+    ``value`` aggregates the current window ending at ``anchor`` (default: the
+    series' last observation), ``prev_value`` the window immediately before it,
+    and ``baseline_value`` is the mean of the per-window aggregates over the
+    ``baseline_windows`` windows preceding the current one (None when none of
+    them holds data). ``agg`` is ``sum`` or ``mean``; both skip missing days
+    (the workout-load series are already 0-filled, so a rest day counts as 0
+    there while a gap in e.g. steps is simply absent). None for an empty series.
+    """
+    s = s.dropna()
+    if s.empty:
+        return None
+    end = anchor if anchor is not None else s.index.max()
+    start = end - pd.Timedelta(days=days - 1)
+
+    def _agg(win: pd.Series) -> float | None:
+        if win.empty:
+            return None
+        return float(win.sum()) if agg == "sum" else float(win.mean())
+
+    current = s[(s.index >= start) & (s.index <= end)]
+    prev = s[(s.index >= start - pd.Timedelta(days=days)) & (s.index < start)]
+    baseline_vals = []
+    for i in range(1, baseline_windows + 1):
+        w_start = start - pd.Timedelta(days=days * i)
+        v = _agg(s[(s.index >= w_start) & (s.index < w_start + pd.Timedelta(days=days))])
+        if v is not None:
+            baseline_vals.append(v)
+    return WeeklyWindow(
+        value=_agg(current),
+        prev_value=_agg(prev),
+        baseline_value=float(np.mean(baseline_vals)) if baseline_vals else None,
+        window_start=start,
+        window_end=end,
+        n_days=int(len(current)),
+    )
+
+
+def week_breakdown(
+    s: pd.Series,
+    agg: str = "sum",
+    anchor: pd.Timestamp | None = None,
+    weeks: int = 4,
+) -> list[dict] | None:
+    """Split the trailing ``weeks`` x 7-day span into per-week aggregates.
+
+    Returns one dict per week — ``{start, end, value, n_days}`` — oldest first,
+    so the sequence reads as the trajectory toward ``anchor`` (default: the
+    series' last observation). ``value`` is None for a week without data; for
+    0-filled series (workout load) a rest week inside the span is a real 0.
+    None for an empty series. The monthly report uses this to narrate the
+    month's course instead of just its totals.
+    """
+    s = s.dropna()
+    if s.empty:
+        return None
+    end = anchor if anchor is not None else s.index.max()
+    out = []
+    for i in range(weeks - 1, -1, -1):
+        w_end = end - pd.Timedelta(days=WEEK_PERIOD * i)
+        w_start = w_end - pd.Timedelta(days=WEEK_PERIOD - 1)
+        win = s[(s.index >= w_start) & (s.index <= w_end)]
+        value = None if win.empty else (float(win.sum()) if agg == "sum" else float(win.mean()))
+        out.append({"start": w_start, "end": w_end, "value": value, "n_days": int(len(win))})
+    return out
+
+
+def weekly_sessions_summary(
+    sessions: pd.DataFrame,
+    types: pd.Series | None = None,
+    days: int = WEEK_PERIOD,
+    anchor: pd.Timestamp | None = None,
+) -> dict | None:
+    """Weekly workout-volume stats off the per-session frame.
+
+    ``sessions`` is the ``load_workout_frame`` result (``day``, ``duration_s``,
+    ``active_energy_kcal``, ``distance_km``); ``types`` the per-session
+    canonical sport slug aligned to it (None entries = unrecognised). Returns
+    ``{window_start, window_end, current, previous, per_sport}`` where
+    ``current``/``previous`` hold ``sessions``/``duration_h``/``distance_km``/
+    ``energy_kcal`` totals and ``per_sport`` breaks the current window down per
+    recognised sport. None when there are no sessions at all; a window without
+    sessions yields zero totals (a training-free week is a real 0).
+    """
+    if sessions.empty:
+        return None
+    end = anchor if anchor is not None else sessions["day"].max()
+    start = end - pd.Timedelta(days=days - 1)
+
+    def _totals(frame: pd.DataFrame) -> dict:
+        return {
+            "sessions": int(len(frame)),
+            "duration_h": float(frame["duration_s"].fillna(0.0).sum() / 3600.0),
+            "distance_km": float(frame["distance_km"].fillna(0.0).sum()) if "distance_km" in frame else 0.0,
+            "energy_kcal": float(frame["active_energy_kcal"].fillna(0.0).sum()),
+        }
+
+    current = sessions[(sessions["day"] >= start) & (sessions["day"] <= end)]
+    prev_start = start - pd.Timedelta(days=days)
+    previous = sessions[(sessions["day"] >= prev_start) & (sessions["day"] < start)]
+
+    per_sport = []
+    if types is not None and not current.empty:
+        cur_types = types.loc[current.index]
+        for sport in sorted({t for t in cur_types if isinstance(t, str)}):
+            per_sport.append({"sport": sport, **_totals(current[cur_types == sport])})
+
+    return {
+        "window_start": start,
+        "window_end": end,
+        "current": _totals(current),
+        "previous": _totals(previous),
+        "per_sport": per_sport,
+    }
+
+
+def weekly_sleep_summary(sleep: pd.DataFrame, days: int = WEEK_PERIOD) -> dict | None:
+    """Weekly sleep averages off the per-night frame (``load_sleep_frame``).
+
+    Returns ``{window_start, window_end, current, previous}``; each window holds
+    ``nights``, ``avg_total_h``, ``avg_deep_h``/``avg_rem_h`` (+ their share of
+    total sleep), ``avg_efficiency`` and ``avg_bedtime`` (clock hour, circular
+    mean so bedtimes across midnight average correctly). Anchored on the last
+    night with a total — sleep is its own nightly cadence, an external anchor
+    would only cut off the most recent night. None without any night in the
+    current window.
+    """
+    if sleep.empty:
+        return None
+    total = sleep["total_sleep_h"].dropna()
+    if total.empty:
+        return None
+    end = total.index.max()
+    start = end - pd.Timedelta(days=days - 1)
+
+    def _stats(win: pd.DataFrame) -> dict | None:
+        tot = win["total_sleep_h"].dropna()
+        if tot.empty:
+            return None
+        out: dict = {"nights": int(len(tot)), "avg_total_h": float(tot.mean())}
+        for col, key in (("deep_h", "avg_deep_h"), ("rem_h", "avg_rem_h"), ("efficiency", "avg_efficiency")):
+            vals = win[col].dropna() if col in win else pd.Series(dtype="float64")
+            out[key] = float(vals.mean()) if not vals.empty else None
+        for key, pct_key in (("avg_deep_h", "deep_pct"), ("avg_rem_h", "rem_pct")):
+            out[pct_key] = (
+                out[key] / out["avg_total_h"] * 100.0 if out[key] is not None and out["avg_total_h"] > 0 else None
+            )
+        bed = win["bedtime"].dropna() if "bedtime" in win else pd.Series(dtype="float64")
+        out["avg_bedtime"] = float((circular_bedtime_offset(bed).mean() + 18.0) % 24.0) if not bed.empty else None
+        return out
+
+    current = _stats(sleep[(sleep.index >= start) & (sleep.index <= end)])
+    if current is None:
+        return None
+    previous = _stats(sleep[(sleep.index >= start - pd.Timedelta(days=days)) & (sleep.index < start)])
+    return {"window_start": start, "window_end": end, "current": current, "previous": previous}
+
+
+def weekly_stress_summary(daily: pd.DataFrame, days: int = WEEK_PERIOD) -> dict | None:
+    """Weekly stress profile off the ``stress_daily`` frame.
+
+    Returns ``{window_start, window_end, current, previous}``; each window holds
+    ``days`` (with a score), ``avg_score`` and the ``high_min``/``medium_min``
+    zone-minute totals; ``current`` adds the peak and calmest day. Anchored on
+    the frame's last day. None without a scored day in the current window.
+    """
+    if daily.empty:
+        return None
+    scored = daily["score"].dropna()
+    if scored.empty:
+        return None
+    end = scored.index.max()
+    start = end - pd.Timedelta(days=days - 1)
+
+    def _stats(win: pd.DataFrame) -> dict | None:
+        scores = win["score"].dropna()
+        if scores.empty:
+            return None
+        return {
+            "days": int(len(scores)),
+            "avg_score": float(scores.mean()),
+            "high_min": int(win["high_min"].sum()),
+            "medium_min": int(win["medium_min"].sum()),
+        }
+
+    cur_frame = daily[(daily.index >= start) & (daily.index <= end)]
+    current = _stats(cur_frame)
+    if current is None:
+        return None
+    cur_scores = cur_frame["score"].dropna()
+    current["peak_day"] = cur_scores.idxmax().date()
+    current["peak_score"] = float(cur_scores.max())
+    current["calm_day"] = cur_scores.idxmin().date()
+    current["calm_score"] = float(cur_scores.min())
+    previous = _stats(daily[(daily.index >= start - pd.Timedelta(days=days)) & (daily.index < start)])
+    return {"window_start": start, "window_end": end, "current": current, "previous": previous}
+
+
+def weekly_body_battery_summary(daily: pd.DataFrame, days: int = WEEK_PERIOD) -> dict | None:
+    """Weekly Body-Battery profile off the ``body_battery_daily`` frame.
+
+    Returns ``{window_start, window_end, current, previous}``; each window holds
+    ``days``, the mean wake/low/high levels and the mean daily charged/drained
+    totals; ``current`` adds the deepest trough and its day. Anchored on the
+    frame's last day. None without a day in the current window.
+    """
+    if daily.empty:
+        return None
+    end = daily.index.max()
+    start = end - pd.Timedelta(days=days - 1)
+
+    def _stats(win: pd.DataFrame) -> dict | None:
+        if win.empty:
+            return None
+        out: dict = {"days": int(len(win))}
+        for col, key in (
+            ("wake_level", "avg_wake"),
+            ("low_level", "avg_low"),
+            ("high_level", "avg_high"),
+            ("charged", "avg_charged"),
+            ("drained", "avg_drained"),
+        ):
+            vals = win[col].dropna()
+            out[key] = float(vals.mean()) if not vals.empty else None
+        return out
+
+    cur_frame = daily[(daily.index >= start) & (daily.index <= end)]
+    current = _stats(cur_frame)
+    if current is None:
+        return None
+    lows = cur_frame["low_level"].dropna()
+    if not lows.empty:
+        current["min_low"] = float(lows.min())
+        current["min_low_day"] = lows.idxmin().date()
+    previous = _stats(daily[(daily.index >= start - pd.Timedelta(days=days)) & (daily.index < start)])
+    return {"window_start": start, "window_end": end, "current": current, "previous": previous}
+
+
+def weekly_baseline_delta(
+    s: pd.Series,
+    days: int = WEEK_PERIOD,
+    baseline_days: int = 28,
+    min_week_days: int = 3,
+    min_baseline_days: int = 7,
+) -> dict | None:
+    """Weekly mean of a daily metric against its trailing baseline.
+
+    ``week_mean`` averages the trailing ``days`` window (anchored on the last
+    observation); ``baseline_mean`` averages the ``baseline_days`` immediately
+    before that window. None when either side has too few observed days to be
+    representative (``min_week_days``/``min_baseline_days``) — a sparse vital
+    should stay out of the report rather than anchor a misleading delta.
+    """
+    s = s.dropna()
+    if s.empty:
+        return None
+    end = s.index.max()
+    start = end - pd.Timedelta(days=days - 1)
+    week = s[(s.index >= start) & (s.index <= end)]
+    baseline = s[(s.index >= start - pd.Timedelta(days=baseline_days)) & (s.index < start)]
+    if len(week) < min_week_days or len(baseline) < min_baseline_days:
+        return None
+    week_mean = float(week.mean())
+    baseline_mean = float(baseline.mean())
+    out = {
+        "window_start": start,
+        "window_end": end,
+        "week_mean": week_mean,
+        "baseline_mean": baseline_mean,
+        "delta": week_mean - baseline_mean,
+        "week_days": int(len(week)),
+        "baseline_days": baseline_days,
+    }
+    if baseline_mean != 0:
+        out["delta_pct"] = (week_mean - baseline_mean) / abs(baseline_mean) * 100.0
+    return out
+
+
+def latest_marker_delta(s: pd.Series, min_gap_days: int = 28, long_gap_days: int | None = None) -> dict | None:
+    """Latest observation of a slow-moving marker plus its change over ~a month.
+
+    Returns ``{latest, latest_date, prev, prev_date, delta}`` where ``prev`` is
+    the most recent observation at least ``min_gap_days`` older than the latest
+    one (``prev``/``delta`` are None when history is too short). With
+    ``long_gap_days`` set, ``prev_long``/``prev_long_date``/``delta_long`` add
+    a second comparison over that longer gap (the monthly report's ~quarter
+    view). None for an empty series. Meant for markers like VO2 Max or body
+    mass, where the last reading and its drift say more than any window mean.
+    """
+    s = s.dropna()
+    if s.empty:
+        return None
+    latest_date = s.index.max()
+    out: dict = {"latest": float(s.loc[latest_date]), "latest_date": latest_date.date()}
+
+    def _compare(gap_days: int, key: str) -> None:
+        older = s[s.index <= latest_date - pd.Timedelta(days=gap_days)]
+        if older.empty:
+            out.update({key: None, f"{key}_date": None, f"delta{key.removeprefix('prev')}": None})
+            return
+        prev_date = older.index.max()
+        prev = float(older.loc[prev_date])
+        delta_key = f"delta{key.removeprefix('prev')}"
+        out.update({key: prev, f"{key}_date": prev_date.date(), delta_key: out["latest"] - prev})
+
+    _compare(min_gap_days, "prev")
+    if long_gap_days is not None:
+        _compare(long_gap_days, "prev_long")
+    return out

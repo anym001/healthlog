@@ -25,13 +25,27 @@ from .findings import (
     _consistency_findings,
     _correlation_findings,
     _decompose_all,
+    _fitness_marker_findings,
     _is_workout_load_family,
+    _monthly_activity_findings,
+    _monthly_body_battery_findings,
+    _monthly_sleep_findings,
+    _monthly_stress_findings,
+    _monthly_training_findings,
+    _monthly_vitals_findings,
     _recovery_findings,
     _stress_findings,
     _training_load_findings,
     _training_status_findings,
     _trend_and_seasonality_findings,
+    _weekly_activity_findings,
+    _weekly_body_battery_findings,
+    _weekly_sleep_findings,
+    _weekly_stress_findings,
+    _weekly_training_findings,
+    _weekly_vitals_findings,
     build_series,
+    series_anchor,
 )
 from .load import load_sleep_frame
 from .stress import run_stress
@@ -127,6 +141,34 @@ def run(db: Session, tz: str | None = None, config: AppConfig | None = None) -> 
     db.flush()
     body_battery = _guarded("body_battery", lambda: _body_battery_findings(db, computed_at, app_cfg.body_battery), [])
 
+    # Weekly/monthly summaries: descriptive status findings for the weekly and
+    # monthly reports (narrate --report weekly|monthly). Anchored on the last
+    # day holding any data, so a lagging export can't produce an empty window.
+    anchor = series_anchor(series)
+    weekly_training = _guarded(
+        "weekly_training", lambda: _weekly_training_findings(db, tz, series, computed_at, app_cfg.workouts, anchor), []
+    )
+    weekly_sleep = _guarded("weekly_sleep", lambda: _weekly_sleep_findings(sleep, computed_at), [])
+    weekly_stress = _guarded("weekly_stress", lambda: _weekly_stress_findings(db, computed_at, app_cfg.stress), [])
+    weekly_battery = _guarded(
+        "weekly_body_battery", lambda: _weekly_body_battery_findings(db, computed_at, app_cfg.body_battery), []
+    )
+    weekly_vitals = _guarded("weekly_vitals", lambda: _weekly_vitals_findings(series, computed_at), [])
+    weekly_activity = _guarded("weekly_activity", lambda: _weekly_activity_findings(series, computed_at, anchor), [])
+    monthly_training = _guarded(
+        "monthly_training",
+        lambda: _monthly_training_findings(db, tz, series, computed_at, app_cfg.workouts, anchor),
+        [],
+    )
+    monthly_sleep = _guarded("monthly_sleep", lambda: _monthly_sleep_findings(sleep, computed_at), [])
+    monthly_stress = _guarded("monthly_stress", lambda: _monthly_stress_findings(db, computed_at, app_cfg.stress), [])
+    monthly_battery = _guarded(
+        "monthly_body_battery", lambda: _monthly_body_battery_findings(db, computed_at, app_cfg.body_battery), []
+    )
+    monthly_vitals = _guarded("monthly_vitals", lambda: _monthly_vitals_findings(series, computed_at), [])
+    monthly_activity = _guarded("monthly_activity", lambda: _monthly_activity_findings(series, computed_at, anchor), [])
+    fitness_markers = _guarded("fitness_markers", lambda: _fitness_marker_findings(series, computed_at), [])
+
     db.execute(delete(Finding))  # snapshot: replace the previous run
     db.add_all(
         [
@@ -140,6 +182,19 @@ def run(db: Session, tz: str | None = None, config: AppConfig | None = None) -> 
             *training_status,
             *stress,
             *body_battery,
+            *weekly_training,
+            *weekly_sleep,
+            *weekly_stress,
+            *weekly_battery,
+            *weekly_vitals,
+            *weekly_activity,
+            *monthly_training,
+            *monthly_sleep,
+            *monthly_stress,
+            *monthly_battery,
+            *monthly_vitals,
+            *monthly_activity,
+            *fitness_markers,
         ]
     )
     db.flush()
@@ -163,6 +218,19 @@ def run(db: Session, tz: str | None = None, config: AppConfig | None = None) -> 
         training_status=len(training_status),
         stress=len(stress),
         body_battery=len(body_battery),
+        weekly_training=len(weekly_training),
+        weekly_sleep=len(weekly_sleep),
+        weekly_stress=len(weekly_stress),
+        weekly_body_battery=len(weekly_battery),
+        weekly_vitals=len(weekly_vitals),
+        weekly_activity=len(weekly_activity),
+        monthly_training=len(monthly_training),
+        monthly_sleep=len(monthly_sleep),
+        monthly_stress=len(monthly_stress),
+        monthly_body_battery=len(monthly_battery),
+        monthly_vitals=len(monthly_vitals),
+        monthly_activity=len(monthly_activity),
+        fitness_markers=len(fitness_markers),
     )
 
 

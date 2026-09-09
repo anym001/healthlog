@@ -385,12 +385,19 @@ def test_run_dry_run_renders_context_without_ollama(tmp_path, monkeypatch, capsy
     monkeypatch.setattr(
         narrate_cli,
         "load_findings",
-        lambda _db, _lookback: [_finding("anomaly", details={"z": 3.9, "value": 72.5}, severity=3.9)],
+        lambda _db, _lookback, report="status": [_finding("anomaly", details={"z": 3.9, "value": 72.5}, severity=3.9)],
     )
     monkeypatch.setattr(narrate_cli, "OllamaClient", _no_client)
 
     args = argparse.Namespace(
-        lookback_days=None, output_dir=None, language=None, audience=None, max_words=None, note=None, dry_run=True
+        lookback_days=None,
+        output_dir=None,
+        language=None,
+        audience=None,
+        max_words=None,
+        note=None,
+        dry_run=True,
+        report=None,
     )
     rc = narrate_cli.run(args)
 
@@ -760,3 +767,516 @@ def test_build_context_body_battery_empty_placeholder():
 def test_system_prompt_documents_body_battery_both_languages():
     assert "Body Battery" in _system_prompt("de")
     assert "Body Battery" in _system_prompt("en")
+
+
+# ---------------------------------------------------------------------------
+# Week/month-overview sections (narrate --report weekly|monthly)
+# ---------------------------------------------------------------------------
+
+
+def _weekly_training_finding() -> dict:
+    return _finding(
+        "weekly_training",
+        metric_a="workout_trimp",
+        metric_a_label="Training Load (TRIMP)",
+        window_start=dt.date(2026, 6, 16),
+        window_end=dt.date(2026, 6, 22),
+        details={
+            "sessions": 4,
+            "duration_h": 4.5,
+            "distance_km": 52.3,
+            "energy_kcal": 2100,
+            "load": 350.0,
+            "prev": {"sessions": 3, "duration_h": 2.9, "distance_km": 30.0, "energy_kcal": 1500, "load": 250.0},
+            "baseline_load": 280.0,
+            "per_sport": [
+                {
+                    "sport": "running",
+                    "sessions": 2,
+                    "duration_h": 2.0,
+                    "distance_km": 22.3,
+                    "energy_kcal": 1200,
+                    "load": 200.0,
+                },
+                {
+                    "sport": "cycling",
+                    "sessions": 2,
+                    "duration_h": 2.5,
+                    "distance_km": 30.0,
+                    "energy_kcal": 900,
+                    "load": 150.0,
+                },
+            ],
+        },
+    )
+
+
+def test_build_context_weekly_training_section():
+    ctx = build_context([_weekly_training_finding()], 7, _TODAY, report="weekly")
+    assert "=== WOCHE: TRAINING ===" in ctx
+    assert "4 Einheiten" in ctx
+    assert "Last=350 (Training Load (TRIMP))" in ctx
+    assert "Vorwoche: 3 Einheiten" in ctx
+    assert "4-Wochen-Schnitt Last=280/Woche" in ctx
+    assert "– Running: 2 Einheiten" in ctx
+    assert "52.3 km" in ctx
+
+
+def test_build_context_weekly_sections_absent_without_flag():
+    # The same findings render nothing in status mode: the overview blocks
+    # are only assembled for the weekly/monthly reports.
+    ctx = build_context([_weekly_training_finding()], 7, _TODAY, report="status")
+    assert "WOCHE" not in ctx
+    ctx_en = build_context([_weekly_training_finding()], 7, _TODAY, language="en", report="status")
+    assert "WEEK:" not in ctx_en
+
+
+def test_build_context_weekly_placeholders_when_no_data():
+    ctx = build_context([], 7, _TODAY, report="weekly")
+    for header in (
+        "=== WOCHE: TRAINING ===",
+        "=== WOCHE: SCHLAF ===",
+        "=== WOCHE: STRESS ===",
+        "=== WOCHE: BODY BATTERY ===",
+        "=== WOCHE: VITALWERTE (vs. 28-Tage-Baseline) ===",
+        "=== WOCHE: AKTIVITÄT ===",
+        "=== FITNESS-MARKER ===",
+    ):
+        assert header in ctx
+
+
+def test_build_context_weekly_sleep_formats_bedtime_clock():
+    f = _finding(
+        "weekly_sleep",
+        metric_a="sleep_total_h",
+        metric_a_label="Total Sleep",
+        window_start=dt.date(2026, 6, 16),
+        window_end=dt.date(2026, 6, 22),
+        details={
+            "nights": 7,
+            "avg_total_h": 7.25,
+            "avg_deep_h": 1.1,
+            "avg_rem_h": 1.5,
+            "deep_pct": 15.2,
+            "rem_pct": 20.7,
+            "avg_efficiency": 0.92,
+            "avg_bedtime": 23.17,
+            "prev": {"nights": 6, "avg_total_h": 6.8, "avg_efficiency": 0.9},
+        },
+    )
+    ctx = build_context([f], 7, _TODAY, report="weekly")
+    assert "Ø Schlaf=7.25h" in ctx
+    assert "Ø Zubettgehen=23:10" in ctx
+    assert "Effizienz=92%" in ctx
+    assert "Vorwoche: Ø 6.80h, Effizienz 90%" in ctx
+
+
+def test_build_context_weekly_stress_and_battery_sections():
+    stress = _finding(
+        "weekly_stress",
+        metric_a="stress",
+        metric_a_label="Stress",
+        window_start=dt.date(2026, 6, 16),
+        window_end=dt.date(2026, 6, 22),
+        details={
+            "days": 7,
+            "avg_score": 38.0,
+            "high_min": 45,
+            "medium_min": 120,
+            "peak_day": "2026-06-20",
+            "peak_score": 62.0,
+            "calm_day": "2026-06-17",
+            "calm_score": 21.0,
+            "prev": {"days": 7, "avg_score": 42.0, "high_min": 80},
+        },
+    )
+    battery = _finding(
+        "weekly_body_battery",
+        metric_a="body_battery",
+        metric_a_label="Body Battery",
+        window_start=dt.date(2026, 6, 16),
+        window_end=dt.date(2026, 6, 22),
+        details={
+            "days": 7,
+            "avg_wake": 78.0,
+            "avg_low": 25.0,
+            "avg_high": 88.0,
+            "avg_charged": 68.0,
+            "avg_drained": 70.0,
+            "min_low": 12.0,
+            "min_low_day": "2026-06-19",
+            "prev": {"days": 7, "avg_wake": 74.0, "avg_low": 22.0},
+        },
+    )
+    ctx = build_context([stress, battery], 7, _TODAY, report="weekly")
+    assert "Ø Score=38 (niedrig)" in ctx
+    assert "Spitzentag=2026-06-20 (Score 62)" in ctx
+    assert "Vorwoche: Ø 42, Hochstress 80 min" in ctx
+    assert "Ø Weckstand=78" in ctx
+    assert "Tiefstwert=12 (2026-06-19)" in ctx
+    assert "Vorwoche: Weckstand 74, Tief 22" in ctx
+
+
+def test_build_context_weekly_vitals_activity_markers():
+    vitals = _finding(
+        "weekly_vitals",
+        metric_a="resting_heart_rate",
+        metric_a_label="Resting Heart Rate",
+        window_start=dt.date(2026, 6, 16),
+        window_end=dt.date(2026, 6, 22),
+        details={
+            "week_mean": 52.1,
+            "baseline_mean": 50.3,
+            "delta": 1.8,
+            "delta_pct": 3.6,
+            "week_days": 7,
+            "baseline_days": 28,
+            "unit": "count/min",
+        },
+    )
+    activity = _finding(
+        "weekly_activity",
+        metric_a="step_count",
+        metric_a_label="Steps",
+        window_start=dt.date(2026, 6, 16),
+        window_end=dt.date(2026, 6, 22),
+        details={
+            "total": 68500.0,
+            "daily_avg": 9786.0,
+            "days": 7,
+            "prev_total": 61200.0,
+            "baseline_weekly": 64000.0,
+            "unit": "count",
+        },
+    )
+    marker = _finding(
+        "fitness_markers",
+        metric_a="vo2_max",
+        metric_a_label="VO2 Max",
+        details={
+            "latest": 43.2,
+            "latest_date": "2026-06-20",
+            "prev": 42.8,
+            "prev_date": "2026-05-18",
+            "delta": 0.4,
+            "unit": "ml/(kg·min)",
+        },
+    )
+    ctx = build_context([vitals, activity, marker], 7, _TODAY, report="weekly")
+    assert "Resting Heart Rate: Wochenmittel=52.1 count/min, Baseline=50.3 count/min, Δ=+1.8, +3.6%" in ctx
+    assert "Steps: gesamt=68500.0 count, Ø 9786.0/Tag, Vorwoche 61200.0, 4-Wochen-Schnitt 64000.0/Woche" in ctx
+    assert "VO2 Max: 43.2 ml/(kg·min) am 2026-06-20 (Δ=+0.40 vs. 2026-05-18)" in ctx
+
+
+def test_build_context_weekly_english_labels():
+    ctx = build_context([_weekly_training_finding()], 7, _TODAY, language="en", report="weekly")
+    assert "=== WEEK: TRAINING ===" in ctx
+    assert "4 sessions" in ctx
+    assert "previous week: 3 sessions" in ctx
+    assert "4-week average load=280/week" in ctx
+
+
+def test_system_prompt_weekly_swaps_structure():
+    daily = _system_prompt("de")
+    weekly = _system_prompt("de", report="weekly")
+    assert "Wochenübersicht" not in daily
+    assert "Wochenübersicht" in weekly
+    assert "Wochenbilanz" in weekly
+    assert "Fitness-Marker" in weekly
+    # The safety rules survive in both modes.
+    assert "keine erfundenen Zahlen" in weekly
+
+    weekly_en = _system_prompt("en", report="weekly")
+    assert "Week overview" in weekly_en
+    assert "Week review" in weekly_en
+
+
+def test_load_findings_weekly_kinds_only_with_flag(db):
+    from app.models import Finding
+    from app.narrate import load_findings
+
+    db.add(Finding(kind="weekly_training", metric_a="workout_trimp", ref_date=dt.date(2026, 6, 22)))
+    db.add(Finding(kind="fitness_markers", metric_a="vo2_max", ref_date=dt.date(2026, 6, 20)))
+    db.add(Finding(kind="correlation", metric_a="step_count", metric_b="resting_heart_rate"))
+    db.flush()
+
+    daily_kinds = {r["kind"] for r in load_findings(db, 7)}
+    assert "weekly_training" not in daily_kinds
+    assert "fitness_markers" not in daily_kinds
+    assert "correlation" in daily_kinds
+
+    weekly_kinds = {r["kind"] for r in load_findings(db, 7, report="weekly")}
+    assert {"weekly_training", "fitness_markers", "correlation"} <= weekly_kinds
+    # The hand-wired label map applies to the weekly kinds too.
+    rows = load_findings(db, 7, report="weekly")
+    training = next(r for r in rows if r["kind"] == "weekly_training")
+    assert training["metric_a_label"] == "Training Load (TRIMP)"
+
+
+# ---------------------------------------------------------------------------
+# Monthly report (build_context report="monthly", prompts, loader, filenames)
+# ---------------------------------------------------------------------------
+
+
+def _monthly_training_finding() -> dict:
+    return _finding(
+        "monthly_training",
+        metric_a="workout_trimp",
+        metric_a_label="Training Load (TRIMP)",
+        window_start=dt.date(2026, 5, 26),
+        window_end=dt.date(2026, 6, 22),
+        details={
+            "sessions": 14,
+            "duration_h": 16.5,
+            "distance_km": 182.0,
+            "energy_kcal": 8400,
+            "load": 990.0,
+            "prev": {"sessions": 12, "duration_h": 14.0, "distance_km": 150.0, "energy_kcal": 7000, "load": 850.0},
+            "baseline_load": 880.0,
+            "weeks": [
+                {"start": "2026-05-26", "end": "2026-06-01", "sessions": 3, "load": 220.0},
+                {"start": "2026-06-02", "end": "2026-06-08", "sessions": 4, "load": 260.0},
+                {"start": "2026-06-09", "end": "2026-06-15", "sessions": 5, "load": 330.0},
+                {"start": "2026-06-16", "end": "2026-06-22", "sessions": 2, "load": 180.0},
+            ],
+            "per_sport": [
+                {"sport": "running", "sessions": 8, "duration_h": 8.0, "distance_km": 80.0, "load": 600.0},
+            ],
+        },
+    )
+
+
+def test_build_context_monthly_training_section():
+    ctx = build_context([_monthly_training_finding()], 28, _TODAY, report="monthly")
+    assert "=== MONAT: TRAINING ===" in ctx
+    assert "14 Einheiten" in ctx
+    assert "Vormonat: 12 Einheiten" in ctx
+    assert "3-Monats-Schnitt Last=880/Monat" in ctx
+    assert "Wochenverlauf: Last 220 → 260 → 330 → 180, Einheiten 3 → 4 → 5 → 2" in ctx
+    assert "– Running: 8 Einheiten" in ctx
+
+
+def test_build_context_monthly_training_english_labels():
+    ctx = build_context([_monthly_training_finding()], 28, _TODAY, language="en", report="monthly")
+    assert "=== MONTH: TRAINING ===" in ctx
+    assert "previous month: 12 sessions" in ctx
+    assert "3-month average load=880/month" in ctx
+    assert "week by week: load 220 → 260 → 330 → 180, sessions 3 → 4 → 5 → 2" in ctx
+
+
+def test_build_context_report_modes_keep_their_own_kinds():
+    weekly_f = _finding("weekly_training", details={"sessions": 4, "duration_h": 4.0})
+    monthly_f = _monthly_training_finding()
+    # Weekly mode renders only weekly_*; the monthly finding stays invisible.
+    ctx_weekly = build_context([weekly_f, monthly_f], 7, _TODAY, report="weekly")
+    assert "=== WOCHE: TRAINING ===" in ctx_weekly
+    assert "MONAT" not in ctx_weekly
+    # Monthly mode renders only monthly_*.
+    ctx_monthly = build_context([weekly_f, monthly_f], 28, _TODAY, report="monthly")
+    assert "=== MONAT: TRAINING ===" in ctx_monthly
+    assert "WOCHE:" not in ctx_monthly
+    # The status report renders neither.
+    ctx_status = build_context([weekly_f, monthly_f], 7, _TODAY)
+    assert "WOCHE" not in ctx_status and "MONAT" not in ctx_status
+
+
+def test_build_context_monthly_placeholders_when_no_data():
+    ctx = build_context([], 28, _TODAY, report="monthly")
+    for header in (
+        "=== MONAT: TRAINING ===",
+        "=== MONAT: SCHLAF ===",
+        "=== MONAT: STRESS ===",
+        "=== MONAT: BODY BATTERY ===",
+        "=== MONAT: VITALWERTE (vs. 84-Tage-Baseline) ===",
+        "=== MONAT: AKTIVITÄT ===",
+        "=== FITNESS-MARKER ===",
+    ):
+        assert header in ctx
+
+
+def test_build_context_monthly_vitals_and_activity():
+    vitals = _finding(
+        "monthly_vitals",
+        metric_a="resting_heart_rate",
+        metric_a_label="Resting Heart Rate",
+        window_start=dt.date(2026, 5, 26),
+        window_end=dt.date(2026, 6, 22),
+        details={
+            "month_mean": 52.1,
+            "baseline_mean": 50.3,
+            "delta": 1.8,
+            "delta_pct": 3.6,
+            "month_days": 28,
+            "baseline_days": 84,
+            "unit": "count/min",
+            "weeks": [
+                {"start": "2026-05-26", "end": "2026-06-01", "mean": 51.0},
+                {"start": "2026-06-02", "end": "2026-06-08", "mean": 52.0},
+                {"start": "2026-06-09", "end": "2026-06-15", "mean": 52.5},
+                {"start": "2026-06-16", "end": "2026-06-22", "mean": 53.0},
+            ],
+        },
+    )
+    activity = _finding(
+        "monthly_activity",
+        metric_a="step_count",
+        metric_a_label="Steps",
+        window_start=dt.date(2026, 5, 26),
+        window_end=dt.date(2026, 6, 22),
+        details={
+            "total": 280000.0,
+            "daily_avg": 10000.0,
+            "days": 28,
+            "prev_total": 250000.0,
+            "baseline_monthly": 260000.0,
+            "unit": "count",
+            "weeks": [
+                {"start": "2026-05-26", "end": "2026-06-01", "total": 61000.0},
+                {"start": "2026-06-02", "end": "2026-06-08", "total": 72000.0},
+                {"start": "2026-06-09", "end": "2026-06-15", "total": 78000.0},
+                {"start": "2026-06-16", "end": "2026-06-22", "total": 69000.0},
+            ],
+        },
+    )
+    ctx = build_context([vitals, activity], 28, _TODAY, report="monthly")
+    assert "Resting Heart Rate: Monatsmittel=52.1 count/min, Baseline=50.3 count/min, Δ=+1.8, +3.6%" in ctx
+    assert "Wochenverlauf: 51.0 → 52.0 → 52.5 → 53.0" in ctx
+    assert "Steps: gesamt=280000.0 count, Ø 10000.0/Tag, Vormonat 250000.0, 3-Monats-Schnitt 260000.0/Monat" in ctx
+    assert "Wochenverlauf: 61000 → 72000 → 78000 → 69000" in ctx
+
+
+def test_build_context_monthly_fitness_markers_quarter_delta():
+    marker = _finding(
+        "fitness_markers",
+        metric_a="vo2_max",
+        metric_a_label="VO2 Max",
+        details={
+            "latest": 43.2,
+            "latest_date": "2026-06-20",
+            "prev": 42.8,
+            "prev_date": "2026-05-18",
+            "delta": 0.4,
+            "prev_90d": 42.0,
+            "prev_90d_date": "2026-03-15",
+            "delta_90d": 1.2,
+            "unit": "ml/(kg·min)",
+        },
+    )
+    ctx = build_context([marker], 28, _TODAY, report="monthly")
+    assert "VO2 Max: 43.2 ml/(kg·min) am 2026-06-20 (Δ=+0.40 vs. 2026-05-18, Δ90d=+1.20 vs. 2026-03-15)" in ctx
+    # The weekly report keeps the shorter month-over-month view only.
+    ctx_weekly = build_context([marker], 7, _TODAY, report="weekly")
+    assert "Δ90d" not in ctx_weekly
+
+
+def test_system_prompt_report_types():
+    status = _system_prompt("de")
+    weekly = _system_prompt("de", report="weekly")
+    monthly = _system_prompt("de", report="monthly")
+    # Distinct intros: the status check no longer calls itself a weekly report.
+    assert "Status-Check" in status
+    assert "Wochen-Gesundheitsbericht" not in status
+    assert "Wochen-Gesundheitsbericht" in weekly
+    assert "Monats-Gesundheitsbericht" in monthly
+    # Monthly overview + structure.
+    assert "Monatsübersicht" in monthly
+    assert "Monatsbilanz" in monthly
+    assert "Wochenverlauf" in monthly
+    # The safety rules survive in every report type.
+    for p in (status, weekly, monthly):
+        assert "keine erfundenen Zahlen" in p
+    # Unknown report types fall back to the status check.
+    assert _system_prompt("de", report="quarterly") == status
+
+    monthly_en = _system_prompt("en", report="monthly")
+    assert "Month overview" in monthly_en
+    assert "Month review" in monthly_en
+
+
+def test_write_report_filename_per_report_type(tmp_path):
+    day = dt.date(2026, 6, 22)
+    assert write_report("s", tmp_path, day).name == "2026-06-22.md"
+    assert write_report("s", tmp_path, day, "status").name == "2026-06-22.md"
+    assert write_report("w", tmp_path, day, "weekly").name == "2026-06-22-weekly.md"
+    assert write_report("m", tmp_path, day, "monthly").name == "2026-06-22-monthly.md"
+
+
+def test_load_findings_monthly_kinds_only_with_monthly_report(db):
+    from app.models import Finding
+    from app.narrate import load_findings
+
+    db.add(Finding(kind="monthly_training", metric_a="workout_trimp", ref_date=dt.date(2026, 6, 22)))
+    db.add(Finding(kind="weekly_training", metric_a="workout_trimp", ref_date=dt.date(2026, 6, 22)))
+    db.add(Finding(kind="fitness_markers", metric_a="vo2_max", ref_date=dt.date(2026, 6, 20)))
+    db.flush()
+
+    status_kinds = {r["kind"] for r in load_findings(db, 7)}
+    assert not status_kinds & {"monthly_training", "weekly_training", "fitness_markers"}
+
+    weekly_kinds = {r["kind"] for r in load_findings(db, 7, report="weekly")}
+    assert "weekly_training" in weekly_kinds and "fitness_markers" in weekly_kinds
+    assert "monthly_training" not in weekly_kinds
+
+    monthly_kinds = {r["kind"] for r in load_findings(db, 7, report="monthly")}
+    assert "monthly_training" in monthly_kinds and "fitness_markers" in monthly_kinds
+    assert "weekly_training" not in monthly_kinds
+    # The hand-wired label map applies to the monthly kinds too.
+    rows = load_findings(db, 7, report="monthly")
+    training = next(r for r in rows if r["kind"] == "monthly_training")
+    assert training["metric_a_label"] == "Training Load (TRIMP)"
+
+
+def test_report_flag_parsing():
+    parser = argparse.ArgumentParser()
+    add_arguments(parser)
+    assert parser.parse_args([]).report is None  # config decides (default: status)
+    assert parser.parse_args(["--report", "weekly"]).report == "weekly"
+    assert parser.parse_args(["--weekly"]).report == "weekly"
+    assert parser.parse_args(["--monthly"]).report == "monthly"
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--weekly", "--monthly"])  # mutually exclusive
+
+
+def test_run_dry_run_monthly_applies_per_report_defaults(tmp_path, monkeypatch, capsys):
+    """--monthly widens the alert lookback to the 28-day month window when
+    neither --lookback-days nor narrate.lookback_days pins it."""
+    import app.database as database_mod
+    import app.narrate.cli as narrate_cli
+    from app.appconfig import AppConfig
+
+    class _Settings:
+        log_level = "INFO"
+        log_format = "text"
+        config_file = str(tmp_path / "config.yaml")
+
+    class _DB:
+        def close(self):
+            pass
+
+    seen: dict = {}
+
+    def _capture(_db, lookback, report="status"):
+        seen["lookback"] = lookback
+        seen["report"] = report
+        return []
+
+    monkeypatch.setattr(narrate_cli, "bootstrap", lambda: _Settings())
+    monkeypatch.setattr(narrate_cli, "load_config", lambda _path: AppConfig())
+    monkeypatch.setattr(database_mod, "SessionLocal", lambda: _DB())
+    monkeypatch.setattr(narrate_cli, "load_findings", _capture)
+
+    args = argparse.Namespace(
+        lookback_days=None,
+        output_dir=None,
+        language=None,
+        audience=None,
+        max_words=None,
+        note=None,
+        dry_run=True,
+        report="monthly",
+    )
+    rc = narrate_cli.run(args)
+    capsys.readouterr()
+
+    assert rc == 0
+    assert seen == {"lookback": 28, "report": "monthly"}

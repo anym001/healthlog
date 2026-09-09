@@ -407,6 +407,18 @@ where a finding carries one, e.g. an anomaly's reading). It is sent **only to th
 Ollama endpoint you configure** (`narrate.ollama_url`) — point it at a machine in
 your own network to keep the data local.
 
+There are **three report types**, selected with `--report` (or its shorthands
+`--weekly` / `--monthly`; the default comes from `narrate.report` in
+`config.yaml`, falling back to `status`):
+
+- **`status`** — a short exception check over the lookback window: "is anything
+  notable right now?" Alerts plus the standing analyses; on a quiet day it says
+  so briefly.
+- **`weekly`** — the week review: additionally receives the descriptive week
+  summaries and leads the report with them (see below).
+- **`monthly`** — the month review: the same summaries over rolling 28-day
+  windows, including the month's week-by-week course.
+
 ```bash
 docker exec healthlog healthlog narrate
 # With an optional focus note:
@@ -417,12 +429,18 @@ docker exec healthlog healthlog narrate --language de --lookback-days 14
 docker exec healthlog healthlog narrate --audience expert
 # One-off short summary:
 docker exec healthlog healthlog narrate --max-words 300
+# Week review: lead with the descriptive week summaries (see below):
+docker exec healthlog healthlog narrate --weekly
+# Month review: rolling 28-day windows with the week-by-week course:
+docker exec healthlog healthlog narrate --monthly
 # Inspect what the model would receive — no Ollama call, no report written:
 docker exec healthlog healthlog narrate --dry-run
 ```
 
-The report is printed to stdout and written to `/config/narration/YYYY-MM-DD.md`
-(the directory is created on first use). It is **off until you set
+The report is printed to stdout and written to
+`/config/narration/YYYY-MM-DD.md` (`…-weekly.md` / `…-monthly.md` for the
+reviews, so reports produced on the same day don't overwrite each other; the
+directory is created on first use). It is **off until you set
 `narrate.ollama_url`** in `config.yaml`.
 
 `--dry-run` prints the exact findings context that *would* be sent —
@@ -437,15 +455,39 @@ rate) directly but translates statistics and model terms (ACWR, z-score) on
 first use, `expert` writes for a reader fluent in statistics and training
 terminology.
 The level changes the explanation depth, never the content — every level
-narrates the same findings. `narrate.max_words` (default 700) sets the word
-budget independently. All of it can be overridden per report (`--audience`,
-`--language`, `--max-words`).
+narrates the same findings. `narrate.max_words` sets the word budget
+independently; unset, it defaults per report type (status 300, weekly 700,
+monthly 1000), and the same applies to `narrate.lookback_days` (7 days; 28 for
+monthly). All of it can be overridden per report (`--audience`, `--language`,
+`--max-words`, `--lookback-days`).
 
 To keep the report focused, only the highest-priority correlations are narrated
 (cross-domain links — e.g. training load vs next-day respiratory rate — rank
 above expected within-subsystem pairs like total vs deep sleep); the rest are
 summarised as a count. Tune the cap with `narrate.max_correlations` (default 15,
 `0` = narrate them all).
+
+**`--weekly`** turns the report into a week review: in addition to the
+alert-based findings, the model receives the descriptive week summaries the
+nightly analysis computes — training volume (sessions, duration, distance,
+energy and weekly load, overall and per sport), sleep averages (duration,
+deep/REM shares, efficiency, bedtime), the stress and Body-Battery week
+profiles, weekly resting-heart-rate/HRV means against their 28-day baseline,
+activity totals (steps, active energy, exercise minutes, daylight) and the
+slow fitness markers (VO2 Max, cardio recovery, body mass with their ~monthly
+change) — each compared to the previous week. The report then leads with the
+week review before interpreting alerts. All windows are trailing 7 days ending
+on the last day with data, so the flag works on any weekday. Combine with
+`--dry-run` to inspect the weekly context.
+
+**`--monthly`** is the same review over a rolling "month" of 28 days (exactly
+four full weeks, so every weekday is represented equally): totals and averages
+against the previous 28 days and a 3-month baseline, plus a **week-by-week
+course** in every section (e.g. training load `220 → 260 → 330 → 180`) so the
+report can tell the month's development — build-up, recovery week, breaks —
+instead of just its sums. The fitness markers additionally carry their
+~quarter (90-day) change. It also widens the alert lookback to 28 days by
+default, matching the month window.
 
 ### Running Ollama for narration
 
@@ -541,9 +583,10 @@ It holds:
   default on). A `type_map` adds a per-sport load series per mapped type, so one
   sport's lagged effect is told apart from another's; unmapped workouts still feed
   the type-agnostic aggregate.
-- **`narrate`** — Ollama endpoint, model, report language, `audience`
-  (explanation depth: `simple`/`standard`/`expert`), `max_words`, lookback,
-  timeout and `thinking` mode. Off until `ollama_url` is set (see
+- **`narrate`** — Ollama endpoint, model, `report` type
+  (`status`/`weekly`/`monthly`), report language, `audience` (explanation
+  depth: `simple`/`standard`/`expert`), `max_words`, lookback, timeout and
+  `thinking` mode. Off until `ollama_url` is set (see
   [LLM narration](#llm-narration)).
 - **`notify`** — push notifications (see below).
 

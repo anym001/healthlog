@@ -111,7 +111,9 @@ class AnalysisConfig(BaseModel):
     # Anomaly
     anomaly_window: int = Field(default=28, ge=2)
     anomaly_threshold: float = Field(default=3.5, gt=0.0)
-    anomaly_recent_days: int = Field(default=14, ge=1)
+    # 31 so the stored snapshot covers the monthly report's 28-day lookback;
+    # the daily/weekly narration filters to its own shorter window anyway.
+    anomaly_recent_days: int = Field(default=31, ge=1)
     # Global-corroboration floor for anomalies. The rolling z flags a day against
     # the *recent* window; that inflates when the window is unusually calm (a hard
     # workout after a taper scores z>20 yet is a normal day vs the athlete's whole
@@ -143,8 +145,8 @@ class AnalysisConfig(BaseModel):
     # practised sport is kept, a one-off cluster of the same kind is not).
     # 0 disables the guard.
     seasonality_reproducibility_min: float = Field(default=0.30, ge=0.0, le=1.0)
-    # Recovery early-warning
-    recovery_recent_days: int = Field(default=14, ge=1)
+    # Recovery early-warning (recent_days: 31, matching anomaly_recent_days)
+    recovery_recent_days: int = Field(default=31, ge=1)
     recovery_z: float = Field(default=1.5, gt=0.0)
     recovery_sleep_z: float = Field(default=-1.0)
     # Consistency
@@ -216,9 +218,10 @@ class StressConfig(BaseModel):
     # score is stored; a mostly-unworn day yields no row (gap, not a zero).
     min_measured_min: int = Field(default=60, ge=0)
     # Daily score at/above which a high-stress alert finding is emitted, and how
-    # recent a day must be to alert (mirrors the recovery early-warning).
+    # recent a day must be to alert (mirrors the recovery early-warning; 31 so
+    # the snapshot covers the monthly report's 28-day lookback).
     alert_score: float = Field(default=60.0, ge=0.0, le=100.0)
-    alert_recent_days: int = Field(default=14, ge=1)
+    alert_recent_days: int = Field(default=31, ge=1)
 
     @model_validator(mode="after")
     def _check(self) -> StressConfig:
@@ -283,9 +286,9 @@ class BodyBatteryConfig(BaseModel):
     # 0 disables the gate.
     min_measured_min: int = Field(default=60, ge=0)
     # Day whose lowest level reaches at/below this emits a low-battery alert
-    # finding; how recent a day must be to alert.
+    # finding; how recent a day must be to alert (31, like stress).
     alert_level: float = Field(default=20.0, ge=0.0, le=100.0)
-    alert_recent_days: int = Field(default=14, ge=1)
+    alert_recent_days: int = Field(default=31, ge=1)
 
 
 NotifyEvent = Literal["ingest", "analysis", "findings"]
@@ -334,6 +337,14 @@ class NarrateConfig(BaseModel):
     ollama_url: str | None = None
     # Ollama model identifier.
     model: str = "qwen2.5:14b"
+    # Which report a bare ``healthlog narrate`` produces (--report overrides):
+    #   status  → short exception check: alerts of the lookback window plus the
+    #             standing analyses ("is anything notable right now?")
+    #   weekly  → the week review: adds the descriptive WEEK sections and leads
+    #             the report with them
+    #   monthly → the month review: adds the MONTH sections (28-day windows
+    #             with a week-by-week course)
+    report: Literal["status", "weekly", "monthly"] = "status"
     # Report language. "en" = English, "de" = German.
     language: Literal["de", "en"] = "en"
     # Audience the report is written for — selects a curated style block in the
@@ -343,12 +354,15 @@ class NarrateConfig(BaseModel):
     #   standard → plain language, every technical term translated on first use
     #   expert   → technical vocabulary and statistics used directly
     audience: Literal["simple", "standard", "expert"] = "standard"
-    # Soft word budget the model is instructed to stay within.
-    max_words: int = Field(default=700, ge=100, le=3000)
+    # Soft word budget the model is instructed to stay within. Unset = a
+    # per-report default (status 300, weekly 700, monthly 1000) — set a number
+    # to use the same budget for every report type.
+    max_words: int | None = Field(default=None, ge=100, le=3000)
     # How far back to look for ref_date-based findings (anomaly, recovery_alert,
     # training_load). Time-independent kinds (correlation, trend, seasonality,
     # consistency) are always included — they represent the current state.
-    lookback_days: int = Field(default=7, ge=1, le=90)
+    # Unset = a per-report default (7 days; 28 for monthly).
+    lookback_days: int | None = Field(default=None, ge=1, le=90)
     # HTTP timeout in seconds for the Ollama call — generation can be slow.
     timeout_s: int = Field(default=300, ge=10, le=3600)
     # Layer-2 curation: cap the correlations passed to the LLM at this many,

@@ -33,6 +33,20 @@ Findings (ARCHITECTURE.md §4.8), all derived, never medical advice:
 - body_battery   alert-only low-battery day; the continuous 0-100 energy-reserve
                  timeline + daily summary live in the body-battery tables (see
                  body_battery.py, §4.10).
+- weekly_*       descriptive week summaries for the weekly report (narrate
+                 --report weekly): weekly_training (session volume + load
+                 totals), weekly_sleep (nightly averages), weekly_stress /
+                 weekly_body_battery (week profile off the daily tables),
+                 weekly_vitals (RHR/HRV week mean vs 28-day baseline),
+                 weekly_activity (steps/energy/exercise/daylight totals).
+                 Status findings like training_status — written every run.
+- monthly_*      the monthly analogues (narrate --report monthly): rolling
+                 28-day windows (previous month = the 28 days before, baseline
+                 = mean of the three prior windows), each with a per-week
+                 ``weeks`` breakdown so the report can tell the month's course.
+- fitness_markers  latest VO2 Max / cardio recovery / body mass reading plus
+                 its ~monthly drift and ~quarter (90-day) comparison (slow
+                 markers, no weekly window; shared by both report types).
 """
 
 from __future__ import annotations
@@ -60,6 +74,7 @@ from .constants import (
     HR_REST_WINDOW,
     MAX_LAG,
     MIN_OVERLAP,
+    MONTH_PERIOD,
     RECOVERY_RECENT_DAYS,
     RECOVERY_SLEEP_Z,
     RECOVERY_Z,
@@ -85,11 +100,18 @@ from .findings import (
     _dedupe_workout_anomalies,
     _detrended_series,
     _emit_edwards,
+    _fitness_marker_findings,
     _is_activity_volume,
     _is_redundant_activity_pair,
     _is_workout_load_family,
     _load_columns,
     _metric_domain,
+    _monthly_activity_findings,
+    _monthly_body_battery_findings,
+    _monthly_sleep_findings,
+    _monthly_stress_findings,
+    _monthly_training_findings,
+    _monthly_vitals_findings,
     _pair_tier,
     _recovery_findings,
     _residual_for_correlation,
@@ -98,10 +120,17 @@ from .findings import (
     _training_load_targets,
     _training_status_findings,
     _trend_and_seasonality_findings,
+    _weekly_activity_findings,
+    _weekly_body_battery_findings,
+    _weekly_sleep_findings,
+    _weekly_stress_findings,
+    _weekly_training_findings,
+    _weekly_vitals_findings,
     build_series,
     build_workout_series,
     core_metrics,
     report_priority,
+    series_anchor,
 )
 from .load import (
     _reindex_full,
@@ -135,6 +164,7 @@ from .pure import (
     ewma,
     fdr_adjust,
     fill_zero_within_span,
+    latest_marker_delta,
     resolve_hr_max,
     resolve_hr_rest,
     robust_z,
@@ -147,6 +177,13 @@ from .pure import (
     training_status,
     trend_monotonicity,
     trend_slope,
+    week_breakdown,
+    weekly_baseline_delta,
+    weekly_body_battery_summary,
+    weekly_sessions_summary,
+    weekly_sleep_summary,
+    weekly_stress_summary,
+    weekly_window,
 )
 from .run import main, run
 
@@ -178,6 +215,7 @@ __all__ = [
     "HR_REST_WINDOW",
     "MAX_LAG",
     "MIN_OVERLAP",
+    "MONTH_PERIOD",
     "RECOVERY_RECENT_DAYS",
     "RECOVERY_SLEEP_Z",
     "RECOVERY_Z",
@@ -201,6 +239,13 @@ __all__ = [
     "_dedupe_workout_anomalies",
     "_detrended_series",
     "_emit_edwards",
+    "_fitness_marker_findings",
+    "_monthly_activity_findings",
+    "_monthly_body_battery_findings",
+    "_monthly_sleep_findings",
+    "_monthly_stress_findings",
+    "_monthly_training_findings",
+    "_monthly_vitals_findings",
     "_global_robust_z",
     "_hr_zone_weight",
     "_is_activity_volume",
@@ -221,6 +266,12 @@ __all__ = [
     "_training_load_targets",
     "_training_status_findings",
     "_trend_and_seasonality_findings",
+    "_weekly_activity_findings",
+    "_weekly_body_battery_findings",
+    "_weekly_sleep_findings",
+    "_weekly_stress_findings",
+    "_weekly_training_findings",
+    "_weekly_vitals_findings",
     "acute_chronic_ratio",
     "ewma",
     "aggregate_workout_daily",
@@ -236,6 +287,7 @@ __all__ = [
     "edwards_trimp",
     "fdr_adjust",
     "fill_zero_within_span",
+    "latest_marker_delta",
     "load_daily_series",
     "load_sleep_frame",
     "load_workout_frame",
@@ -248,6 +300,7 @@ __all__ = [
     "robust_z",
     "rolling_mad_anomalies",
     "run",
+    "series_anchor",
     "spearman_lag",
     "stress_intraday_from_hr",
     "stress_state",
@@ -256,4 +309,11 @@ __all__ = [
     "training_status",
     "trend_monotonicity",
     "trend_slope",
+    "week_breakdown",
+    "weekly_baseline_delta",
+    "weekly_body_battery_summary",
+    "weekly_sessions_summary",
+    "weekly_sleep_summary",
+    "weekly_stress_summary",
+    "weekly_window",
 ]
