@@ -12,19 +12,22 @@ Three independent sources can notify, selected via ``NOTIFY_EVENTS``:
 
 - ``analysis``  the nightly analysis run outcome (a crash, and — at
                 ``NOTIFY_LEVEL=always`` — the clean OK summary).
-- ``findings``  health alerts from a run (recent anomalies + recovery alerts).
+- ``findings``  health alerts that are *new* in a run (anomalies, recovery and
+                training-load alerts not already in the previous snapshot).
 - ``ingest``    an empty ingest (a problem) and — at ``always`` — each
                 successful HAE sync.
 
 Notifications are strictly best-effort: a failed send (or a misconfiguration)
 is logged and swallowed — ingestion and analysis never depend on the notifier.
-Message content is limited to counters and metric kinds; raw health values
-never leave the machine this way.
+Message content is limited to counters, metric names and dates; raw health
+values never leave the machine this way.
 """
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
@@ -153,24 +156,75 @@ def compose_analysis_crash_message(exc: Exception) -> Notification:
     return Notification("HealthLog: analysis failed", detail, PRIORITY_PROBLEM, True)
 
 
-def compose_findings_message(result: AnalysisResult) -> Notification | None:
-    """Health alert for a run that surfaced recent anomalies / recovery /
-    training-load alerts.
+@dataclass(frozen=True)
+class AlertItem:
+    """One alert-worthy finding, reduced to what a push message may carry."""
 
-    Returns None when nothing alert-worthy came out of the run. Correlations,
-    trends, seasonality, consistency and the training-status snapshot are
-    background analytics, not alerts.
-    Training-load findings are only emitted when the ACWR leaves the safe band,
-    so any count here is genuinely alert-worthy.
+    kind: str
+    metric: str | None
+    ref_date: dt.date | None
+    severity: float | None = None
+
+    def key(self) -> tuple:
+        """Identity used to decide whether an alert was already reported.
+
+        Anomalies and recovery alerts are day-scoped events: the same day stays
+        in the ``*_recent_days`` window for weeks, so it is keyed by its date and
+        reported once. A training-load alert is a *state* whose ``ref_date``
+        moves with every run, so it is keyed by metric + direction instead and
+        reported when the ACWR enters (or flips) its out-of-band state.
+        """
+        if self.kind == "training_load":
+            direction = "high" if (self.severity or 0.0) > 1.0 else "low"
+            return (self.kind, self.metric, direction)
+        return (self.kind, self.metric, self.ref_date)
+
+    def label(self) -> str:
+        if self.kind == "training_load":
+            direction = "spike" if (self.severity or 0.0) > 1.0 else "detraining"
+            return f"training load {direction}: {self.metric}"
+        when = f" ({self.ref_date.isoformat()})" if self.ref_date else ""
+        if self.kind == "recovery_alert":
+            return f"recovery alert{when}"
+        return f"{self.kind}: {self.metric}{when}"
+
+
+# Finding kinds that are alerts (pushed via the ``findings`` source). The rest
+# (correlations, trends, seasonality, consistency, status/report kinds) are
+# background analytics. Training-load findings are only emitted when the ACWR
+# leaves the safe band, so each one is genuinely alert-worthy.
+ALERT_KINDS: tuple[str, ...] = ("anomaly", "recovery_alert", "training_load")
+
+# Cap on itemised lines per push; the rest is summarised as "+N more".
+MAX_ALERT_LINES = 10
+
+
+def new_alerts(previous: Iterable[AlertItem], current: Iterable[AlertItem]) -> list[AlertItem]:
+    """The alerts in ``current`` whose key was not in ``previous`` (order kept,
+    duplicates collapsed). Pure — the run diffs two consecutive snapshots."""
+    seen = {item.key() for item in previous}
+    fresh: list[AlertItem] = []
+    for item in current:
+        k = item.key()
+        if k not in seen:
+            seen.add(k)
+            fresh.append(item)
+    return fresh
+
+
+def compose_findings_message(alerts: list[AlertItem]) -> Notification | None:
+    """Health alert listing the alerts that are new since the previous run.
+
+    Returns None when there are none — alerts already reported by an earlier
+    run (still inside their recent-days window) are not repeated.
     """
-    alerts = result.anomalies + result.recovery_alerts + result.training_load
-    if alerts == 0:
+    if not alerts:
         return None
-    lines = [
-        f"anomalies: {result.anomalies}",
-        f"recovery alerts: {result.recovery_alerts}",
-        f"training load alerts: {result.training_load}",
-    ]
+    ordered = sorted(alerts, key=lambda a: a.ref_date or dt.date.min, reverse=True)
+    lines = [f"new alerts: {len(alerts)}"]
+    lines += [item.label() for item in ordered[:MAX_ALERT_LINES]]
+    if len(ordered) > MAX_ALERT_LINES:
+        lines.append(f"+{len(ordered) - MAX_ALERT_LINES} more")
     return Notification("HealthLog: health alerts", "\n".join(lines), PRIORITY_PROBLEM, True)
 
 
@@ -237,15 +291,16 @@ def _send_all(notify: NotifyConfig, messages: list[Notification | None]) -> None
         notifier.close()
 
 
-def notify_analysis(notify: NotifyConfig, result: AnalysisResult) -> None:
+def notify_analysis(notify: NotifyConfig, result: AnalysisResult, alerts: list[AlertItem] | None = None) -> None:
     """Dispatch the run summary (``analysis``) and health alerts (``findings``)
-    after a successful nightly analysis."""
+    after a successful nightly analysis. ``alerts`` are the alerts new in this
+    run (see ``new_alerts``)."""
     events = notify.event_set()
     messages: list[Notification | None] = []
     if "analysis" in events and notify.level == "always":
         messages.append(compose_analysis_run_message(result))
     if "findings" in events:
-        messages.append(compose_findings_message(result))
+        messages.append(compose_findings_message(alerts or []))
     _send_all(notify, messages)
 
 

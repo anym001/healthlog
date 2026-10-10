@@ -7,6 +7,7 @@ monkeypatched to a recorder so the event/level gating can be asserted directly.
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 from types import SimpleNamespace
 
@@ -16,8 +17,10 @@ import pytest
 from app import notify
 from app.appconfig import NotifyConfig
 from app.notify import (
+    MAX_ALERT_LINES,
     PRIORITY_INFO,
     PRIORITY_PROBLEM,
+    AlertItem,
     GotifyNotifier,
     Notification,
     build_notifier,
@@ -25,6 +28,7 @@ from app.notify import (
     compose_analysis_run_message,
     compose_findings_message,
     compose_ingest_message,
+    new_alerts,
     notify_analysis,
     notify_analysis_crash,
     notify_ingest,
@@ -169,25 +173,64 @@ def test_compose_analysis_crash_message():
     assert "RuntimeError: boom" in note.message
 
 
+_D1 = dt.date(2026, 10, 8)
+_D2 = dt.date(2026, 10, 9)
+
+
+def _anomaly(metric="resting_heart_rate", day=_D2) -> AlertItem:
+    return AlertItem("anomaly", metric, day, 4.2)
+
+
 def test_compose_findings_message_skips_when_no_alerts():
-    assert compose_findings_message(_result(correlations=5, trends=2)) is None
+    assert compose_findings_message([]) is None
 
 
-def test_compose_findings_message_reports_alerts():
-    note = compose_findings_message(_result(anomalies=2, recovery_alerts=1))
+def test_compose_findings_message_lists_new_alerts():
+    note = compose_findings_message([_anomaly(), AlertItem("recovery_alert", "recovery", _D1, 2.0)])
     assert note is not None
     assert note.problem is True
     assert note.priority == PRIORITY_PROBLEM
-    assert "anomalies: 2" in note.message
-    assert "recovery alerts: 1" in note.message
+    lines = note.message.splitlines()
+    assert lines[0] == "new alerts: 2"
+    # Newest first.
+    assert lines[1] == "anomaly: resting_heart_rate (2026-10-09)"
+    assert lines[2] == "recovery alert (2026-10-08)"
 
 
 def test_compose_findings_message_reports_training_load_alone():
-    # A training-load alert with no anomaly/recovery still triggers a findings push.
-    note = compose_findings_message(_result(training_load=1))
+    note = compose_findings_message([AlertItem("training_load", "workout_load", _D2, 1.8)])
     assert note is not None
-    assert note.problem is True
-    assert "training load alerts: 1" in note.message
+    assert "training load spike: workout_load" in note.message
+
+
+def test_compose_findings_message_caps_lines():
+    alerts = [_anomaly(f"m{i}") for i in range(MAX_ALERT_LINES + 3)]
+    lines = compose_findings_message(alerts).message.splitlines()
+    assert lines[0] == f"new alerts: {MAX_ALERT_LINES + 3}"
+    assert len(lines) == MAX_ALERT_LINES + 2
+    assert lines[-1] == "+3 more"
+
+
+def test_new_alerts_drops_already_reported_days():
+    # The same anomaly day stays in the recent window across runs: report once.
+    previous = [_anomaly(day=_D1)]
+    current = [_anomaly(day=_D1), _anomaly(day=_D2)]
+    assert new_alerts(previous, current) == [_anomaly(day=_D2)]
+    assert new_alerts(current, current) == []
+
+
+def test_new_alerts_first_run_reports_everything():
+    assert new_alerts([], [_anomaly()]) == [_anomaly()]
+
+
+def test_new_alerts_training_load_is_keyed_by_state_not_date():
+    # ref_date moves every run while the ACWR stays out of band: no repeat ...
+    yesterday = [AlertItem("training_load", "workout_load", _D1, 1.7)]
+    today = [AlertItem("training_load", "workout_load", _D2, 1.9)]
+    assert new_alerts(yesterday, today) == []
+    # ... but a flip from spike to detraining is new.
+    flipped = [AlertItem("training_load", "workout_load", _D2, 0.6)]
+    assert new_alerts(yesterday, flipped) == flipped
 
 
 def test_compose_ingest_empty_message():
@@ -230,15 +273,21 @@ def test_notify_analysis_problems_level_suppresses_clean_summary(recorder):
 
 
 def test_notify_analysis_problems_level_still_sends_alerts(recorder):
-    notify_analysis(_notify(events=["analysis", "findings"], level="problems"), _result(anomalies=2))
+    notify_analysis(_notify(events=["analysis", "findings"], level="problems"), _result(anomalies=2), [_anomaly()])
     assert len(recorder.sent) == 1
     assert recorder.sent[0].title == "HealthLog: health alerts"
 
 
 def test_notify_analysis_always_level_sends_summary_and_alerts(recorder):
-    notify_analysis(_notify(events=["analysis", "findings"], level="always"), _result(anomalies=1))
+    notify_analysis(_notify(events=["analysis", "findings"], level="always"), _result(anomalies=1), [_anomaly()])
     titles = [n.title for n in recorder.sent]
     assert titles == ["HealthLog: analysis OK", "HealthLog: health alerts"]
+
+
+def test_notify_analysis_skips_alerts_already_reported(recorder):
+    # The run still counts anomalies in its window, but none are new: no push.
+    notify_analysis(_notify(events=["findings"], level="problems"), _result(anomalies=18), [])
+    assert recorder.sent == []
 
 
 def test_notify_analysis_respects_disabled_sources(recorder):
