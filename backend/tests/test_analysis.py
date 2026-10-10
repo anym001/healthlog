@@ -2360,3 +2360,19 @@ def test_monthly_sleep_findings_build_finding():
     assert f.details["nights"] == 28
     assert f.details["prev"]["avg_total_h"] == 7.0
     assert [w["avg_total_h"] for w in f.details["weeks"]] == [8.0] * 4
+
+
+def test_alert_items_reads_only_alert_kinds_from_snapshot(db):
+    from app.analysis.run import _alert_items
+    from app.notify import AlertItem
+
+    computed_at = dt.datetime(2026, 7, 1, 2, 0, tzinfo=UTC)
+    db.add_all(
+        [
+            Finding(computed_at=computed_at, kind="anomaly", metric_a="hrv", ref_date=dt.date(2026, 6, 29), severity=4),
+            Finding(computed_at=computed_at, kind="trend", metric_a="vo2_max", severity=0.4),
+        ]
+    )
+    db.flush()
+
+    assert _alert_items(db) == [AlertItem("anomaly", "hrv", dt.date(2026, 6, 29), 4)]

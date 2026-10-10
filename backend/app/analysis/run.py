@@ -16,6 +16,7 @@ from ..appconfig import AppConfig, load_config
 from ..cli_support import bootstrap, db_session
 from ..config import get_settings
 from ..models import FINDING_FIELDS, Finding, FindingHistory, WorkoutLoadDaily
+from ..notify import ALERT_KINDS, AlertItem, new_alerts, notify_analysis
 from .body_battery import run_body_battery
 from .constants import _DEFAULT_APP_CONFIG, log
 from .findings import (
@@ -234,13 +235,26 @@ def run(db: Session, tz: str | None = None, config: AppConfig | None = None) -> 
     )
 
 
+def _alert_items(db: Session) -> list[AlertItem]:
+    """The alert findings of the current ``findings`` snapshot, reduced to
+    ``AlertItem``s for the new-alert diff (notify.new_alerts)."""
+    rows = db.execute(
+        select(Finding.kind, Finding.metric_a, Finding.ref_date, Finding.severity).where(Finding.kind.in_(ALERT_KINDS))
+    ).all()
+    return [AlertItem(kind, metric, ref_date, severity) for kind, metric, ref_date, severity in rows]
+
+
 def main() -> int:
     settings = bootstrap()
     app_config = load_config(settings.config_file)
 
     with db_session() as db:
         try:
+            # Diff against the previous snapshot so each alert is pushed once,
+            # not on every run while it stays inside its recent-days window.
+            previous = _alert_items(db)
             result = run(db, settings.local_tz, app_config)
+            alerts = new_alerts(previous, _alert_items(db))
             db.commit()
         except Exception:
             db.rollback()
@@ -249,7 +263,5 @@ def main() -> int:
 
     log.info("analysis done: %s", " ".join(f"{name}={count}" for name, count in result.counts()))
 
-    from ..notify import notify_analysis
-
-    notify_analysis(app_config.notify, result)
+    notify_analysis(app_config.notify, result, alerts)
     return 0

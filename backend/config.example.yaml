@@ -199,5 +199,6 @@
 #                                   # (covers Gotify and PushBits)
 #   url: https://push.example.com   # service base URL
 #   events: [analysis, findings]    # any of: ingest, analysis, findings
+#                                   # (findings: only alerts new since the last run)
 #   level: problems                 # problems | always
 #   verify_tls: true
