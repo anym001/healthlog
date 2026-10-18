@@ -12,6 +12,7 @@ instead of a module path::
     healthlog narrate --dry-run             # print the model context only (no Ollama call)
     healthlog check-workout-hr              # is intra-workout HR in the archive?
     healthlog rederive-workout-hr           # backfill HR samples from the archive
+    healthlog rederive-state-of-mind        # backfill State of Mind entries from the archive
     healthlog rederive-stress               # recompute the stress timeline (full history)
     healthlog rederive-stress --days 30     # recompute only the trailing 30 days
     healthlog rederive-body-battery         # recompute the Body-Battery timeline (full history)
@@ -60,6 +61,10 @@ def build_parser() -> argparse.ArgumentParser:
     rwh = sub.add_parser("rederive-workout-hr", help="backfill intra-workout HR samples from the raw archive")
     rederive.add_arguments(rwh)
     rwh.set_defaults(func=rederive.run)
+
+    rsm = sub.add_parser("rederive-state-of-mind", help="backfill State of Mind entries from the raw archive")
+    rederive.add_arguments(rsm)
+    rsm.set_defaults(func=rederive.run_state_of_mind)
 
     rst = sub.add_parser("rederive-stress", help="recompute the stress timeline from stored heart-rate history")
     stress_backfill.add_arguments(rst)

@@ -105,11 +105,13 @@ async def ingest_payload(
     INGEST_ROWS.labels(kind="metric").inc(result.metric_rows)
     INGEST_ROWS.labels(kind="sleep").inc(result.sleep_rows)
     INGEST_ROWS.labels(kind="workout").inc(result.workout_rows)
+    INGEST_ROWS.labels(kind="state_of_mind").inc(result.state_of_mind_rows)
     LAST_INGEST.set_to_current_time()
 
     audit.info(
         "ingest.stored ip=%s metrics=%d(%d new) sleep=%d(%d new) workouts=%d(%d new) "
-        "unknown=%d flagged_units=%d implausible=%d dropped_workouts=%d",
+        "state_of_mind=%d(%d new) unknown=%d flagged_units=%d implausible=%d dropped_workouts=%d "
+        "dropped_state_of_mind=%d",
         ip,
         result.metric_rows,
         result.metric_new,
@@ -117,10 +119,13 @@ async def ingest_payload(
         result.sleep_new,
         result.workout_rows,
         result.workout_new,
+        result.state_of_mind_rows,
+        result.state_of_mind_new,
         result.unknown_metrics,
         result.flagged_units,
         result.implausible_values,
         result.dropped_workouts,
+        result.dropped_state_of_mind,
     )
     # Best-effort push after the response is sent (never blocks the HAE sync).
     background_tasks.add_task(
@@ -142,7 +147,10 @@ async def ingest_payload(
         flagged_units=result.flagged_units,
         implausible_values=result.implausible_values,
         dropped_workouts=result.dropped_workouts,
+        state_of_mind_rows=result.state_of_mind_rows,
+        dropped_state_of_mind=result.dropped_state_of_mind,
         metric_new=result.metric_new,
         sleep_new=result.sleep_new,
         workout_new=result.workout_new,
+        state_of_mind_new=result.state_of_mind_new,
     )

@@ -1,4 +1,4 @@
-"""Re-derive intra-workout HR samples from the raw archive.
+"""Re-derive rows the parser learned to extract after they were archived.
 
 The steady-state ingest path now extracts ``heartRateData`` into
 ``workout_hr_samples``, but workouts ingested *before* this feature only exist
@@ -8,10 +8,14 @@ This one-off command replays every archived payload through the same pure
 parser and upserts *only* the HR samples — the owning workouts already exist,
 and the (workout_hae_id, ts) key makes a re-run idempotent.
 
+``rederive-state-of-mind`` does the same for Apple Health State of Mind
+entries (``stateOfMind``), keyed by HAE's entry id.
+
 Usage (one-shot, typically via ``docker exec``)::
 
     healthlog rederive-workout-hr
     healthlog rederive-workout-hr --dry-run   # parse + report, no writes
+    healthlog rederive-state-of-mind [--dry-run]
 
 (equivalently ``python -m app rederive-workout-hr`` or ``python -m app.rederive``.)
 """
@@ -21,6 +25,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
@@ -38,8 +43,15 @@ class RederiveSummary:
     failures: int = 0
 
 
-def run_rederive(db: Session, dry_run: bool = False) -> RederiveSummary:
-    """Replay every archived payload, upserting its workout HR samples.
+def _replay(
+    db: Session,
+    extract: Callable[[ingest_svc.ParsedPayload], list[dict]],
+    store: Callable[[Session, list[dict]], int],
+    key: tuple[str, ...],
+    dry_run: bool,
+) -> RederiveSummary:
+    """Replay every archived payload through the parser, upserting the rows
+    ``extract`` picks out with ``store``.
 
     Each payload is committed on its own so a single bad one can't abort the
     whole run (the upsert + dedup make a re-run a no-op for what already landed).
@@ -57,12 +69,13 @@ def run_rederive(db: Session, dry_run: bool = False) -> RederiveSummary:
         summary.payloads += 1
         try:
             payload = db.execute(select(RawIngest.payload).where(RawIngest.id == rid)).scalar_one()
-            rows = ingest_svc.parse_payload(payload).workout_hr_rows
+            rows = extract(ingest_svc.parse_payload(payload))
+            deduped = ingest_svc._dedupe(rows, key)
+            summary.samples += len(deduped)
             if dry_run:
-                summary.samples += len(ingest_svc._dedupe(rows, ("workout_hae_id", "ts")))
                 continue
-            if rows:
-                summary.samples += ingest_svc.store_workout_hr_samples(db, rows)
+            if deduped:
+                store(db, deduped)
             db.commit()
         except Exception as exc:  # noqa: BLE001 - one bad payload must not abort the run
             db.rollback()
@@ -71,10 +84,23 @@ def run_rederive(db: Session, dry_run: bool = False) -> RederiveSummary:
     return summary
 
 
-def _log_summary(summary: RederiveSummary, dry_run: bool) -> None:
+def run_rederive(db: Session, dry_run: bool = False) -> RederiveSummary:
+    """Replay every archived payload, upserting its workout HR samples."""
+    return _replay(
+        db, lambda p: p.workout_hr_rows, ingest_svc.store_workout_hr_samples, ("workout_hae_id", "ts"), dry_run
+    )
+
+
+def run_rederive_state_of_mind(db: Session, dry_run: bool = False) -> RederiveSummary:
+    """Replay every archived payload, upserting its State of Mind entries."""
+    return _replay(db, lambda p: p.state_of_mind_rows, ingest_svc.store_state_of_mind, ("hae_id",), dry_run)
+
+
+def _log_summary(summary: RederiveSummary, dry_run: bool, command: str = "rederive-workout-hr") -> None:
     log.info(
-        "%srederive-workout-hr done: payloads=%d hr_samples=%d failures=%d",
+        "%s%s done: payloads=%d rows=%d failures=%d",
         "[dry-run] " if dry_run else "",
+        command,
         summary.payloads,
         summary.samples,
         summary.failures,
@@ -92,6 +118,16 @@ def run(args: argparse.Namespace) -> int:
         summary = run_rederive(db, dry_run=args.dry_run)
 
     _log_summary(summary, args.dry_run)
+    return 1 if summary.failures else 0
+
+
+def run_state_of_mind(args: argparse.Namespace) -> int:
+    bootstrap()
+
+    with db_session() as db:
+        summary = run_rederive_state_of_mind(db, dry_run=args.dry_run)
+
+    _log_summary(summary, args.dry_run, "rederive-state-of-mind")
     return 1 if summary.failures else 0
 
 

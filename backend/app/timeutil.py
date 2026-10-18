@@ -16,13 +16,22 @@ def parse_hae_datetime(value: object) -> dt.datetime | None:
     Tolerant by design: a missing, non-string, or malformed value yields None.
     Ingest calls this for every timestamp in a payload, and a single bad
     sample must degrade to a skipped point — never abort the whole payload.
+
+    Most HAE sections use ``2026-06-15 12:28:00 +0200``; ``stateOfMind`` ships
+    ISO 8601 (``2026-06-15T10:28:00Z``), accepted as a fallback. A timestamp
+    without an offset is rejected rather than guessed.
     """
     if not isinstance(value, str) or not value:
         return None
     try:
         return dt.datetime.strptime(value.strip(), _HAE_FORMAT)
     except ValueError:
+        pass
+    try:
+        parsed = dt.datetime.fromisoformat(value.strip())
+    except ValueError:
         return None
+    return parsed if parsed.tzinfo is not None else None
 
 
 def local_day(ts: dt.datetime, tz: str) -> dt.date:

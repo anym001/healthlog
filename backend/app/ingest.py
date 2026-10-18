@@ -26,6 +26,7 @@ from .models import (
     MetricSample,
     RawIngest,
     SleepSession,
+    StateOfMind,
     Workout,
     WorkoutHrSample,
     WorkoutRoutePoint,
@@ -55,6 +56,10 @@ class ParsedPayload:
     # Workouts dropped for a missing/unparseable id; surfaced like the other
     # data-quality counters so they never vanish silently. (raw_id, name)
     dropped_workouts: list[tuple[str, str]] = field(default_factory=list)
+    # Apple Health State of Mind entries (stateOfMind) -> state_of_mind.
+    state_of_mind_rows: list[dict] = field(default_factory=list)
+    # State of Mind entries dropped for a missing/unparseable id or start time. (raw_id, kind)
+    dropped_state_of_mind: list[tuple[str, str]] = field(default_factory=list)
 
 
 def _num(value) -> float | None:
@@ -287,6 +292,48 @@ def _parse_workout(w: dict, out: ParsedPayload, type_map: dict[str, str] | None 
     )
 
 
+# Apple's valence scale; anything outside it is a malformed value, not a mood.
+_VALENCE_RANGE = (-1.0, 1.0)
+
+
+def _str_list(value) -> list[str]:
+    """Labels/associations as a clean list of strings (non-strings skipped)."""
+    if not isinstance(value, list):
+        return []
+    return [v for v in value if isinstance(v, str) and v]
+
+
+def _parse_state_of_mind(entry: dict, out: ParsedPayload) -> None:
+    raw_id = entry.get("id")
+    kind = entry.get("kind")
+    try:
+        hae_id = uuid.UUID(str(raw_id)) if raw_id else None
+    except ValueError:
+        hae_id = None
+    start = parse_hae_datetime(entry.get("start"))
+    if hae_id is None or start is None:
+        out.dropped_state_of_mind.append((str(raw_id or ""), str(kind or "")))
+        return
+
+    valence = _num(entry.get("valence"))
+    if valence is not None and not _VALENCE_RANGE[0] <= valence <= _VALENCE_RANGE[1]:
+        out.implausible.append(("state_of_mind_valence", valence))
+        valence = None  # keep the entry (labels still count); the raw archive keeps the value
+
+    out.state_of_mind_rows.append(
+        {
+            "hae_id": hae_id,
+            "start_time": start,
+            "end_time": parse_hae_datetime(entry.get("end")),
+            "kind": kind,
+            "valence": valence,
+            "valence_classification": entry.get("valenceClassification"),
+            "labels": _str_list(entry.get("labels")),
+            "associations": _str_list(entry.get("associations")),
+        }
+    )
+
+
 def parse_payload(payload: dict, type_map: dict[str, str] | None = None) -> ParsedPayload:
     """Translate an HAE payload into normalised rows. Pure, DB-free.
 
@@ -313,6 +360,10 @@ def parse_payload(payload: dict, type_map: dict[str, str] | None = None) -> Pars
 
     for w in data.get("workouts") or []:
         _parse_workout(w, out, type_map)
+
+    for entry in data.get("stateOfMind") or []:
+        if isinstance(entry, dict):
+            _parse_state_of_mind(entry, out)
 
     return out
 
@@ -352,12 +403,15 @@ class StoreResult:
     flagged_units: int = 0
     implausible_values: int = 0
     dropped_workouts: int = 0
+    state_of_mind_rows: int = 0
+    dropped_state_of_mind: int = 0
     # New vs. updated counts from the Postgres xmax trick: xmax=0 means the
     # row was freshly inserted; xmax!=0 means an existing row was updated (i.e.
     # the payload contained data that was already in the DB).
     metric_new: int = 0
     sleep_new: int = 0
     workout_new: int = 0
+    state_of_mind_new: int = 0
 
 
 # Postgres caps a single statement at 65535 bound parameters, so a multi-year
@@ -493,6 +547,20 @@ def store_workout_route_points(db: Session, rows: list[dict]) -> int:
     return len(deduped)
 
 
+def store_state_of_mind(db: Session, rows: list[dict]) -> int:
+    """Idempotent upsert of State of Mind entries keyed by HAE's id; returns the
+    count of freshly-inserted rows. Shared with the re-derive CLI, which replays
+    the raw archive into this table."""
+    deduped = _dedupe(rows, ("hae_id",))
+    return _upsert(
+        db,
+        StateOfMind,
+        deduped,
+        set_keys=[k for k in (deduped[0] if deduped else ()) if k != "hae_id"],
+        index_elements=["hae_id"],
+    )
+
+
 def store(db: Session, parsed: ParsedPayload) -> StoreResult:
     """Idempotent upsert of parsed rows. Safe to replay overlapping windows.
 
@@ -543,6 +611,7 @@ def store(db: Session, parsed: ParsedPayload) -> StoreResult:
     # After the workouts (FK target) exist in this transaction.
     workout_hr_rows = store_workout_hr_samples(db, parsed.workout_hr_rows)
     workout_route_rows = store_workout_route_points(db, parsed.workout_route_rows)
+    state_of_mind_new = store_state_of_mind(db, parsed.state_of_mind_rows)
 
     for metric, unit in parsed.flagged_units:
         log.warning("unit mismatch for %s: incoming '%s' kept as-is (no known conversion)", metric, unit)
@@ -558,6 +627,12 @@ def store(db: Session, parsed: ParsedPayload) -> StoreResult:
             raw_id,
             name,
         )
+    for raw_id, kind in parsed.dropped_state_of_mind:
+        log.warning(
+            "state of mind entry dropped: unusable id or start (id=%r, kind=%r) (raw archive keeps it)",
+            raw_id,
+            kind,
+        )
 
     return StoreResult(
         metric_rows=len(parsed.metric_rows),
@@ -569,9 +644,12 @@ def store(db: Session, parsed: ParsedPayload) -> StoreResult:
         flagged_units=len(parsed.flagged_units),
         implausible_values=len(parsed.implausible),
         dropped_workouts=len(parsed.dropped_workouts),
+        state_of_mind_rows=len(parsed.state_of_mind_rows),
+        dropped_state_of_mind=len(parsed.dropped_state_of_mind),
         metric_new=metric_new,
         sleep_new=sleep_new,
         workout_new=workout_new,
+        state_of_mind_new=state_of_mind_new,
     )
 
 

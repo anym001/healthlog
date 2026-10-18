@@ -580,6 +580,27 @@ trailing window (`body_battery.window_days`) and replaces those rows idempotentl
 Battery panels); a low-reserve day also becomes a `body_battery` finding (§4.8) for
 the narration. All tunables live under `body_battery.*` in `config.yaml`.
 
+### 4.11 State of Mind (own table)
+
+Apple Health's **State of Mind** entries (logged on the iPhone or Watch, exported by
+HAE as `data.stateOfMind`) land in `state_of_mind`, one row per entry keyed by HAE's
+stable UUID (`hae_id`), so replayed windows upsert in place — an entry edited on the
+phone is updated, never duplicated. Columns: `start_time`/`end_time`, `kind`
+(`momentary_emotion` or `daily_mood`), `valence` in [-1, 1] with Apple's seven-step
+`valence_classification`, and two `text[]` vocabularies: `labels` (emotions such as
+`anxious`, `calm`) and `associations` (life areas such as `work`, `family`).
+
+The vocabularies stay arrays of Apple's own slugs rather than lookup tables: Apple may
+add values, and an unknown one must never reject a payload (§4.0). A valence outside
+[-1, 1] is stored as NULL and counted as implausible — the entry's labels still carry
+signal — and an entry without a usable id or start time is dropped and counted; the
+raw archive keeps both (§4.1). These timestamps are ISO 8601 (`…T…Z`) rather than
+HAE's usual `… +0200` form; the shared parser accepts either, but never an
+offset-less value. State of Mind is mood data, not a metric: it stays out of
+`metric_samples` and the analysis does not read it yet.
+`healthlog rederive-state-of-mind` replays the raw archive into the table for
+payloads ingested before the table existed.
+
 ## 5. Ingestion contract
 
 - **Idempotency/upsert:** on nightly exports HAE sends **overlapping windows**.

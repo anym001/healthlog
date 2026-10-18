@@ -23,6 +23,13 @@ def test_parse_malformed_string_returns_none():
     assert parse_hae_datetime("2026-06-09") is None  # missing time + offset
 
 
+def test_parse_iso_8601_with_offset():
+    # stateOfMind ships ISO 8601 instead of HAE's usual format.
+    assert parse_hae_datetime("2026-06-15T10:28:00Z") == dt.datetime(2026, 6, 15, 10, 28, tzinfo=dt.UTC)
+    assert parse_hae_datetime("2026-06-15T12:28:00+02:00").utcoffset() == dt.timedelta(hours=2)
+    assert parse_hae_datetime("2026-06-15T10:28:00") is None  # no offset: rejected, not guessed
+
+
 def test_parse_non_string_returns_none():
     assert parse_hae_datetime({"qty": 1}) is None
     assert parse_hae_datetime(12345) is None
