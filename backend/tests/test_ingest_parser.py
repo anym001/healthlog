@@ -356,3 +356,34 @@ def test_summary_only_workout_has_no_route():
         }
     }
     assert parse_payload(payload).workout_route_rows == []
+
+
+def _workout_with_source(source):
+    return {
+        "data": {
+            "workouts": [
+                {
+                    "id": "3213AD95-044D-4777-9D99-B473968262F1",
+                    "start": "2026-06-15 10:00:00 +0200",
+                    "end": "2026-06-15 11:00:00 +0200",
+                    "name": "Outdoor Run",
+                    "source": source,
+                }
+            ]
+        }
+    }
+
+
+def test_workout_source_object_is_flattened_to_name():
+    # HAE >= 2025 sends the workout source as an object; the Text column
+    # must still receive a string or the whole payload fails to store.
+    payload = _workout_with_source({"name": "Apple Watch", "identifier": "com.apple.health.ABC"})
+    parsed = parse_payload(payload)
+    assert parsed.workout_rows[0]["source"] == "Apple Watch"
+
+
+def test_workout_source_string_and_missing_unchanged():
+    assert parse_payload(_workout_with_source("Apple Watch")).workout_rows[0]["source"] == "Apple Watch"
+    payload = _workout_with_source(None)
+    del payload["data"]["workouts"][0]["source"]
+    assert parse_payload(payload).workout_rows[0]["source"] is None

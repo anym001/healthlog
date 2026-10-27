@@ -1,0 +1,403 @@
+{
+  "data" : {
+    "metrics" : [],
+    "symptoms" : [
+      {
+        "source" : "Health",
+        "userEntered" : true,
+        "start" : "2026-07-06 17:23:49 +0200",
+        "end" : "2026-07-13 17:23:49 +0200",
+        "cycleStart" : false,
+        "severity" : "Leicht",
+        "name" : "Kopfschmerzen"
+      },
+      {
+        "userEntered" : true,
+        "source" : "Health",
+        "start" : "2026-07-08 17:23:49 +0200",
+        "end" : "2026-07-08 17:23:49 +0200",
+        "cycleStart" : false,
+        "severity" : "Mäßig",
+        "name" : "Kopfschmerzen"
+      },
+      {
+        "source" : "Health",
+        "userEntered" : true,
+        "start" : "2026-07-09 17:23:49 +0200",
+        "end" : "2026-07-09 17:23:49 +0200",
+        "cycleStart" : false,
+        "severity" : "Schwer",
+        "name" : "Rückenschmerzen"
+      },
+      {
+        "source" : "Health",
+        "userEntered" : true,
+        "start" : "2026-07-09 17:24:49 +0200",
+        "end" : "2026-07-13 17:24:49 +0200",
+        "cycleStart" : false,
+        "severity" : "Leicht",
+        "name" : "Husten"
+      },
+      {
+        "userEntered" : true,
+        "source" : "Health",
+        "start" : "2026-07-11 02:37:49 +0200",
+        "end" : "2026-07-14 02:37:49 +0200",
+        "cycleStart" : false,
+        "severity" : "Präsent",
+        "name" : "Schlafänderungen"
+      },
+      {
+        "userEntered" : true,
+        "end" : "2026-07-13 17:23:49 +0200",
+        "start" : "2026-07-13 17:23:49 +0200",
+        "source" : "Health",
+        "cycleStart" : false,
+        "severity" : "Nicht vorhanden",
+        "name" : "Kopfschmerzen"
+      },
+      {
+        "userEntered" : true,
+        "end" : "2026-07-14 02:32:49 +0200",
+        "start" : "2026-07-14 02:32:49 +0200",
+        "source" : "Health",
+        "cycleStart" : false,
+        "severity" : "Leicht",
+        "name" : "Durchfall"
+      },
+      {
+        "source" : "Health",
+        "userEntered" : true,
+        "start" : "2026-07-14 02:32:49 +0200",
+        "end" : "2026-07-14 02:32:49 +0200",
+        "cycleStart" : false,
+        "severity" : "Präsent",
+        "name" : "Geschmacksverlust"
+      },
+      {
+        "userEntered" : true,
+        "end" : "2026-07-14 02:32:49 +0200",
+        "start" : "2026-07-14 02:32:49 +0200",
+        "source" : "Health",
+        "cycleStart" : false,
+        "severity" : "Leicht",
+        "name" : "Fieber"
+      },
+      {
+        "end" : "2026-07-14 02:32:49 +0200",
+        "userEntered" : true,
+        "start" : "2026-07-14 02:32:49 +0200",
+        "source" : "Health",
+        "cycleStart" : false,
+        "severity" : "Keine Änderung",
+        "name" : "Appetitveränderungen"
+      },
+      {
+        "userEntered" : true,
+        "end" : "2026-07-14 02:32:49 +0200",
+        "start" : "2026-07-14 02:32:49 +0200",
+        "source" : "Health",
+        "cycleStart" : false,
+        "severity" : "Mäßig",
+        "name" : "Bauchkrämpfe"
+      },
+      {
+        "userEntered" : true,
+        "end" : "2026-07-14 02:32:49 +0200",
+        "start" : "2026-07-14 02:32:49 +0200",
+        "source" : "Health",
+        "cycleStart" : false,
+        "severity" : "Mäßig",
+        "name" : "Geruchssinnverlust"
+      },
+      {
+        "end" : "2026-07-14 02:32:49 +0200",
+        "userEntered" : true,
+        "start" : "2026-07-14 02:32:49 +0200",
+        "source" : "Health",
+        "cycleStart" : false,
+        "severity" : "Mäßig",
+        "name" : "Druckgefühl oder Schmerzen in der Brust"
+      },
+      {
+        "source" : "Health",
+        "userEntered" : true,
+        "start" : "2026-07-14 02:32:49 +0200",
+        "end" : "2026-07-14 02:32:49 +0200",
+        "cycleStart" : false,
+        "severity" : "Mäßig",
+        "name" : "Erschöpfung"
+      },
+      {
+        "userEntered" : true,
+        "end" : "2026-07-14 02:32:49 +0200",
+        "start" : "2026-07-14 02:32:49 +0200",
+        "source" : "Health",
+        "cycleStart" : false,
+        "severity" : "Schwer",
+        "name" : "Blasenschwäche"
+      },
+      {
+        "userEntered" : true,
+        "source" : "Health",
+        "start" : "2026-07-14 02:32:49 +0200",
+        "end" : "2026-07-14 02:32:49 +0200",
+        "cycleStart" : false,
+        "severity" : "Präsent",
+        "name" : "Appetitveränderungen"
+      },
+      {
+        "userEntered" : true,
+        "end" : "2026-07-14 02:32:49 +0200",
+        "start" : "2026-07-14 02:32:49 +0200",
+        "source" : "Health",
+        "cycleStart" : false,
+        "severity" : "Nicht vorhanden",
+        "name" : "Brustschmerzen"
+      },
+      {
+        "end" : "2026-07-14 02:32:49 +0200",
+        "userEntered" : true,
+        "start" : "2026-07-14 02:32:49 +0200",
+        "source" : "Health",
+        "cycleStart" : false,
+        "severity" : "Leicht",
+        "name" : "Gedächtnislücke"
+      },
+      {
+        "userEntered" : true,
+        "end" : "2026-07-14 02:32:49 +0200",
+        "start" : "2026-07-14 02:32:49 +0200",
+        "source" : "Health",
+        "cycleStart" : false,
+        "severity" : "Erhöht",
+        "name" : "Appetitveränderungen"
+      },
+      {
+        "source" : "Health",
+        "userEntered" : true,
+        "start" : "2026-07-14 02:32:49 +0200",
+        "end" : "2026-07-14 02:32:49 +0200",
+        "cycleStart" : false,
+        "severity" : "Verringert",
+        "name" : "Appetitveränderungen"
+      },
+      {
+        "userEntered" : true,
+        "end" : "2026-07-14 02:32:49 +0200",
+        "start" : "2026-07-14 02:32:49 +0200",
+        "source" : "Health",
+        "cycleStart" : false,
+        "severity" : "Leicht",
+        "name" : "Akne"
+      },
+      {
+        "source" : "Health",
+        "userEntered" : true,
+        "start" : "2026-07-14 02:32:49 +0200",
+        "end" : "2026-07-14 02:32:49 +0200",
+        "cycleStart" : false,
+        "severity" : "Mäßig",
+        "name" : "Erbrechen"
+      },
+      {
+        "source" : "Health",
+        "userEntered" : true,
+        "start" : "2026-07-14 02:37:49 +0200",
+        "end" : "2026-07-14 02:37:49 +0200",
+        "cycleStart" : false,
+        "severity" : "Präsent",
+        "name" : "Blähungen"
+      },
+      {
+        "source" : "Health",
+        "userEntered" : true,
+        "start" : "2026-07-14 02:37:49 +0200",
+        "end" : "2026-07-14 02:37:49 +0200",
+        "cycleStart" : false,
+        "severity" : "Mäßig",
+        "name" : "Nächtliche Schweißausbrüche"
+      },
+      {
+        "userEntered" : true,
+        "end" : "2026-07-14 02:37:49 +0200",
+        "start" : "2026-07-14 02:37:49 +0200",
+        "source" : "Health",
+        "cycleStart" : false,
+        "severity" : "Mäßig",
+        "name" : "Keuchen"
+      },
+      {
+        "source" : "Health",
+        "userEntered" : true,
+        "start" : "2026-07-14 02:37:49 +0200",
+        "end" : "2026-07-14 02:37:49 +0200",
+        "cycleStart" : false,
+        "severity" : "Präsent",
+        "name" : "Sodbrennen"
+      },
+      {
+        "userEntered" : true,
+        "end" : "2026-07-14 02:37:49 +0200",
+        "start" : "2026-07-14 02:37:49 +0200",
+        "source" : "Health",
+        "cycleStart" : false,
+        "severity" : "Leicht",
+        "name" : "Halsschmerzen"
+      },
+      {
+        "userEntered" : true,
+        "source" : "Health",
+        "start" : "2026-07-14 02:37:49 +0200",
+        "end" : "2026-07-14 02:37:49 +0200",
+        "cycleStart" : false,
+        "severity" : "Nicht vorhanden",
+        "name" : "Übersprungener Herzschlag"
+      },
+      {
+        "userEntered" : true,
+        "source" : "Health",
+        "start" : "2026-07-14 02:37:49 +0200",
+        "end" : "2026-07-14 02:37:49 +0200",
+        "cycleStart" : false,
+        "severity" : "Leicht",
+        "name" : "Laufende Nase"
+      },
+      {
+        "userEntered" : true,
+        "source" : "Health",
+        "start" : "2026-07-14 02:37:49 +0200",
+        "end" : "2026-07-14 02:37:49 +0200",
+        "cycleStart" : false,
+        "severity" : "Mäßig",
+        "name" : "Hitzewallungen"
+      },
+      {
+        "source" : "Health",
+        "userEntered" : true,
+        "start" : "2026-07-14 02:37:49 +0200",
+        "end" : "2026-07-14 02:37:49 +0200",
+        "cycleStart" : false,
+        "severity" : "Leicht",
+        "name" : "Schüttelfrost"
+      },
+      {
+        "userEntered" : true,
+        "end" : "2026-07-14 02:37:49 +0200",
+        "start" : "2026-07-14 02:37:49 +0200",
+        "source" : "Health",
+        "cycleStart" : false,
+        "severity" : "Nicht vorhanden",
+        "name" : "Haarausfall"
+      },
+      {
+        "source" : "Health",
+        "userEntered" : true,
+        "start" : "2026-07-14 02:37:49 +0200",
+        "end" : "2026-07-14 02:37:49 +0200",
+        "cycleStart" : false,
+        "severity" : "Mäßig",
+        "name" : "Atemnot"
+      },
+      {
+        "source" : "Health",
+        "userEntered" : true,
+        "start" : "2026-07-14 02:37:49 +0200",
+        "end" : "2026-07-14 02:37:49 +0200",
+        "cycleStart" : false,
+        "severity" : "Nicht vorhanden",
+        "name" : "Körperschmerzen"
+      },
+      {
+        "end" : "2026-07-14 02:37:49 +0200",
+        "source" : "Health",
+        "start" : "2026-07-14 02:37:49 +0200",
+        "userEntered" : true,
+        "cycleStart" : false,
+        "severity" : "Nicht vorhanden",
+        "name" : "Vaginale Trockenheit"
+      },
+      {
+        "source" : "Health",
+        "userEntered" : true,
+        "start" : "2026-07-14 02:37:49 +0200",
+        "end" : "2026-07-14 02:37:49 +0200",
+        "cycleStart" : false,
+        "severity" : "Nicht vorhanden",
+        "name" : "Stimmungsschwankungen"
+      },
+      {
+        "source" : "Health",
+        "userEntered" : true,
+        "start" : "2026-07-14 02:37:49 +0200",
+        "end" : "2026-07-14 02:37:49 +0200",
+        "cycleStart" : false,
+        "severity" : "Präsent",
+        "name" : "Sinuscongestion"
+      },
+      {
+        "source" : "Health",
+        "userEntered" : true,
+        "start" : "2026-07-14 02:37:49 +0200",
+        "end" : "2026-07-14 02:37:49 +0200",
+        "cycleStart" : false,
+        "severity" : "Nicht vorhanden",
+        "name" : "Beckenschmerzen"
+      },
+      {
+        "source" : "Health",
+        "userEntered" : true,
+        "start" : "2026-07-14 02:37:49 +0200",
+        "end" : "2026-07-14 02:37:49 +0200",
+        "cycleStart" : false,
+        "severity" : "Präsent",
+        "name" : "Trockene Haut"
+      },
+      {
+        "userEntered" : true,
+        "end" : "2026-07-14 02:37:49 +0200",
+        "start" : "2026-07-14 02:37:49 +0200",
+        "source" : "Health",
+        "cycleStart" : false,
+        "severity" : "Präsent",
+        "name" : "Übelkeit"
+      },
+      {
+        "userEntered" : true,
+        "end" : "2026-07-14 02:37:49 +0200",
+        "start" : "2026-07-14 02:37:49 +0200",
+        "source" : "Health",
+        "cycleStart" : false,
+        "severity" : "Nicht vorhanden",
+        "name" : "Ohnmacht"
+      },
+      {
+        "userEntered" : true,
+        "end" : "2026-07-14 02:37:49 +0200",
+        "start" : "2026-07-14 02:37:49 +0200",
+        "source" : "Health",
+        "cycleStart" : false,
+        "severity" : "Leicht",
+        "name" : "Schnelles Klopfen oder Flattern des Herzschlags"
+      },
+      {
+        "userEntered" : true,
+        "source" : "Health",
+        "start" : "2026-07-14 02:37:49 +0200",
+        "end" : "2026-07-14 02:37:49 +0200",
+        "cycleStart" : false,
+        "severity" : "Leicht",
+        "name" : "Schwindel"
+      },
+      {
+        "userEntered" : true,
+        "source" : "Health",
+        "start" : "2026-07-14 02:37:49 +0200",
+        "end" : "2026-07-14 02:37:49 +0200",
+        "cycleStart" : false,
+        "severity" : "Präsent",
+        "name" : "Verstopfung"
+      }
+    ]
+  }
+}

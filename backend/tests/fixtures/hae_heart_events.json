@@ -1,0 +1,62 @@
+{
+  "data" : {
+    "metrics" : [],
+    "heartRateNotifications" : [
+      {
+        "end" : "2026-07-08 05:20:00 -0400",
+        "start" : "2026-07-08 05:10:00 -0400",
+        "source" : {
+          "name" : "Apple Watch",
+          "identifier" : "com.apple.health.00000000-0000-0000-0000-000000000000"
+        },
+        "threshold" : 40,
+        "heartRateData" : [
+          { "end" : 1783501800.5, "qty" : 39, "start" : 1783501800.5, "units" : "count/min" },
+          { "end" : 1783501900.5, "qty" : 38, "start" : 1783501900.5, "units" : "count/min" },
+          { "end" : 1783502000.5, "qty" : 40, "start" : 1783502000.5, "units" : "count/min" }
+        ],
+        "heartNotification" : "low_heart_rate_notification"
+      },
+      {
+        "end" : "2026-07-09 04:50:00 -0400",
+        "start" : "2026-07-09 04:40:00 -0400",
+        "source" : {
+          "name" : "Apple Watch",
+          "identifier" : "com.apple.health.00000000-0000-0000-0000-000000000000"
+        },
+        "threshold" : 40,
+        "heartRateData" : [
+          { "end" : 1783586400.5, "qty" : 39, "start" : 1783586400.5, "units" : "count/min" }
+        ],
+        "heartNotification" : "low_heart_rate_notification"
+      }
+    ],
+    "ecg" : [
+      {
+        "start" : "2026-07-10 21:00:00 -0400",
+        "end" : "2026-07-10 21:00:30 -0400",
+        "source" : "ECG",
+        "classification" : "Sinus Rhythm",
+        "averageHeartRate" : 70,
+        "samplingFrequency" : 512,
+        "numberOfVoltageMeasurements" : 15360,
+        "voltageMeasurements" : [
+          { "date" : 1783731600.0, "units" : "mcV", "voltage" : 12.5 },
+          { "date" : 1783731600.002, "units" : "mcV", "voltage" : 14.0 }
+        ]
+      },
+      {
+        "start" : "2026-07-11 21:00:00 -0400",
+        "end" : "2026-07-11 21:00:30 -0400",
+        "source" : "ECG",
+        "classification" : "Inconclusive Poor Recording",
+        "averageHeartRate" : 0,
+        "samplingFrequency" : 512,
+        "numberOfVoltageMeasurements" : 15360,
+        "voltageMeasurements" : [
+          { "date" : 1783818000.0, "units" : "mcV", "voltage" : -3.0 }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "data" : {
+    "metrics" : [],
+    "medications" : [
+      {
+        "status" : "Eingenommen",
+        "isArchived" : false,
+        "start" : "2026-07-10 17:31:23 +0200",
+        "dosage" : 1,
+        "end" : "2026-07-10 17:31:23 +0200",
+        "displayText" : "Testpraeparat A",
+        "units" : "count",
+        "codings" : [
+      
+        ]
+      },
+      {
+        "isArchived" : false,
+        "status" : "Eingenommen",
+        "start" : "2026-07-11 17:31:16 +0200",
+        "dosage" : 1,
+        "end" : "2026-07-11 17:31:16 +0200",
+        "displayText" : "Testpraeparat A",
+        "units" : "count",
+        "codings" : [
+      
+        ]
+      },
+      {
+        "dosage" : 1,
+        "isArchived" : false,
+        "start" : "2026-07-13 08:27:49 +0200",
+        "end" : "2026-07-13 08:27:49 +0200",
+        "status" : "Eingenommen",
+        "displayText" : "Testpraeparat A",
+        "units" : "count",
+        "codings" : [
+      
+        ]
+      },
+      {
+        "isArchived" : false,
+        "status" : "Übersprungen",
+        "start" : "2026-07-13 11:27:49 +0200",
+        "dosage" : 1,
+        "scheduledDate" : "2026-07-13 14:42:49 +0200",
+        "displayText" : "Testpraeparat A",
+        "scheduledDosage" : 1,
+        "end" : "2026-07-13 11:27:49 +0200",
+        "units" : "count",
+        "codings" : [
+      
+        ]
+      },
+      {
+        "dosage" : 1,
+        "isArchived" : false,
+        "start" : "2026-07-13 17:26:49 +0200",
+        "end" : "2026-07-13 17:26:49 +0200",
+        "status" : "Nicht angemeldet",
+        "displayText" : "Testpraeparat A",
+        "units" : "count",
+        "codings" : [
+      
+        ]
+      }
+    ]
+  }
+}

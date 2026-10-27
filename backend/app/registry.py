@@ -363,6 +363,29 @@ METRIC_REGISTRY: dict[str, MetricSpec] = {
         "category": "nutrition",
         "tier": "secondary",
     },
+    # --- curated from auto-registered stubs seen in real exports -----------
+    # Both arrived as `qty` points, so the auto-registration heuristic gave them
+    # `sum`. Right for caffeine (a daily intake); wrong for RMSSD, a per-reading
+    # value that, like SDNN `heart_rate_variability`, only means something as a
+    # daily mean.
+    "caffeine": {
+        "display_name": "Caffeine",
+        "unit_canonical": "mg",
+        "agg_default": "sum",
+        "category": "nutrition",
+        "tier": "secondary",
+        "value_min": 0,
+        "value_max": 2000,
+    },
+    "heart_rate_variability_rmssd": {
+        "display_name": "Heart Rate Variability (RMSSD)",
+        "unit_canonical": "ms",
+        "agg_default": "avg",
+        "category": "vital",
+        "tier": "secondary",
+        "value_min": 0,
+        "value_max": 1000,
+    },
 }
 
 # Routed to sleep_sessions, never metric_samples.

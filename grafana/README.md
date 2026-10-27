@@ -32,10 +32,22 @@ docker run -d \
   -p 3000:3000 \
   -e GF_SECURITY_ADMIN_PASSWORD=change-me \
   -e GF_SERVER_ROOT_URL=http://YOUR-UNRAID-IP:3000 \
+  -e GF_ANALYTICS_REPORTING_ENABLED=false \
+  -e GF_ANALYTICS_CHECK_FOR_UPDATES=false \
+  -e GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES=false \
+  -e GF_NEWS_NEWS_FEED_ENABLED=false \
+  -e GF_SECURITY_DISABLE_GRAVATAR=true \
+  -e GF_SNAPSHOTS_EXTERNAL_ENABLED=false \
   -v /mnt/user/appdata/grafana:/var/lib/grafana \
   --restart unless-stopped \
   grafana/grafana:11.5.2
 ```
+
+The `GF_ANALYTICS_*`, `GF_NEWS_*`, `GF_SECURITY_DISABLE_GRAVATAR` and
+`GF_SNAPSHOTS_EXTERNAL_ENABLED` lines stop Grafana from contacting the internet on
+its own: usage statistics, update checks, the news feed, Gravatar avatars, and
+publishing snapshots to an external service. Keep them for an existing Grafana as
+well.
 
 **2. Read-only database user** (run once via `docker exec -it healthlog-db psql -U healthlog -d healthlog`):
 
@@ -92,6 +104,12 @@ docker run -d \
   -p 3000:3000 \
   -e GF_SECURITY_ADMIN_PASSWORD=change-me \
   -e GF_SERVER_ROOT_URL=http://YOUR-UNRAID-IP:3000 \
+  -e GF_ANALYTICS_REPORTING_ENABLED=false \
+  -e GF_ANALYTICS_CHECK_FOR_UPDATES=false \
+  -e GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES=false \
+  -e GF_NEWS_NEWS_FEED_ENABLED=false \
+  -e GF_SECURITY_DISABLE_GRAVATAR=true \
+  -e GF_SNAPSHOTS_EXTERNAL_ENABLED=false \
   -e GRAFANA_RO_PASSWORD=change-me-grafana-ro \
   -v /mnt/user/appdata/grafana:/var/lib/grafana \
   -v /path/to/healthlog/grafana/provisioning:/etc/grafana/provisioning:ro \

@@ -7,7 +7,7 @@ those tests cannot see is the real database: whether enough clean history has
 actually accumulated, whether stored units drifted from their canonical form,
 and whether the last pipeline run produced anything.
 
-The scan is **read-only** and reports four things:
+The scan is **read-only** and reports five things:
 
 1. **Findings snapshot** — total and per-kind counts of the latest ``findings``
    batch, with the run timestamp. Zero findings is surfaced loudly: a silent
@@ -23,6 +23,9 @@ The scan is **read-only** and reports four things:
    type under the current built-in map + ``workouts.type_map``. These group as
    "Other" in Grafana and get no per-sport findings; the report is how a newly
    appearing HAE workout name gets noticed so it can be mapped.
+5. **Time zone** — whether ``TZ`` matches the UTC offsets HAE stamps on recent
+   payloads (the phone's local offset). A mismatch means every daily value is
+   bucketed on shifted days, e.g. a US user left on the ``Europe/Vienna`` default.
 
 Usage (one-shot, typically via ``docker exec``)::
 
@@ -31,7 +34,7 @@ Usage (one-shot, typically via ``docker exec``)::
 (equivalently ``python -m app.audit``.)
 
 The pure builders (``build_coverage``, ``detect_unit_anomalies``,
-``summarize_findings``, ``detect_unmapped_workouts``) take plain rows and no DB,
+``summarize_findings``, ``detect_unmapped_workouts``, ``check_tz``) take plain rows and no DB,
 so they are unit-tested in the default suite; ``run`` does the SQL and logging.
 """
 
@@ -45,6 +48,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from .cli_support import bootstrap, db_session, module_main
+from .timeutil import offset_mismatches, parse_hae_datetime
 from .workout_types import canonical_workout_type
 
 log = logging.getLogger("healthlog.audit")
@@ -90,6 +94,17 @@ class UnmappedWorkout:
 
 
 @dataclass
+class TzCheck:
+    """``TZ`` vs the UTC offsets on recent payload timestamps."""
+
+    tz: str
+    checked: int = 0
+    mismatched: int = 0
+    # Offsets seen on the mismatching timestamps, e.g. ["-04:00"].
+    seen_offsets: list[str] = field(default_factory=list)
+
+
+@dataclass
 class AuditReport:
     min_overlap: int
     coverage: list[MetricCoverage] = field(default_factory=list)
@@ -97,6 +112,7 @@ class AuditReport:
     unit_anomalies: list[UnitAnomaly] = field(default_factory=list)
     unmapped_workouts: list[UnmappedWorkout] = field(default_factory=list)
     findings_last_run: dt.datetime | None = None
+    tz_check: TzCheck | None = None
 
     @property
     def findings_total(self) -> int:
@@ -191,6 +207,25 @@ def detect_unmapped_workouts(
     return sorted(unmapped, key=lambda w: (-w.count, w.name))
 
 
+def _format_offset(offset: dt.timedelta) -> str:
+    minutes = int(offset.total_seconds() // 60)
+    sign = "+" if minutes >= 0 else "-"
+    return f"{sign}{abs(minutes) // 60:02d}:{abs(minutes) % 60:02d}"
+
+
+def check_tz(dates: Iterable[str | None], tz: str) -> TzCheck:
+    """Compare HAE timestamp strings' UTC offsets with ``tz``.
+
+    ``dates`` are raw HAE strings (``"2026-10-14 09:00:00 -0400"``); unparseable
+    or missing ones are skipped. The offsets of mismatching stamps are reported
+    so the operator can see which zone the data actually comes from.
+    """
+    stamps = [ts for ts in (parse_hae_datetime(d) for d in dates) if ts is not None]
+    bad = offset_mismatches(stamps, tz)
+    offsets = sorted({_format_offset(ts.utcoffset()) for ts in bad})
+    return TzCheck(tz=tz, checked=len(stamps), mismatched=len(bad), seen_offsets=offsets)
+
+
 # ===========================================================================
 # Reporting
 # ===========================================================================
@@ -262,6 +297,23 @@ def _log_report(report: AuditReport) -> None:
     else:
         log.info("workout: all workout names resolve to a canonical type")
 
+    # --- 5. Time zone ------------------------------------------------------
+    tz = report.tz_check
+    if tz is None or tz.checked == 0:
+        log.info("timezone: no recent payload timestamps to check TZ against")
+    elif tz.mismatched:
+        log.warning(
+            "timezone: %d of %d recent payload timestamps carry UTC offset(s) %s that TZ=%r does not have - "
+            "daily values are bucketed on shifted days. Set TZ in .env to your zone (e.g. America/New_York), "
+            "recreate the container, then run rederive-stress, rederive-body-battery and analyze",
+            tz.mismatched,
+            tz.checked,
+            ", ".join(tz.seen_offsets),
+            tz.tz,
+        )
+    else:
+        log.info("timezone: TZ=%r matches the UTC offsets of %d recent payload timestamps", tz.tz, tz.checked)
+
 
 # ===========================================================================
 # CLI entry point (DB work lives here, kept out of the pure builders above).
@@ -308,6 +360,13 @@ def run(_args: argparse.Namespace) -> int:
 
         workout_rows = db.execute(select(Workout.name, func.count()).group_by(Workout.name)).all()
 
+        # The first sample's timestamp of the most recent payloads: HAE stamps it
+        # with the phone's local UTC offset.
+        recent_dates = db.execute(
+            text("SELECT payload #>> '{data,metrics,0,data,0,date}' FROM raw_ingest ORDER BY received_at DESC LIMIT 20")
+        ).scalars()
+        tz_check = check_tz(recent_dates, settings.local_tz)
+
     report = AuditReport(
         min_overlap=min_overlap,
         coverage=build_coverage(coverage_rows, registry),
@@ -315,6 +374,7 @@ def run(_args: argparse.Namespace) -> int:
         unit_anomalies=detect_unit_anomalies(unit_rows, registry),
         unmapped_workouts=detect_unmapped_workouts(workout_rows, type_map),
         findings_last_run=last_run,
+        tz_check=tz_check,
     )
     _log_report(report)
     return 0

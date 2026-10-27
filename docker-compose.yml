@@ -19,6 +19,9 @@ services:
       POSTGRES_USER: healthlog
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: healthlog
+      # TimescaleDB phones home by default (usage report + version check);
+      # read on the first initdb only, migration 0027 covers older volumes.
+      TIMESCALEDB_TELEMETRY: "off"
     volumes:
       - db-data:/var/lib/postgresql/data
     healthcheck:

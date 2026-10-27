@@ -12,6 +12,12 @@ instead of a module path::
     healthlog narrate --dry-run             # print the model context only (no Ollama call)
     healthlog check-workout-hr              # is intra-workout HR in the archive?
     healthlog rederive-workout-hr           # backfill HR samples from the archive
+    healthlog rederive-state-of-mind        # backfill State of Mind entries from the archive
+    healthlog rederive-sleep                # re-derive sleep sessions from the archive
+    healthlog rederive-symptoms             # backfill Apple Health symptoms from the archive
+    healthlog rederive-medications          # backfill medication doses from the archive
+    healthlog rederive-heart-notifications  # backfill Apple Watch heart rate notifications from the archive
+    healthlog rederive-ecg                  # backfill ECG summaries from the archive
     healthlog rederive-stress               # recompute the stress timeline (full history)
     healthlog rederive-stress --days 30     # recompute only the trailing 30 days
     healthlog rederive-body-battery         # recompute the Body-Battery timeline (full history)
@@ -60,6 +66,32 @@ def build_parser() -> argparse.ArgumentParser:
     rwh = sub.add_parser("rederive-workout-hr", help="backfill intra-workout HR samples from the raw archive")
     rederive.add_arguments(rwh)
     rwh.set_defaults(func=rederive.run)
+
+    rsm = sub.add_parser("rederive-state-of-mind", help="backfill State of Mind entries from the raw archive")
+    rederive.add_arguments(rsm)
+    rsm.set_defaults(func=rederive.run_state_of_mind)
+
+    rsl = sub.add_parser("rederive-sleep", help="re-derive sleep sessions from the raw archive")
+    rederive.add_arguments(rsl)
+    rsl.set_defaults(func=rederive.run_sleep)
+
+    rsy = sub.add_parser("rederive-symptoms", help="backfill Apple Health symptoms from the raw archive")
+    rederive.add_arguments(rsy)
+    rsy.set_defaults(func=rederive.run_symptoms)
+
+    rmd = sub.add_parser("rederive-medications", help="backfill medication doses from the raw archive")
+    rederive.add_arguments(rmd)
+    rmd.set_defaults(func=rederive.run_medications)
+
+    rhn = sub.add_parser(
+        "rederive-heart-notifications", help="backfill Apple Watch heart rate notifications from the raw archive"
+    )
+    rederive.add_arguments(rhn)
+    rhn.set_defaults(func=rederive.run_heart_notifications)
+
+    recg = sub.add_parser("rederive-ecg", help="backfill ECG summaries from the raw archive")
+    rederive.add_arguments(recg)
+    recg.set_defaults(func=rederive.run_ecg)
 
     rst = sub.add_parser("rederive-stress", help="recompute the stress timeline from stored heart-rate history")
     stress_backfill.add_arguments(rst)

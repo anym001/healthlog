@@ -14,6 +14,7 @@ from app.audit import (
     UnitAnomaly,
     UnmappedWorkout,
     build_coverage,
+    check_tz,
     detect_unit_anomalies,
     detect_unmapped_workouts,
     summarize_findings,
@@ -150,3 +151,23 @@ def test_report_classifies_core_coverage_against_min_overlap():
 
 def test_report_findings_total_zero_when_empty():
     assert AuditReport(min_overlap=42).findings_total == 0
+
+
+# --- Time zone --------------------------------------------------------------
+
+
+def test_check_tz_flags_offsets_the_zone_does_not_have():
+    dates = ["2026-10-14 09:00:00 -0400", "2026-10-13 22:15:00 -0400"]
+    check = check_tz(dates, "Europe/Vienna")
+    assert (check.checked, check.mismatched) == (2, 2)
+    assert check.seen_offsets == ["-04:00"]
+
+
+def test_check_tz_passes_when_offsets_match():
+    check = check_tz(["2026-10-14 09:00:00 -0400", "2026-01-14 09:00:00 -0500"], "America/New_York")
+    assert (check.checked, check.mismatched, check.seen_offsets) == (2, 0, [])
+
+
+def test_check_tz_skips_missing_and_malformed_dates():
+    check = check_tz([None, "garbage", "2026-07-01 08:00:00 +0200"], "Europe/Vienna")
+    assert (check.checked, check.mismatched) == (1, 0)

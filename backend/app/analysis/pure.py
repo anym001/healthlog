@@ -166,6 +166,19 @@ class Decomp:
     has_annual: bool = False
 
 
+def complete_days(s: pd.Series, today: dt.date) -> pd.Series:
+    """Drop the still-running local day (and anything later) from a daily series.
+
+    A metric aggregated over a partial day is biased, not just noisy: at a
+    morning run "today" holds only the night and early hours, so its mean heart
+    rate is low, its HRV high and its step/effort totals small. Left in, it is
+    flagged as an anomaly every single run and skews ACWR/trends toward it.
+    """
+    if s.empty:
+        return s
+    return s[s.index < pd.Timestamp(today)]
+
+
 def _daily_grid(s: pd.Series) -> pd.DatetimeIndex:
     """Complete daily DatetimeIndex spanning the series' first..last date."""
     return pd.date_range(s.index.min(), s.index.max(), freq="D")

@@ -21,11 +21,17 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql.expression import literal_column
 
 from . import units
+from .health_vocab import canonical_medication_status, canonical_severity, canonical_symptom
 from .models import (
+    EcgRecording,
+    HeartRateNotification,
+    MedicationDose,
     MetricRegistry,
     MetricSample,
     RawIngest,
     SleepSession,
+    StateOfMind,
+    Symptom,
     Workout,
     WorkoutHrSample,
     WorkoutRoutePoint,
@@ -55,6 +61,23 @@ class ParsedPayload:
     # Workouts dropped for a missing/unparseable id; surfaced like the other
     # data-quality counters so they never vanish silently. (raw_id, name)
     dropped_workouts: list[tuple[str, str]] = field(default_factory=list)
+    # Apple Health State of Mind entries (stateOfMind) -> state_of_mind.
+    state_of_mind_rows: list[dict] = field(default_factory=list)
+    # State of Mind entries dropped for a missing/unparseable id or start time. (raw_id, kind)
+    dropped_state_of_mind: list[tuple[str, str]] = field(default_factory=list)
+    # sleep_analysis points that could not become a night: an aggregated point
+    # without sleepStart, an unusable stage segment, or a night of segments with
+    # no asleep stage at all. (reason, stage)
+    dropped_sleep: list[tuple[str, str]] = field(default_factory=list)
+    # Apple Health symptoms (symptoms) -> symptoms; medication doses (medications) -> medication_doses.
+    symptom_rows: list[dict] = field(default_factory=list)
+    medication_rows: list[dict] = field(default_factory=list)
+    # Entries dropped for a missing name or start time. (name, data type)
+    dropped_entries: list[tuple[str, str]] = field(default_factory=list)
+    # Apple Watch heart rate notifications (heartRateNotifications) -> heart_rate_notifications;
+    # ECG recordings (ecg) -> ecg_recordings, as summaries without the waveform.
+    heart_notification_rows: list[dict] = field(default_factory=list)
+    ecg_rows: list[dict] = field(default_factory=list)
 
 
 def _num(value) -> float | None:
@@ -131,9 +154,16 @@ def _parse_metric(name: str, payload_unit: str | None, point: dict, out: ParsedP
         out.unknown_metrics.setdefault(name, raw_unit or "")
 
 
-def _parse_sleep(point: dict, out: ParsedPayload) -> None:
+def _parse_sleep(point: dict, out: ParsedPayload, segments: list[dict]) -> None:
+    """One ``sleep_analysis`` point. Aggregated (``sleepStart`` + phase hours)
+    becomes a row directly; an unaggregated stage segment is collected into
+    ``segments`` and folded into nights once the whole payload is read."""
+    if "value" in point and ("startDate" in point or "endDate" in point):
+        _parse_sleep_segment(point, out, segments)
+        return
     start = parse_hae_datetime(point.get("sleepStart"))
     if start is None:
+        out.dropped_sleep.append(("no sleepStart", ""))
         return
     date_field = parse_hae_datetime(point.get("date"))
     out.sleep_rows.append(
@@ -153,6 +183,116 @@ def _parse_sleep(point: dict, out: ParsedPayload) -> None:
             "in_bed_h": _num(point.get("inBed")),
         }
     )
+
+
+# Unaggregated sleep (HAE "Aggregate Data" off, e.g. a history export) arrives as
+# one point per stage segment instead of one summary per night. Stage -> the
+# sleep_sessions hour column it adds to; "Asleep"/"Unspecified" are Apple's
+# uncategorised sleep (sources without stage tracking).
+_SLEEP_STAGE_COLUMNS = {
+    "core": "core_h",
+    "deep": "deep_h",
+    "rem": "rem_h",
+    "asleep": "asleep_h",
+    "unspecified": "asleep_h",
+    "awake": "awake_h",
+    "in bed": "in_bed_h",
+}
+_ASLEEP_COLUMNS = ("core_h", "deep_h", "rem_h", "asleep_h")
+# Segments further apart than this start a new sleep period (a nap, the next
+# night); shorter gaps (watch briefly off) stay within one night.
+SLEEP_SESSION_GAP = dt.timedelta(hours=3)
+
+
+def _parse_sleep_segment(point: dict, out: ParsedPayload, segments: list[dict]) -> None:
+    stage = point.get("value")
+    column = _SLEEP_STAGE_COLUMNS.get(str(stage or "").strip().lower())
+    start = parse_hae_datetime(point.get("startDate"))
+    end = parse_hae_datetime(point.get("endDate"))
+    if column is None or start is None or end is None or end < start:
+        out.dropped_sleep.append(("unusable segment", str(stage or "")))
+        return
+    segments.append({"start": start, "end": end, "column": column, "source": point.get("source") or ""})
+
+
+def _hours(seconds: float) -> float:
+    return seconds / 3600.0
+
+
+def _union_seconds(intervals: list[tuple[dt.datetime, dt.datetime]]) -> float:
+    """Total covered time of possibly overlapping intervals (overlap counted once)."""
+    total, cur_start, cur_end = 0.0, None, None
+    for start, end in sorted(intervals):
+        if cur_end is None or start > cur_end:
+            if cur_end is not None:
+                total += (cur_end - cur_start).total_seconds()
+            cur_start, cur_end = start, end
+        else:
+            cur_end = max(cur_end, end)
+    if cur_end is not None:
+        total += (cur_end - cur_start).total_seconds()
+    return total
+
+
+def _fold_night(night: list[dict]) -> dict | None:
+    """One sleep period's segments -> a sleep_sessions row, or None if it holds
+    no asleep stage. Stages come from a single source (the one with the most
+    asleep time) so two trackers recording the same night never double-count;
+    the in-bed window spans every source (often only the iPhone records it)."""
+    asleep_by_source: dict[str, float] = {}
+    for s in night:
+        if s["column"] in _ASLEEP_COLUMNS:
+            secs = (s["end"] - s["start"]).total_seconds()
+            asleep_by_source[s["source"]] = asleep_by_source.get(s["source"], 0.0) + secs
+    if not asleep_by_source:
+        return None
+    primary = max(asleep_by_source, key=lambda src: (asleep_by_source[src], src))
+
+    stages = [s for s in night if s["source"] == primary and s["column"] != "in_bed_h"]
+    hours: dict[str, float] = {}
+    for s in stages:
+        hours[s["column"]] = hours.get(s["column"], 0.0) + _hours((s["end"] - s["start"]).total_seconds())
+    asleep = [s for s in stages if s["column"] in _ASLEEP_COLUMNS]
+    sleep_end = max(s["end"] for s in asleep)
+    in_bed = [(s["start"], s["end"]) for s in night if s["column"] == "in_bed_h"]
+
+    return {
+        "sleep_start": min(s["start"] for s in asleep),
+        "sleep_end": sleep_end,
+        "in_bed_start": min(start for start, _ in in_bed) if in_bed else None,
+        "in_bed_end": max(end for _, end in in_bed) if in_bed else None,
+        "source": primary,
+        # The segment timestamps carry the phone's local offset, so this is the
+        # local wake-up day, matching HAE's aggregated `date`.
+        "sleep_date": sleep_end.date(),
+        "total_sleep_h": sum(hours.get(c, 0.0) for c in _ASLEEP_COLUMNS),
+        "deep_h": hours.get("deep_h"),
+        "core_h": hours.get("core_h"),
+        "rem_h": hours.get("rem_h"),
+        "awake_h": hours.get("awake_h"),
+        "asleep_h": hours.get("asleep_h"),
+        "in_bed_h": _hours(_union_seconds(in_bed)) if in_bed else None,
+    }
+
+
+def fold_sleep_segments(segments: list[dict]) -> tuple[list[dict], int]:
+    """Fold unaggregated stage segments into one row per sleep period. Pure.
+
+    Segments are ordered by start and split into periods wherever the gap to
+    everything before exceeds ``SLEEP_SESSION_GAP``; each period becomes one
+    ``sleep_sessions`` row in the aggregated shape, so the (sleep_end, source)
+    upsert and the ``sleep_nightly`` view treat both shapes alike. Returns the
+    rows and the number of periods dropped for holding no asleep stage."""
+    periods: list[list[dict]] = []
+    period_end: dt.datetime | None = None
+    for s in sorted(segments, key=lambda s: (s["start"], s["end"])):
+        if period_end is None or s["start"] - period_end > SLEEP_SESSION_GAP:
+            periods.append([])
+            period_end = s["end"]
+        periods[-1].append(s)
+        period_end = max(period_end, s["end"])
+    rows = [row for row in (_fold_night(p) for p in periods) if row is not None]
+    return rows, len(periods) - len(rows)
 
 
 def _qty_of(obj) -> float | None:
@@ -282,7 +422,177 @@ def _parse_workout(w: dict, out: ParsedPayload, type_map: dict[str, str] | None 
             "elevation_up_m": _qty_of(w.get("elevationUp")),
             "temperature_c": _qty_of(w.get("temperature")),
             "humidity_pct": _qty_of(w.get("humidity")),
-            "source": w.get("source"),
+            "source": _source_name(w.get("source")) or None,
+        }
+    )
+
+
+# Apple's valence scale; anything outside it is a malformed value, not a mood.
+_VALENCE_RANGE = (-1.0, 1.0)
+
+
+def _str_list(value) -> list[str]:
+    """Labels/associations as a clean list of strings (non-strings skipped)."""
+    if not isinstance(value, list):
+        return []
+    return [v for v in value if isinstance(v, str) and v]
+
+
+def _parse_state_of_mind(entry: dict, out: ParsedPayload) -> None:
+    raw_id = entry.get("id")
+    kind = entry.get("kind")
+    try:
+        hae_id = uuid.UUID(str(raw_id)) if raw_id else None
+    except ValueError:
+        hae_id = None
+    start = parse_hae_datetime(entry.get("start"))
+    if hae_id is None or start is None:
+        out.dropped_state_of_mind.append((str(raw_id or ""), str(kind or "")))
+        return
+
+    valence = _num(entry.get("valence"))
+    if valence is not None and not _VALENCE_RANGE[0] <= valence <= _VALENCE_RANGE[1]:
+        out.implausible.append(("state_of_mind_valence", valence))
+        valence = None  # keep the entry (labels still count); the raw archive keeps the value
+
+    out.state_of_mind_rows.append(
+        {
+            "hae_id": hae_id,
+            "start_time": start,
+            "end_time": parse_hae_datetime(entry.get("end")),
+            "kind": kind,
+            "valence": valence,
+            "valence_classification": entry.get("valenceClassification"),
+            "labels": _str_list(entry.get("labels")),
+            "associations": _str_list(entry.get("associations")),
+        }
+    )
+
+
+def _bool_or_none(value) -> bool | None:
+    return value if isinstance(value, bool) else None
+
+
+def _text_or_none(value) -> str | None:
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _parse_symptom(entry: dict, out: ParsedPayload) -> None:
+    """One HAE symptom entry. No id is shipped, so (start, raw name, source) is
+    the key; the localised name and severity get canonical slugs next to them."""
+    name = _text_or_none(entry.get("name"))
+    start = parse_hae_datetime(entry.get("start"))
+    if name is None or start is None:
+        out.dropped_entries.append((str(entry.get("name") or ""), "symptom"))
+        return
+    severity_raw = _text_or_none(entry.get("severity"))
+    out.symptom_rows.append(
+        {
+            "start_time": start,
+            "end_time": parse_hae_datetime(entry.get("end")),
+            "name": name,
+            "symptom": canonical_symptom(name),
+            "severity_raw": severity_raw,
+            "severity": canonical_severity(severity_raw),
+            "source": entry.get("source") or "",
+            "user_entered": _bool_or_none(entry.get("userEntered")),
+            "cycle_start": _bool_or_none(entry.get("cycleStart")),
+        }
+    )
+
+
+def _parse_medication(entry: dict, out: ParsedPayload) -> None:
+    """One HAE medication dose event (iOS 26). No id and no source are shipped;
+    a dose is keyed by the medication's display name and its scheduled time,
+    falling back to the logging time for an as-needed dose."""
+    medication = _text_or_none(entry.get("displayText"))
+    start = parse_hae_datetime(entry.get("start"))
+    if medication is None or start is None:
+        out.dropped_entries.append((str(entry.get("displayText") or ""), "medication"))
+        return
+    scheduled = parse_hae_datetime(entry.get("scheduledDate"))
+    status_raw = _text_or_none(entry.get("status"))
+    codings = entry.get("codings")
+    out.medication_rows.append(
+        {
+            "medication": medication,
+            "dose_time": scheduled or start,
+            "start_time": start,
+            "end_time": parse_hae_datetime(entry.get("end")),
+            "scheduled_time": scheduled,
+            "status_raw": status_raw,
+            "status": canonical_medication_status(status_raw),
+            "dosage": _num(entry.get("dosage")),
+            "scheduled_dosage": _num(entry.get("scheduledDosage")),
+            "units": _text_or_none(entry.get("units")),
+            "nickname": _text_or_none(entry.get("nickname")),
+            "form": _text_or_none(entry.get("form")),
+            "is_archived": _bool_or_none(entry.get("isArchived")),
+            "codings": codings if isinstance(codings, list) else None,
+        }
+    )
+
+
+def _source_name(value) -> str:
+    """HAE ships ``source`` as a plain string in most sections, but as
+    ``{name, identifier}`` in heart rate notifications and workouts."""
+    if isinstance(value, dict):
+        value = value.get("name") or value.get("identifier")
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _parse_heart_notification(entry: dict, out: ParsedPayload) -> None:
+    """One Apple Watch heart rate notification. No id is shipped, so (start,
+    kind, source) is the key; the heart-rate samples behind the alert are
+    summarised (the raw archive keeps them)."""
+    kind = _text_or_none(entry.get("heartNotification"))
+    start = parse_hae_datetime(entry.get("start"))
+    if kind is None or start is None:
+        out.dropped_entries.append((str(entry.get("heartNotification") or ""), "heart_rate_notification"))
+        return
+    samples = entry.get("heartRateData")
+    rates = [
+        q
+        for q in (_num(s.get("qty")) for s in (samples if isinstance(samples, list) else []) if isinstance(s, dict))
+        if q is not None
+    ]
+    out.heart_notification_rows.append(
+        {
+            "start_time": start,
+            "end_time": parse_hae_datetime(entry.get("end")),
+            "kind": kind,
+            "threshold": _num(entry.get("threshold")),
+            "source": _source_name(entry.get("source")),
+            "hr_min": min(rates) if rates else None,
+            "hr_avg": sum(rates) / len(rates) if rates else None,
+            "hr_max": max(rates) if rates else None,
+            "hr_samples": len(rates) if rates else None,
+        }
+    )
+
+
+def _parse_ecg(entry: dict, out: ParsedPayload) -> None:
+    """One ECG recording, as a summary. The voltage waveform is deliberately
+    not stored (ARCHITECTURE §10); an inconclusive recording reports an average
+    heart rate of 0, which is stored as NULL."""
+    start = parse_hae_datetime(entry.get("start"))
+    if start is None:
+        out.dropped_entries.append((str(entry.get("classification") or ""), "ecg"))
+        return
+    average = _num(entry.get("averageHeartRate"))
+    voltages = entry.get("voltageMeasurements")
+    count = _num(entry.get("numberOfVoltageMeasurements"))
+    if count is None and isinstance(voltages, list):
+        count = len(voltages)
+    out.ecg_rows.append(
+        {
+            "start_time": start,
+            "end_time": parse_hae_datetime(entry.get("end")),
+            "classification": _text_or_none(entry.get("classification")),
+            "average_heart_rate": average if average else None,
+            "sampling_frequency": _num(entry.get("samplingFrequency")),
+            "voltage_samples": int(count) if count is not None else None,
+            "source": _source_name(entry.get("source")),
         }
     )
 
@@ -297,6 +607,7 @@ def parse_payload(payload: dict, type_map: dict[str, str] | None = None) -> Pars
     """
     out = ParsedPayload()
     data = payload.get("data") or {}
+    sleep_segments: list[dict] = []
 
     for metric in data.get("metrics") or []:
         name = metric.get("name")
@@ -306,13 +617,39 @@ def parse_payload(payload: dict, type_map: dict[str, str] | None = None) -> Pars
         points = metric.get("data") or []
         if name == SLEEP_METRIC:
             for point in points:
-                _parse_sleep(point, out)
+                if isinstance(point, dict):
+                    _parse_sleep(point, out, sleep_segments)
             continue
         for point in points:
             _parse_metric(name, unit, point, out)
 
+    if sleep_segments:
+        rows, empty_periods = fold_sleep_segments(sleep_segments)
+        out.sleep_rows.extend(rows)
+        out.dropped_sleep.extend([("no asleep stage in period", "")] * empty_periods)
+
     for w in data.get("workouts") or []:
         _parse_workout(w, out, type_map)
+
+    for entry in data.get("stateOfMind") or []:
+        if isinstance(entry, dict):
+            _parse_state_of_mind(entry, out)
+
+    for entry in data.get("symptoms") or []:
+        if isinstance(entry, dict):
+            _parse_symptom(entry, out)
+
+    for entry in data.get("medications") or []:
+        if isinstance(entry, dict):
+            _parse_medication(entry, out)
+
+    for entry in data.get("heartRateNotifications") or []:
+        if isinstance(entry, dict):
+            _parse_heart_notification(entry, out)
+
+    for entry in data.get("ecg") or []:
+        if isinstance(entry, dict):
+            _parse_ecg(entry, out)
 
     return out
 
@@ -352,12 +689,25 @@ class StoreResult:
     flagged_units: int = 0
     implausible_values: int = 0
     dropped_workouts: int = 0
+    dropped_sleep: int = 0
+    state_of_mind_rows: int = 0
+    dropped_state_of_mind: int = 0
+    symptom_rows: int = 0
+    medication_rows: int = 0
+    heart_notification_rows: int = 0
+    ecg_rows: int = 0
+    dropped_entries: int = 0
     # New vs. updated counts from the Postgres xmax trick: xmax=0 means the
     # row was freshly inserted; xmax!=0 means an existing row was updated (i.e.
     # the payload contained data that was already in the DB).
     metric_new: int = 0
     sleep_new: int = 0
     workout_new: int = 0
+    state_of_mind_new: int = 0
+    symptom_new: int = 0
+    medication_new: int = 0
+    heart_notification_new: int = 0
+    ecg_new: int = 0
 
 
 # Postgres caps a single statement at 65535 bound parameters, so a multi-year
@@ -493,6 +843,103 @@ def store_workout_route_points(db: Session, rows: list[dict]) -> int:
     return len(deduped)
 
 
+def store_sleep(db: Session, rows: list[dict]) -> int:
+    """Idempotent upsert of sleep sessions; returns the count of freshly-inserted
+    rows. Shared with the re-derive CLI, which replays the raw archive.
+
+    Consolidates on the awakening identity (sleep_end, source): overlapping API
+    re-captures of one night collapse to the most complete row, and a partial
+    capture arriving after the full one never downgrades it (the WHERE guards
+    the DO UPDATE so only a fuller capture wins). See migration 0011."""
+    sleep_rows = _consolidate_sleep(rows)
+    return _upsert(
+        db,
+        SleepSession,
+        sleep_rows,
+        set_keys=[k for k in (sleep_rows[0] if sleep_rows else ()) if k not in ("sleep_end", "source")],
+        where=lambda s: (
+            sa.func.coalesce(s.excluded.total_sleep_h, -1.0) > sa.func.coalesce(SleepSession.total_sleep_h, -1.0)
+        ),
+        constraint="uq_sleep_sessions",
+    )
+
+
+def store_state_of_mind(db: Session, rows: list[dict]) -> int:
+    """Idempotent upsert of State of Mind entries keyed by HAE's id; returns the
+    count of freshly-inserted rows. Shared with the re-derive CLI, which replays
+    the raw archive into this table."""
+    deduped = _dedupe(rows, ("hae_id",))
+    return _upsert(
+        db,
+        StateOfMind,
+        deduped,
+        set_keys=[k for k in (deduped[0] if deduped else ()) if k != "hae_id"],
+        index_elements=["hae_id"],
+    )
+
+
+def store_symptoms(db: Session, rows: list[dict]) -> int:
+    """Idempotent upsert of symptom entries keyed by (start_time, raw name,
+    source); returns the count of freshly-inserted rows. The canonical slugs
+    are coalesce-updated, so a replay after a vocabulary extension fills them
+    in but never blanks them. Shared with the re-derive CLI."""
+    key = ("start_time", "name", "source")
+    deduped = _dedupe(rows, key)
+    return _upsert(
+        db,
+        Symptom,
+        deduped,
+        set_keys=[k for k in (deduped[0] if deduped else ()) if k not in key],
+        coalesce_keys=("symptom", "severity"),
+        constraint="uq_symptoms",
+    )
+
+
+def store_medication_doses(db: Session, rows: list[dict]) -> int:
+    """Idempotent upsert of medication dose events keyed by (medication,
+    dose_time); returns the count of freshly-inserted rows. A status change on
+    a scheduled dose updates the row in place. Shared with the re-derive CLI."""
+    key = ("medication", "dose_time")
+    deduped = _dedupe(rows, key)
+    return _upsert(
+        db,
+        MedicationDose,
+        deduped,
+        set_keys=[k for k in (deduped[0] if deduped else ()) if k not in key],
+        coalesce_keys=("status",),
+        constraint="uq_medication_doses",
+    )
+
+
+def store_heart_notifications(db: Session, rows: list[dict]) -> int:
+    """Idempotent upsert of heart rate notifications keyed by (start_time, kind,
+    source); returns the count of freshly-inserted rows. Shared with the
+    re-derive CLI."""
+    key = ("start_time", "kind", "source")
+    deduped = _dedupe(rows, key)
+    return _upsert(
+        db,
+        HeartRateNotification,
+        deduped,
+        set_keys=[k for k in (deduped[0] if deduped else ()) if k not in key],
+        constraint="uq_heart_rate_notifications",
+    )
+
+
+def store_ecg_recordings(db: Session, rows: list[dict]) -> int:
+    """Idempotent upsert of ECG summaries keyed by (start_time, source); returns
+    the count of freshly-inserted rows. Shared with the re-derive CLI."""
+    key = ("start_time", "source")
+    deduped = _dedupe(rows, key)
+    return _upsert(
+        db,
+        EcgRecording,
+        deduped,
+        set_keys=[k for k in (deduped[0] if deduped else ()) if k not in key],
+        constraint="uq_ecg_recordings",
+    )
+
+
 def store(db: Session, parsed: ParsedPayload) -> StoreResult:
     """Idempotent upsert of parsed rows. Safe to replay overlapping windows.
 
@@ -512,21 +959,7 @@ def store(db: Session, parsed: ParsedPayload) -> StoreResult:
         constraint="uq_metric_samples",
     )
 
-    # Consolidate on the awakening identity (sleep_end, source): overlapping API
-    # re-captures of one night collapse to the most complete row, and a partial
-    # capture arriving after the full one never downgrades it (the WHERE guards
-    # the DO UPDATE so only a fuller capture wins). See migration 0011.
-    sleep_rows = _consolidate_sleep(parsed.sleep_rows)
-    sleep_new = _upsert(
-        db,
-        SleepSession,
-        sleep_rows,
-        set_keys=[k for k in (sleep_rows[0] if sleep_rows else ()) if k not in ("sleep_end", "source")],
-        where=lambda s: (
-            sa.func.coalesce(s.excluded.total_sleep_h, -1.0) > sa.func.coalesce(SleepSession.total_sleep_h, -1.0)
-        ),
-        constraint="uq_sleep_sessions",
-    )
+    sleep_new = store_sleep(db, parsed.sleep_rows)
 
     # canonical_type uses coalesce-on-conflict so a NULL in a replayed payload
     # never overwrites an already-resolved value.
@@ -543,6 +976,11 @@ def store(db: Session, parsed: ParsedPayload) -> StoreResult:
     # After the workouts (FK target) exist in this transaction.
     workout_hr_rows = store_workout_hr_samples(db, parsed.workout_hr_rows)
     workout_route_rows = store_workout_route_points(db, parsed.workout_route_rows)
+    state_of_mind_new = store_state_of_mind(db, parsed.state_of_mind_rows)
+    symptom_new = store_symptoms(db, parsed.symptom_rows)
+    medication_new = store_medication_doses(db, parsed.medication_rows)
+    heart_notification_new = store_heart_notifications(db, parsed.heart_notification_rows)
+    ecg_new = store_ecg_recordings(db, parsed.ecg_rows)
 
     for metric, unit in parsed.flagged_units:
         log.warning("unit mismatch for %s: incoming '%s' kept as-is (no known conversion)", metric, unit)
@@ -558,6 +996,22 @@ def store(db: Session, parsed: ParsedPayload) -> StoreResult:
             raw_id,
             name,
         )
+    if parsed.dropped_sleep:
+        reasons: dict[str, int] = {}
+        for reason, _stage in parsed.dropped_sleep:
+            reasons[reason] = reasons.get(reason, 0) + 1
+        log.warning(
+            "sleep data dropped: %s (raw archive keeps it)",
+            ", ".join(f"{n} x {reason}" for reason, n in sorted(reasons.items())),
+        )
+    for name, data_type in parsed.dropped_entries:
+        log.warning("%s entry dropped: missing name or start (name=%r) (raw archive keeps it)", data_type, name)
+    for raw_id, kind in parsed.dropped_state_of_mind:
+        log.warning(
+            "state of mind entry dropped: unusable id or start (id=%r, kind=%r) (raw archive keeps it)",
+            raw_id,
+            kind,
+        )
 
     return StoreResult(
         metric_rows=len(parsed.metric_rows),
@@ -569,9 +1023,22 @@ def store(db: Session, parsed: ParsedPayload) -> StoreResult:
         flagged_units=len(parsed.flagged_units),
         implausible_values=len(parsed.implausible),
         dropped_workouts=len(parsed.dropped_workouts),
+        dropped_sleep=len(parsed.dropped_sleep),
+        state_of_mind_rows=len(parsed.state_of_mind_rows),
+        dropped_state_of_mind=len(parsed.dropped_state_of_mind),
+        symptom_rows=len(parsed.symptom_rows),
+        medication_rows=len(parsed.medication_rows),
+        heart_notification_rows=len(parsed.heart_notification_rows),
+        ecg_rows=len(parsed.ecg_rows),
+        dropped_entries=len(parsed.dropped_entries),
         metric_new=metric_new,
         sleep_new=sleep_new,
         workout_new=workout_new,
+        state_of_mind_new=state_of_mind_new,
+        symptom_new=symptom_new,
+        medication_new=medication_new,
+        heart_notification_new=heart_notification_new,
+        ecg_new=ecg_new,
     )
 
 

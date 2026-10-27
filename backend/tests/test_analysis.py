@@ -2376,3 +2376,28 @@ def test_alert_items_reads_only_alert_kinds_from_snapshot(db):
     db.flush()
 
     assert _alert_items(db) == [AlertItem("anomaly", "hrv", dt.date(2026, 6, 29), 4)]
+
+
+def test_build_series_drops_the_running_local_day(db):
+    # 40 steady days, then a partial "today" whose low step total would
+    # otherwise be flagged as an anomaly on every morning run.
+    _add_metric(db, "step_count", [10000.0] * 40 + [800.0])
+    db.flush()
+    today = dt.date(2026, 1, 1) + dt.timedelta(days=40)
+
+    series = analysis.build_series(db, "Europe/Vienna", today=today)
+    assert series["step_count"].index.max() == pd.Timestamp(today - dt.timedelta(days=1))
+    anomalies = analysis._anomaly_findings(series, dt.datetime.now(UTC))
+    assert not [f for f in anomalies if f.ref_date == today]
+
+    # Once the day is over it is analysed like any other.
+    later = analysis.build_series(db, "Europe/Vienna", today=today + dt.timedelta(days=1))
+    assert later["step_count"].index.max() == pd.Timestamp(today)
+
+
+def test_complete_days_cuts_today_and_later():
+    from app.analysis.pure import complete_days
+
+    s = pd.Series([1.0, 2.0, 3.0], index=pd.date_range("2026-10-15", periods=3, freq="D"))
+    assert list(complete_days(s, dt.date(2026, 10, 17))) == [1.0, 2.0]
+    assert complete_days(pd.Series(dtype="float64"), dt.date(2026, 10, 17)).empty

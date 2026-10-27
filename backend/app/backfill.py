@@ -72,6 +72,11 @@ class BackfillSummary:
     metric_rows: int = 0
     sleep_rows: int = 0
     workout_rows: int = 0
+    state_of_mind_rows: int = 0
+    symptom_rows: int = 0
+    medication_rows: int = 0
+    heart_notification_rows: int = 0
+    ecg_rows: int = 0
     unknown_metrics: int = 0
 
     def add_stored(self, result: ingest_svc.StoreResult) -> None:
@@ -80,6 +85,11 @@ class BackfillSummary:
         self.metric_rows += result.metric_rows
         self.sleep_rows += result.sleep_rows
         self.workout_rows += result.workout_rows
+        self.state_of_mind_rows += result.state_of_mind_rows
+        self.symptom_rows += result.symptom_rows
+        self.medication_rows += result.medication_rows
+        self.heart_notification_rows += result.heart_notification_rows
+        self.ecg_rows += result.ecg_rows
         self.unknown_metrics += result.unknown_metrics
 
     def add_parsed(self, parsed: ingest_svc.ParsedPayload) -> None:
@@ -87,6 +97,11 @@ class BackfillSummary:
         self.metric_rows += len(parsed.metric_rows)
         self.sleep_rows += len(parsed.sleep_rows)
         self.workout_rows += len(parsed.workout_rows)
+        self.state_of_mind_rows += len(parsed.state_of_mind_rows)
+        self.symptom_rows += len(parsed.symptom_rows)
+        self.medication_rows += len(parsed.medication_rows)
+        self.heart_notification_rows += len(parsed.heart_notification_rows)
+        self.ecg_rows += len(parsed.ecg_rows)
         self.unknown_metrics += len(parsed.unknown_metrics)
 
 
@@ -219,11 +234,17 @@ def run_backfill(
                 parsed = ingest_svc.parse_payload(json.loads(path.read_bytes()), type_map=type_map)
                 summary.add_parsed(parsed)
                 log.info(
-                    "[dry-run] %s -> metrics=%d sleep=%d workouts=%d unknown=%d",
+                    "[dry-run] %s -> metrics=%d sleep=%d workouts=%d state_of_mind=%d symptoms=%d medications=%d "
+                    "heart_notifications=%d ecg=%d unknown=%d",
                     path.name,
                     len(parsed.metric_rows),
                     len(parsed.sleep_rows),
                     len(parsed.workout_rows),
+                    len(parsed.state_of_mind_rows),
+                    len(parsed.symptom_rows),
+                    len(parsed.medication_rows),
+                    len(parsed.heart_notification_rows),
+                    len(parsed.ecg_rows),
                     len(parsed.unknown_metrics),
                 )
                 continue
@@ -236,11 +257,17 @@ def run_backfill(
             else:
                 summary.add_stored(result)
                 log.info(
-                    "%s -> stored metrics=%d sleep=%d workouts=%d unknown=%d",
+                    "%s -> stored metrics=%d sleep=%d workouts=%d state_of_mind=%d symptoms=%d medications=%d "
+                    "heart_notifications=%d ecg=%d unknown=%d",
                     path.name,
                     result.metric_rows,
                     result.sleep_rows,
                     result.workout_rows,
+                    result.state_of_mind_rows,
+                    result.symptom_rows,
+                    result.medication_rows,
+                    result.heart_notification_rows,
+                    result.ecg_rows,
                     result.unknown_metrics,
                 )
         except Exception as exc:  # noqa: BLE001 - one bad file must not abort the run
@@ -254,7 +281,8 @@ def _log_summary(summary: BackfillSummary, dry_run: bool) -> None:
     prefix = "[dry-run] " if dry_run else ""
     log.info(
         "%sbackfill done: files=%d stored=%d duplicates=%d failures=%d "
-        "| metric_rows=%d sleep_rows=%d workout_rows=%d unknown_metrics=%d",
+        "| metric_rows=%d sleep_rows=%d workout_rows=%d state_of_mind_rows=%d symptom_rows=%d "
+        "medication_rows=%d heart_notification_rows=%d ecg_rows=%d unknown_metrics=%d",
         prefix,
         summary.files,
         summary.stored,
@@ -263,6 +291,11 @@ def _log_summary(summary: BackfillSummary, dry_run: bool) -> None:
         summary.metric_rows,
         summary.sleep_rows,
         summary.workout_rows,
+        summary.state_of_mind_rows,
+        summary.symptom_rows,
+        summary.medication_rows,
+        summary.heart_notification_rows,
+        summary.ecg_rows,
         summary.unknown_metrics,
     )
 

@@ -1,10 +1,10 @@
 {
   "uid": "healthlog-overview",
   "title": "HealthLog – Overview",
-  "description": "Daily health snapshot: last night's sleep, HRV & resting heart rate, stress score and Body Battery, sleep trends, overnight vitals, activity, body weight, and the nightly analysis' findings. Stress and Body Battery are derived proxies calibrated to your own baseline, not Garmin-comparable values. Bedtime/wake-up clock hours are computed via the hidden 'tz' constant (default Europe/Vienna); other times use the dashboard timezone (Settings → Timezone, default Europe/Vienna). Time window: 30 days.",
+  "description": "Daily health snapshot: last night's sleep, HRV & resting heart rate, stress score and Body Battery, mood (State of Mind), heart rate alerts and ECGs, sleep trends, overnight vitals, activity, body weight, and the nightly analysis' findings. Stress and Body Battery are derived proxies calibrated to your own baseline, not Garmin-comparable values. Days, bedtime and wake-up hours follow the configured TZ (hidden 'tz' variable, read from the database); times are displayed in your browser's timezone (Settings → Timezone to override). Time window: 30 days.",
   "schemaVersion": 39,
-  "version": 7,
-  "timezone": "Europe/Vienna",
+  "version": 8,
+  "timezone": "browser",
   "time": {
     "from": "now-30d",
     "to": "now"
@@ -107,7 +107,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT sleep_date AS time, total_sleep_h AS \"Total Sleep\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "rawSql": "SELECT (sleep_date::timestamp AT TIME ZONE '$tz') AS time, total_sleep_h AS \"Total Sleep\" FROM sleep_nightly WHERE $__timeFilter((sleep_date::timestamp AT TIME ZONE '$tz')) ORDER BY sleep_date",
           "format": "time_series"
         }
       ]
@@ -170,7 +170,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT sleep_date AS time, ROUND(efficiency_pct::numeric, 0) AS \"Sleep Efficiency\" FROM sleep_metrics WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "rawSql": "SELECT (sleep_date::timestamp AT TIME ZONE '$tz') AS time, ROUND(efficiency_pct::numeric, 0) AS \"Sleep Efficiency\" FROM sleep_metrics WHERE $__timeFilter((sleep_date::timestamp AT TIME ZONE '$tz')) ORDER BY sleep_date",
           "format": "time_series"
         }
       ]
@@ -233,7 +233,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT day AS time, avg AS \"HRV\" FROM daily_metrics WHERE metric = 'heart_rate_variability' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "rawSql": "SELECT (day::timestamp AT TIME ZONE '$tz') AS time, avg AS \"HRV\" FROM daily_metrics WHERE metric = 'heart_rate_variability' AND $__timeFilter((day::timestamp AT TIME ZONE '$tz')) ORDER BY day",
           "format": "time_series"
         }
       ]
@@ -296,7 +296,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT day AS time, vmin AS \"Resting HR\" FROM daily_metrics WHERE metric = 'resting_heart_rate' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "rawSql": "SELECT (day::timestamp AT TIME ZONE '$tz') AS time, vmin AS \"Resting HR\" FROM daily_metrics WHERE metric = 'resting_heart_rate' AND $__timeFilter((day::timestamp AT TIME ZONE '$tz')) ORDER BY day",
           "format": "time_series"
         }
       ]
@@ -363,7 +363,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT day AS time, score AS \"Stress Score\" FROM stress_daily WHERE $__timeFilter(day::timestamptz) ORDER BY day",
+          "rawSql": "SELECT (day::timestamp AT TIME ZONE '$tz') AS time, score AS \"Stress Score\" FROM stress_daily WHERE $__timeFilter((day::timestamp AT TIME ZONE '$tz')) ORDER BY day",
           "format": "time_series",
           "datasource": {
             "uid": "healthlog-db"
@@ -508,7 +508,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT ROUND(AVG(total_sleep_h)::numeric, 1) AS \"Avg Total Sleep\" FROM sleep_nightly WHERE sleep_date >= CURRENT_DATE - INTERVAL '7 days'",
+          "rawSql": "SELECT ROUND(AVG(total_sleep_h)::numeric, 1) AS \"Avg Total Sleep\" FROM sleep_nightly WHERE sleep_date >= (NOW() AT TIME ZONE '$tz')::date - 7",
           "format": "table"
         }
       ]
@@ -571,7 +571,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT ROUND(AVG(deep_h)::numeric, 1) AS \"Avg Deep Sleep\" FROM sleep_nightly WHERE sleep_date >= CURRENT_DATE - INTERVAL '7 days'",
+          "rawSql": "SELECT ROUND(AVG(deep_h)::numeric, 1) AS \"Avg Deep Sleep\" FROM sleep_nightly WHERE sleep_date >= (NOW() AT TIME ZONE '$tz')::date - 7",
           "format": "table"
         }
       ]
@@ -634,7 +634,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT ROUND(AVG(rem_h)::numeric, 1) AS \"Avg REM Sleep\" FROM sleep_nightly WHERE sleep_date >= CURRENT_DATE - INTERVAL '7 days'",
+          "rawSql": "SELECT ROUND(AVG(rem_h)::numeric, 1) AS \"Avg REM Sleep\" FROM sleep_nightly WHERE sleep_date >= (NOW() AT TIME ZONE '$tz')::date - 7",
           "format": "table"
         }
       ]
@@ -697,7 +697,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT ROUND(AVG(efficiency_pct)::numeric, 0) AS \"Avg Sleep Efficiency\" FROM sleep_metrics WHERE sleep_date >= CURRENT_DATE - INTERVAL '7 days'",
+          "rawSql": "SELECT ROUND(AVG(efficiency_pct)::numeric, 0) AS \"Avg Sleep Efficiency\" FROM sleep_metrics WHERE sleep_date >= (NOW() AT TIME ZONE '$tz')::date - 7",
           "format": "table"
         }
       ]
@@ -744,7 +744,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT sleep_date AS time, deep_h AS \"Deep\", core_h AS \"Core\", rem_h AS \"REM\", awake_h AS \"Awake\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "rawSql": "SELECT (sleep_date::timestamp AT TIME ZONE '$tz') AS time, deep_h AS \"Deep\", core_h AS \"Core\", rem_h AS \"REM\", awake_h AS \"Awake\" FROM sleep_nightly WHERE $__timeFilter((sleep_date::timestamp AT TIME ZONE '$tz')) ORDER BY sleep_date",
           "format": "time_series"
         }
       ]
@@ -833,12 +833,12 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT sleep_date AS time, total_sleep_h AS \"Total Sleep (h)\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "rawSql": "SELECT (sleep_date::timestamp AT TIME ZONE '$tz') AS time, total_sleep_h AS \"Total Sleep (h)\" FROM sleep_nightly WHERE $__timeFilter((sleep_date::timestamp AT TIME ZONE '$tz')) ORDER BY sleep_date",
           "format": "time_series"
         },
         {
           "refId": "B",
-          "rawSql": "SELECT sleep_date AS time, ROUND(AVG(total_sleep_h) OVER (ORDER BY sleep_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 2) AS \"7d Trend (h)\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "rawSql": "SELECT (sleep_date::timestamp AT TIME ZONE '$tz') AS time, ROUND(AVG(total_sleep_h) OVER (ORDER BY sleep_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 2) AS \"7d Trend (h)\" FROM sleep_nightly WHERE $__timeFilter((sleep_date::timestamp AT TIME ZONE '$tz')) ORDER BY sleep_date",
           "format": "time_series"
         }
       ]
@@ -927,12 +927,12 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT sleep_date AS time, efficiency_pct AS \"Sleep Efficiency (%)\" FROM sleep_metrics WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "rawSql": "SELECT (sleep_date::timestamp AT TIME ZONE '$tz') AS time, efficiency_pct AS \"Sleep Efficiency (%)\" FROM sleep_metrics WHERE $__timeFilter((sleep_date::timestamp AT TIME ZONE '$tz')) ORDER BY sleep_date",
           "format": "time_series"
         },
         {
           "refId": "B",
-          "rawSql": "SELECT sleep_date AS time, ROUND(AVG(efficiency_pct) OVER (ORDER BY sleep_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 1) AS \"7d Trend (%)\" FROM sleep_metrics WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "rawSql": "SELECT (sleep_date::timestamp AT TIME ZONE '$tz') AS time, ROUND(AVG(efficiency_pct) OVER (ORDER BY sleep_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 1) AS \"7d Trend (%)\" FROM sleep_metrics WHERE $__timeFilter((sleep_date::timestamp AT TIME ZONE '$tz')) ORDER BY sleep_date",
           "format": "time_series"
         }
       ]
@@ -941,7 +941,7 @@
       "id": 16,
       "type": "timeseries",
       "title": "Bedtime",
-      "description": "Hour of sleep onset on a 20–30 scale (20 = 20:00, 24 = midnight, 26 = 02:00 next day). Uses the selected Timezone. Dashed line is the 7-day moving average.",
+      "description": "Hour of sleep onset on a 20–30 scale (20 = 20:00, 24 = midnight, 26 = 02:00 next day). Uses the configured TZ. Dashed line is the 7-day moving average.",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -1024,12 +1024,12 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT sleep_date AS time, EXTRACT(HOUR FROM (sleep_start AT TIME ZONE '$tz')) + EXTRACT(MINUTE FROM (sleep_start AT TIME ZONE '$tz'))/60.0 + CASE WHEN EXTRACT(HOUR FROM (sleep_start AT TIME ZONE '$tz')) < 12 THEN 24 ELSE 0 END AS \"Bedtime (h)\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) AND sleep_start IS NOT NULL ORDER BY sleep_date",
+          "rawSql": "SELECT (sleep_date::timestamp AT TIME ZONE '$tz') AS time, EXTRACT(HOUR FROM (sleep_start AT TIME ZONE '$tz')) + EXTRACT(MINUTE FROM (sleep_start AT TIME ZONE '$tz'))/60.0 + CASE WHEN EXTRACT(HOUR FROM (sleep_start AT TIME ZONE '$tz')) < 12 THEN 24 ELSE 0 END AS \"Bedtime (h)\" FROM sleep_nightly WHERE $__timeFilter((sleep_date::timestamp AT TIME ZONE '$tz')) AND sleep_start IS NOT NULL ORDER BY sleep_date",
           "format": "time_series"
         },
         {
           "refId": "B",
-          "rawSql": "SELECT sleep_date AS time, ROUND(AVG(EXTRACT(HOUR FROM (sleep_start AT TIME ZONE '$tz')) + EXTRACT(MINUTE FROM (sleep_start AT TIME ZONE '$tz'))/60.0 + CASE WHEN EXTRACT(HOUR FROM (sleep_start AT TIME ZONE '$tz')) < 12 THEN 24 ELSE 0 END) OVER (ORDER BY sleep_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 2) AS \"7d Trend (h)\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) AND sleep_start IS NOT NULL ORDER BY sleep_date",
+          "rawSql": "SELECT (sleep_date::timestamp AT TIME ZONE '$tz') AS time, ROUND(AVG(EXTRACT(HOUR FROM (sleep_start AT TIME ZONE '$tz')) + EXTRACT(MINUTE FROM (sleep_start AT TIME ZONE '$tz'))/60.0 + CASE WHEN EXTRACT(HOUR FROM (sleep_start AT TIME ZONE '$tz')) < 12 THEN 24 ELSE 0 END) OVER (ORDER BY sleep_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 2) AS \"7d Trend (h)\" FROM sleep_nightly WHERE $__timeFilter((sleep_date::timestamp AT TIME ZONE '$tz')) AND sleep_start IS NOT NULL ORDER BY sleep_date",
           "format": "time_series"
         }
       ]
@@ -1038,7 +1038,7 @@
       "id": 17,
       "type": "timeseries",
       "title": "Wake-up Time",
-      "description": "Hour of wake-up in the selected Timezone. Dashed line is the 7-day moving average.",
+      "description": "Hour of wake-up in the configured TZ. Dashed line is the 7-day moving average.",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -1119,12 +1119,12 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT sleep_date AS time, EXTRACT(HOUR FROM (sleep_end AT TIME ZONE '$tz')) + EXTRACT(MINUTE FROM (sleep_end AT TIME ZONE '$tz'))/60.0 AS \"Wake-up (h)\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) AND sleep_end IS NOT NULL ORDER BY sleep_date",
+          "rawSql": "SELECT (sleep_date::timestamp AT TIME ZONE '$tz') AS time, EXTRACT(HOUR FROM (sleep_end AT TIME ZONE '$tz')) + EXTRACT(MINUTE FROM (sleep_end AT TIME ZONE '$tz'))/60.0 AS \"Wake-up (h)\" FROM sleep_nightly WHERE $__timeFilter((sleep_date::timestamp AT TIME ZONE '$tz')) AND sleep_end IS NOT NULL ORDER BY sleep_date",
           "format": "time_series"
         },
         {
           "refId": "B",
-          "rawSql": "SELECT sleep_date AS time, ROUND(AVG(EXTRACT(HOUR FROM (sleep_end AT TIME ZONE '$tz')) + EXTRACT(MINUTE FROM (sleep_end AT TIME ZONE '$tz'))/60.0) OVER (ORDER BY sleep_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 2) AS \"7d Trend (h)\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) AND sleep_end IS NOT NULL ORDER BY sleep_date",
+          "rawSql": "SELECT (sleep_date::timestamp AT TIME ZONE '$tz') AS time, ROUND(AVG(EXTRACT(HOUR FROM (sleep_end AT TIME ZONE '$tz')) + EXTRACT(MINUTE FROM (sleep_end AT TIME ZONE '$tz'))/60.0) OVER (ORDER BY sleep_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 2) AS \"7d Trend (h)\" FROM sleep_nightly WHERE $__timeFilter((sleep_date::timestamp AT TIME ZONE '$tz')) AND sleep_end IS NOT NULL ORDER BY sleep_date",
           "format": "time_series"
         }
       ]
@@ -1291,22 +1291,22 @@
           "targets": [
             {
               "refId": "A",
-              "rawSql": "SELECT day AS time, avg AS \"Resp Rate (/min)\" FROM daily_metrics WHERE metric = 'respiratory_rate' AND $__timeFilter(day::timestamptz) ORDER BY day",
+              "rawSql": "SELECT (day::timestamp AT TIME ZONE '$tz') AS time, avg AS \"Resp Rate (/min)\" FROM daily_metrics WHERE metric = 'respiratory_rate' AND $__timeFilter((day::timestamp AT TIME ZONE '$tz')) ORDER BY day",
               "format": "time_series"
             },
             {
               "refId": "B",
-              "rawSql": "SELECT day AS time, ROUND(avg::numeric, 2) AS \"Wrist Temp (°C)\" FROM daily_metrics WHERE metric = 'apple_sleeping_wrist_temperature' AND $__timeFilter(day::timestamptz) ORDER BY day",
+              "rawSql": "SELECT (day::timestamp AT TIME ZONE '$tz') AS time, ROUND(avg::numeric, 2) AS \"Wrist Temp (°C)\" FROM daily_metrics WHERE metric = 'apple_sleeping_wrist_temperature' AND $__timeFilter((day::timestamp AT TIME ZONE '$tz')) ORDER BY day",
               "format": "time_series"
             },
             {
               "refId": "C",
-              "rawSql": "SELECT day AS time, ROUND(AVG(avg) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 1) AS \"Resp Rate Trend (/min)\" FROM daily_metrics WHERE metric = 'respiratory_rate' AND $__timeFilter(day::timestamptz) ORDER BY day",
+              "rawSql": "SELECT (day::timestamp AT TIME ZONE '$tz') AS time, ROUND(AVG(avg) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 1) AS \"Resp Rate Trend (/min)\" FROM daily_metrics WHERE metric = 'respiratory_rate' AND $__timeFilter((day::timestamp AT TIME ZONE '$tz')) ORDER BY day",
               "format": "time_series"
             },
             {
               "refId": "D",
-              "rawSql": "SELECT day AS time, ROUND(AVG(avg) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 2) AS \"Wrist Temp Trend (°C)\" FROM daily_metrics WHERE metric = 'apple_sleeping_wrist_temperature' AND $__timeFilter(day::timestamptz) ORDER BY day",
+              "rawSql": "SELECT (day::timestamp AT TIME ZONE '$tz') AS time, ROUND(AVG(avg) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 2) AS \"Wrist Temp Trend (°C)\" FROM daily_metrics WHERE metric = 'apple_sleeping_wrist_temperature' AND $__timeFilter((day::timestamp AT TIME ZONE '$tz')) ORDER BY day",
               "format": "time_series"
             }
           ]
@@ -1395,12 +1395,12 @@
           "targets": [
             {
               "refId": "A",
-              "rawSql": "SELECT day AS time, ROUND(avg::numeric, 1) AS \"SpO₂ (%)\" FROM daily_metrics WHERE metric = 'blood_oxygen_saturation' AND $__timeFilter(day::timestamptz) ORDER BY day",
+              "rawSql": "SELECT (day::timestamp AT TIME ZONE '$tz') AS time, ROUND(avg::numeric, 1) AS \"SpO₂ (%)\" FROM daily_metrics WHERE metric = 'blood_oxygen_saturation' AND $__timeFilter((day::timestamp AT TIME ZONE '$tz')) ORDER BY day",
               "format": "time_series"
             },
             {
               "refId": "B",
-              "rawSql": "SELECT day AS time, ROUND(AVG(avg) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 1) AS \"7d Trend (%)\" FROM daily_metrics WHERE metric = 'blood_oxygen_saturation' AND $__timeFilter(day::timestamptz) ORDER BY day",
+              "rawSql": "SELECT (day::timestamp AT TIME ZONE '$tz') AS time, ROUND(AVG(avg) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 1) AS \"7d Trend (%)\" FROM daily_metrics WHERE metric = 'blood_oxygen_saturation' AND $__timeFilter((day::timestamp AT TIME ZONE '$tz')) ORDER BY day",
               "format": "time_series"
             }
           ]
@@ -1447,7 +1447,7 @@
           "targets": [
             {
               "refId": "A",
-              "rawSql": "SELECT day AS time, sum AS \"Disturbances\" FROM daily_metrics WHERE metric = 'breathing_disturbances' AND $__timeFilter(day::timestamptz) ORDER BY day",
+              "rawSql": "SELECT (day::timestamp AT TIME ZONE '$tz') AS time, sum AS \"Disturbances\" FROM daily_metrics WHERE metric = 'breathing_disturbances' AND $__timeFilter((day::timestamp AT TIME ZONE '$tz')) ORDER BY day",
               "format": "time_series"
             }
           ]
@@ -1584,7 +1584,7 @@
           "targets": [
             {
               "refId": "A",
-              "rawSql": "SELECT day AS time, rest_min AS \"Rest\", low_min AS \"Low\", medium_min AS \"Medium\", high_min AS \"High\", active_min AS \"Active\" FROM stress_daily WHERE $__timeFilter(day::timestamptz) ORDER BY day",
+              "rawSql": "SELECT (day::timestamp AT TIME ZONE '$tz') AS time, rest_min AS \"Rest\", low_min AS \"Low\", medium_min AS \"Medium\", high_min AS \"High\", active_min AS \"Active\" FROM stress_daily WHERE $__timeFilter((day::timestamp AT TIME ZONE '$tz')) ORDER BY day",
               "format": "time_series",
               "datasource": {
                 "uid": "healthlog-db"
@@ -1660,7 +1660,7 @@
           "targets": [
             {
               "refId": "A",
-              "rawSql": "SELECT day AS time, score AS \"Stress Score\" FROM stress_daily WHERE $__timeFilter(day::timestamptz) ORDER BY day",
+              "rawSql": "SELECT (day::timestamp AT TIME ZONE '$tz') AS time, score AS \"Stress Score\" FROM stress_daily WHERE $__timeFilter((day::timestamp AT TIME ZONE '$tz')) ORDER BY day",
               "format": "time_series",
               "datasource": {
                 "uid": "healthlog-db"
@@ -1909,7 +1909,7 @@
           "targets": [
             {
               "refId": "A",
-              "rawSql": "SELECT day AS time, wake_level AS \"Wake\", high_level AS \"High\", low_level AS \"Low\" FROM body_battery_daily WHERE $__timeFilter(day::timestamptz) ORDER BY day",
+              "rawSql": "SELECT (day::timestamp AT TIME ZONE '$tz') AS time, wake_level AS \"Wake\", high_level AS \"High\", low_level AS \"Low\" FROM body_battery_daily WHERE $__timeFilter((day::timestamp AT TIME ZONE '$tz')) ORDER BY day",
               "format": "time_series",
               "datasource": {
                 "uid": "healthlog-db"
@@ -1986,7 +1986,7 @@
           "targets": [
             {
               "refId": "A",
-              "rawSql": "SELECT day AS time, charged AS \"Charged\", drained AS \"Drained\" FROM body_battery_daily WHERE $__timeFilter(day::timestamptz) ORDER BY day",
+              "rawSql": "SELECT (day::timestamp AT TIME ZONE '$tz') AS time, charged AS \"Charged\", drained AS \"Drained\" FROM body_battery_daily WHERE $__timeFilter((day::timestamp AT TIME ZONE '$tz')) ORDER BY day",
               "format": "time_series",
               "datasource": {
                 "uid": "healthlog-db"
@@ -1999,12 +1999,378 @@
       "type": "row"
     },
     {
-      "collapsed": false,
+      "collapsed": true,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
         "y": 37
+      },
+      "id": 40,
+      "title": "Mood (State of Mind)",
+      "type": "row",
+      "panels": [
+        {
+          "id": 41,
+          "type": "timeseries",
+          "title": "Mood — valence",
+          "description": "Apple Health State of Mind (logged on the iPhone or Watch, exported by Health Auto Export). Valence runs from -1 (very unpleasant) to +1 (very pleasant). The line is the daily mean of all entries (days in the configured TZ); the points are the individual daily moods and momentary emotions. Descriptive only: the nightly analysis does not use mood data yet.",
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 38
+          },
+          "datasource": {
+            "uid": "healthlog-db"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "min": -1,
+              "max": 1,
+              "decimals": 2,
+              "unit": "none",
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": null
+                  },
+                  {
+                    "color": "text",
+                    "value": 0
+                  }
+                ]
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "fillOpacity": 0,
+                "spanNulls": false,
+                "showPoints": "auto",
+                "pointSize": 5,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": "Daily mood|Momentary emotion"
+                },
+                "properties": [
+                  {
+                    "id": "custom.drawStyle",
+                    "value": "points"
+                  },
+                  {
+                    "id": "custom.pointSize",
+                    "value": 8
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "rawSql": "SELECT (day::timestamp AT TIME ZONE '$tz') AS time, ROUND(AVG(valence)::numeric, 2) AS \"Daily mean\" FROM (SELECT (start_time AT TIME ZONE '$tz')::date AS day, valence FROM state_of_mind WHERE valence IS NOT NULL AND $__timeFilter(start_time)) s GROUP BY day ORDER BY day",
+              "format": "time_series",
+              "datasource": {
+                "uid": "healthlog-db"
+              }
+            },
+            {
+              "refId": "B",
+              "rawSql": "SELECT start_time AS \"time\", valence AS \"Daily mood\" FROM state_of_mind WHERE kind = 'daily_mood' AND valence IS NOT NULL AND $__timeFilter(start_time) ORDER BY start_time",
+              "format": "time_series",
+              "datasource": {
+                "uid": "healthlog-db"
+              }
+            },
+            {
+              "refId": "C",
+              "rawSql": "SELECT start_time AS \"time\", valence AS \"Momentary emotion\" FROM state_of_mind WHERE kind = 'momentary_emotion' AND valence IS NOT NULL AND $__timeFilter(start_time) ORDER BY start_time",
+              "format": "time_series",
+              "datasource": {
+                "uid": "healthlog-db"
+              }
+            }
+          ]
+        },
+        {
+          "id": 42,
+          "type": "table",
+          "title": "Most frequent feelings",
+          "description": "How often each feeling label (Apple's vocabulary, e.g. Calm, Stressed) was logged in the selected range; top 15.",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 46
+          },
+          "datasource": {
+            "uid": "healthlog-db"
+          },
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": []
+          },
+          "options": {
+            "footer": {
+              "show": false
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "rawSql": "SELECT INITCAP(REPLACE(v, '_', ' ')) AS \"Feeling\", COUNT(*) AS \"Entries\" FROM state_of_mind, UNNEST(labels) AS v WHERE $__timeFilter(start_time) GROUP BY v ORDER BY COUNT(*) DESC, v LIMIT 15",
+              "format": "table",
+              "datasource": {
+                "uid": "healthlog-db"
+              }
+            }
+          ]
+        },
+        {
+          "id": 43,
+          "type": "table",
+          "title": "Most frequent life areas",
+          "description": "How often each life area (Apple's associations, e.g. Work, Family) was attached to an entry in the selected range; top 15.",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 46
+          },
+          "datasource": {
+            "uid": "healthlog-db"
+          },
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": []
+          },
+          "options": {
+            "footer": {
+              "show": false
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "rawSql": "SELECT INITCAP(REPLACE(v, '_', ' ')) AS \"Life area\", COUNT(*) AS \"Entries\" FROM state_of_mind, UNNEST(associations) AS v WHERE $__timeFilter(start_time) GROUP BY v ORDER BY COUNT(*) DESC, v LIMIT 15",
+              "format": "table",
+              "datasource": {
+                "uid": "healthlog-db"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 38
+      },
+      "id": 44,
+      "title": "Heart Events",
+      "type": "row",
+      "panels": [
+        {
+          "id": 45,
+          "type": "table",
+          "title": "Heart rate notifications",
+          "description": "Apple Watch high, low and irregular rhythm alerts (exported by Health Auto Export). Threshold is the alert's configured limit; min / avg / max summarise the heart-rate readings behind the alert. Descriptive only: the nightly analysis does not use these yet.",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 39
+          },
+          "datasource": {
+            "uid": "healthlog-db"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Threshold"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "bpm"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 0
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Min"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "bpm"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 0
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Avg"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "bpm"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 1
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Max"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "bpm"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 0
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "sortBy": [
+              {
+                "displayName": "Time",
+                "desc": true
+              }
+            ]
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "rawSql": "SELECT start_time AS \"Time\", INITCAP(REPLACE(REPLACE(kind, '_notification', ''), '_', ' ')) AS \"Alert\", threshold AS \"Threshold\", hr_min AS \"Min\", ROUND(hr_avg::numeric, 1) AS \"Avg\", hr_max AS \"Max\" FROM heart_rate_notifications WHERE $__timeFilter(start_time) ORDER BY start_time DESC",
+              "format": "table",
+              "datasource": {
+                "uid": "healthlog-db"
+              }
+            }
+          ]
+        },
+        {
+          "id": 46,
+          "type": "table",
+          "title": "ECG recordings",
+          "description": "Apple Watch ECG recordings: the watch's classification and the average heart rate during the 30-second recording. Only a summary is stored, never the waveform. An inconclusive recording has no average heart rate.",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 39
+          },
+          "datasource": {
+            "uid": "healthlog-db"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Avg heart rate"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "bpm"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 0
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "sortBy": [
+              {
+                "displayName": "Time",
+                "desc": true
+              }
+            ]
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "rawSql": "SELECT start_time AS \"Time\", classification AS \"Result\", average_heart_rate AS \"Avg heart rate\" FROM ecg_recordings WHERE $__timeFilter(start_time) ORDER BY start_time DESC",
+              "format": "table",
+              "datasource": {
+                "uid": "healthlog-db"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 39
       },
       "id": 29,
       "panels": [],
@@ -2020,7 +2386,7 @@
         "h": 7,
         "w": 12,
         "x": 0,
-        "y": 38
+        "y": 40
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -2053,7 +2419,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT day AS time, sum AS \"Steps\" FROM daily_metrics WHERE metric = 'step_count' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "rawSql": "SELECT (day::timestamp AT TIME ZONE '$tz') AS time, sum AS \"Steps\" FROM daily_metrics WHERE metric = 'step_count' AND $__timeFilter((day::timestamp AT TIME ZONE '$tz')) ORDER BY day",
           "format": "time_series"
         }
       ]
@@ -2067,7 +2433,7 @@
         "h": 7,
         "w": 12,
         "x": 12,
-        "y": 38
+        "y": 40
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -2100,7 +2466,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT day AS time, sum AS \"Active Energy (kcal)\" FROM daily_metrics WHERE metric = 'active_energy' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "rawSql": "SELECT (day::timestamp AT TIME ZONE '$tz') AS time, sum AS \"Active Energy (kcal)\" FROM daily_metrics WHERE metric = 'active_energy' AND $__timeFilter((day::timestamp AT TIME ZONE '$tz')) ORDER BY day",
           "format": "time_series"
         }
       ]
@@ -2114,7 +2480,7 @@
         "h": 7,
         "w": 12,
         "x": 0,
-        "y": 45
+        "y": 47
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -2147,7 +2513,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT day AS time, sum AS \"Exercise (min)\" FROM daily_metrics WHERE metric = 'apple_exercise_time' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "rawSql": "SELECT (day::timestamp AT TIME ZONE '$tz') AS time, sum AS \"Exercise (min)\" FROM daily_metrics WHERE metric = 'apple_exercise_time' AND $__timeFilter((day::timestamp AT TIME ZONE '$tz')) ORDER BY day",
           "format": "time_series"
         }
       ]
@@ -2161,7 +2527,7 @@
         "h": 7,
         "w": 12,
         "x": 12,
-        "y": 45
+        "y": 47
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -2194,7 +2560,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT day AS time, ROUND(sum::numeric, 1) AS \"Distance (km)\" FROM daily_metrics WHERE metric = 'walking_running_distance' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "rawSql": "SELECT (day::timestamp AT TIME ZONE '$tz') AS time, ROUND(sum::numeric, 1) AS \"Distance (km)\" FROM daily_metrics WHERE metric = 'walking_running_distance' AND $__timeFilter((day::timestamp AT TIME ZONE '$tz')) ORDER BY day",
           "format": "time_series"
         }
       ]
@@ -2205,7 +2571,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 52
+        "y": 54
       },
       "id": 34,
       "panels": [],
@@ -2221,7 +2587,7 @@
         "h": 8,
         "w": 6,
         "x": 0,
-        "y": 53
+        "y": 55
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -2262,7 +2628,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT day AS time, ROUND(avg::numeric, 1) AS \"Weight\" FROM daily_metrics WHERE metric = 'weight_body_mass' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "rawSql": "SELECT (day::timestamp AT TIME ZONE '$tz') AS time, ROUND(avg::numeric, 1) AS \"Weight\" FROM daily_metrics WHERE metric = 'weight_body_mass' AND $__timeFilter((day::timestamp AT TIME ZONE '$tz')) ORDER BY day",
           "format": "time_series"
         }
       ]
@@ -2271,12 +2637,12 @@
       "id": 36,
       "type": "timeseries",
       "title": "Weight Trend",
-      "description": "Daily body mass (average of the day's readings). Sparse by nature — points appear only on days with a measurement.",
+      "description": "Daily body mass (average of the day's readings). Sparse by nature — points appear only on days with a measurement. Dashed line is the moving average of the last 7 measurement days.",
       "gridPos": {
         "h": 8,
         "w": 18,
         "x": 6,
-        "y": 53
+        "y": 55
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -2301,7 +2667,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "7d Trend (h)"
+              "options": "Trend (kg)"
             },
             "properties": [
               {
@@ -2351,12 +2717,12 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT day AS time, ROUND(avg::numeric, 1) AS \"Weight\" FROM daily_metrics WHERE metric = 'weight_body_mass' AND $__timeFilter(day::timestamptz) ORDER BY day",
+          "rawSql": "SELECT (day::timestamp AT TIME ZONE '$tz') AS time, ROUND(avg::numeric, 1) AS \"Weight\" FROM daily_metrics WHERE metric = 'weight_body_mass' AND $__timeFilter((day::timestamp AT TIME ZONE '$tz')) ORDER BY day",
           "format": "time_series"
         },
         {
           "refId": "B",
-          "rawSql": "SELECT sleep_date AS time, ROUND(AVG(total_sleep_h) OVER (ORDER BY sleep_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 2) AS \"7d Trend (h)\" FROM sleep_nightly WHERE $__timeFilter(sleep_date::timestamptz) ORDER BY sleep_date",
+          "rawSql": "SELECT (day::timestamp AT TIME ZONE '$tz') AS time, ROUND(AVG(avg) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)::numeric, 1) AS \"Trend (kg)\" FROM daily_metrics WHERE metric = 'weight_body_mass' AND $__timeFilter((day::timestamp AT TIME ZONE '$tz')) ORDER BY day",
           "format": "time_series"
         }
       ]
@@ -2367,7 +2733,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 61
+        "y": 63
       },
       "id": 37,
       "panels": [],
@@ -2383,7 +2749,7 @@
         "h": 7,
         "w": 24,
         "x": 0,
-        "y": 62
+        "y": 64
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -2420,7 +2786,7 @@
         "h": 9,
         "w": 24,
         "x": 0,
-        "y": 69
+        "y": 71
       },
       "datasource": {
         "uid": "healthlog-db"
@@ -2508,23 +2874,21 @@
     "list": [
       {
         "name": "tz",
-        "type": "constant",
+        "type": "query",
         "label": "Timezone",
-        "description": "Hidden constant. Timezone name used only for the SQL-side local clock-hour math of the bedtime/wake-up panels (EXTRACT(HOUR FROM sleep_start AT TIME ZONE ...)), which Grafana's dashboard timezone cannot reach. Change the value here to re-localise those computations.",
-        "query": "Europe/Vienna",
-        "current": {
-          "value": "Europe/Vienna",
-          "text": "Europe/Vienna",
-          "selected": false
+        "description": "Hidden. The configured TZ, read from app_settings.local_tz (written from the TZ environment variable at container start). Daily panels return each day's local midnight in this zone (so bars land on the right date whatever the dashboard timezone is), and it drives the SQL-side local-date / clock-hour math.",
+        "datasource": {
+          "uid": "healthlog-db"
         },
-        "options": [
-          {
-            "text": "Europe/Vienna",
-            "value": "Europe/Vienna",
-            "selected": false
-          }
-        ],
-        "hide": 2
+        "query": "SELECT value FROM app_settings WHERE key = 'local_tz'",
+        "definition": "SELECT value FROM app_settings WHERE key = 'local_tz'",
+        "refresh": 1,
+        "sort": 0,
+        "multi": false,
+        "includeAll": false,
+        "hide": 2,
+        "current": {},
+        "options": []
       }
     ]
   }

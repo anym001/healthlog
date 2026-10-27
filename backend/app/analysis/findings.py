@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import datetime as dt
 from dataclasses import dataclass, fields
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 from sqlalchemy.orm import Session
@@ -50,6 +51,7 @@ from .pure import (
     aggregate_workout_daily,
     annual_seasonality,
     circular_bedtime_offset,
+    complete_days,
     decompose,
     edwards_trimp,
     fdr_adjust,
@@ -218,17 +220,24 @@ def build_series(
     profile: ProfileConfig | None = None,
     workouts: WorkoutConfig | None = None,
     sleep: pd.DataFrame | None = None,
+    today: dt.date | None = None,
 ) -> dict[str, pd.Series]:
     """All analysis series: core metrics + derived sleep + workout-load series.
 
     ``sleep`` may be supplied by the caller (``run`` loads it once and shares it
     with the consistency pass) to avoid a second ``load_sleep_frame`` query.
+
+    Metric series stop at the last *complete* local day (``today`` defaults to
+    the current date in ``tz``; see ``complete_days``). Sleep is keyed by wake
+    day, so last night is already complete and stays in; workouts are discrete
+    sessions, not a running aggregate.
     """
     profile = profile or _DEFAULT_APP_CONFIG.profile
     workouts = workouts or _DEFAULT_APP_CONFIG.workouts
+    today = today or dt.datetime.now(ZoneInfo(tz)).date()
     series: dict[str, pd.Series] = {}
     for metric in core_metrics():
-        s = load_daily_series(db, metric, METRIC_REGISTRY[metric]["agg_default"], tz)
+        s = complete_days(load_daily_series(db, metric, METRIC_REGISTRY[metric]["agg_default"], tz), today)
         if not s.dropna().empty:
             series[metric] = s
 

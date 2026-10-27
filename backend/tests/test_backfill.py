@@ -192,3 +192,19 @@ def test_other_db_error_on_whole_attempt_is_not_split(db, sample_payload, tmp_pa
 
     assert summary.failures == 1 and summary.stored == 0
     assert _count(db, RawIngest) == 0
+
+
+def test_summary_counts_state_of_mind_rows(db, sample_payload, tmp_path):
+    entry = {
+        "id": "0B6F3C1E-7A52-4C1D-9E0B-2F8A5D4C3B21",
+        "kind": "daily_mood",
+        "start": "2026-08-03T18:20:00Z",
+        "valence": 0.4,
+        "labels": ["calm"],
+    }
+    payload = {**sample_payload, "data": {**sample_payload["data"], "stateOfMind": [entry]}}
+    f = tmp_path / "export.json"
+    _write(f, payload)
+
+    assert run_backfill(db, [f], dry_run=True).state_of_mind_rows == 1
+    assert run_backfill(db, [f]).state_of_mind_rows == 1

@@ -85,7 +85,7 @@ def _sleep_payload(*fragments) -> dict:
             "rem": 1.5,
             "awake": 0.2,
             "totalSleep": total,
-            "source": "Apple Watch von Thomas",
+            "source": "Apple Watch",
         }
         for start, total, deep in fragments
     ]
@@ -239,7 +239,7 @@ def test_sleep_distinct_periods_kept_separate(db):
                             "sleepEnd": "2026-06-22 14:40:00 +0200",
                             "totalSleep": 0.6,
                             "core": 0.6,
-                            "source": "Apple Watch von Thomas",
+                            "source": "Apple Watch",
                         }
                     ],
                 }

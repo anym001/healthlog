@@ -32,11 +32,13 @@ local LLM. Everything runs on the user's own hardware — no external calls.
     `client.py` (Ollama HTTP client), `cli.py` (the `narrate` command).
     `__init__.py` re-exports the flat public API.
   - `cli.py` — the `healthlog` operator CLI (`backfill`, `analyze`, `audit`,
-    `narrate`, `check-workout-hr`, `rederive-workout-hr`, `rederive-stress`,
-    `rederive-body-battery`); `cli_support.py` — shared command scaffolding
+    `narrate`, `check-workout-hr`, `rederive-workout-hr`, `rederive-state-of-mind`,
+    `rederive-sleep`, `rederive-symptoms`, `rederive-medications`,
+    `rederive-heart-notifications`, `rederive-ecg`, `rederive-stress`, `rederive-body-battery`); `cli_support.py` — shared command scaffolding
     (`bootstrap`, `db_session`, `module_main`)
-  - `registry.py`, `units.py`, `workout_types.py` — normalisation (metric registry,
-    unit guard, localised-workout-name → canonical-slug map)
+  - `registry.py`, `units.py`, `workout_types.py`, `health_vocab.py` — normalisation
+    (metric registry, unit guard, localised workout / symptom / medication values →
+    canonical slugs)
   - `appconfig.py` — `config.yaml` model; `config.py` — env-var `Settings`
   - `notify.py`, `audit.py`, `diagnostics.py`, `rederive.py`,
     `stress_backfill.py`, `body_battery_backfill.py`, `backfill.py`, `scheduler.py`

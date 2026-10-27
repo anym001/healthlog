@@ -187,6 +187,24 @@ HAE delivers, per night, `sleepStart`/`sleepEnd`/`inBedStart`/`inBedEnd`, the ph
 `date=06-09`, `sleepStart=06-08 20:56`, `sleepEnd=06-09 05:56`) → `sleep_date`
 adoptable 1:1, matching the correlation convention. Sleep crossing midnight stays one row.
 
+**Unaggregated sleep** (HAE *Aggregate Data* off, e.g. a history export) arrives as one
+point per stage segment (`value` = Core/Deep/REM/Awake/In Bed/Asleep/Unspecified,
+`startDate`/`endDate`) instead of one summary per night. The parser folds those
+segments into rows of the aggregated shape (`fold_sleep_segments`, pure): segments
+are split into sleep periods wherever a gap exceeds `SLEEP_SESSION_GAP` (3 h, so a
+nap is its own period), stage hours are summed from the timestamps, and
+`sleep_date` is the local wake-up day from the segments' own UTC offset (as HAE's
+aggregated `date`). Stages come from one source per period — the one with the most
+asleep time — so two trackers on the same night never double-count; the in-bed
+window spans all sources (often only the iPhone records it). `Asleep`/`Unspecified`
+(sources without stage tracking) fill `asleep_h`; stages never recorded stay NULL,
+not 0. The folded rows go through the same `(sleep_end, source)` upsert and
+`sleep_nightly` view as aggregated ones. Anything that can't become a night (an
+unknown stage, unparseable times, a period without any asleep stage, an aggregated
+point without `sleepStart`) is counted as `dropped_sleep` and logged — the raw
+archive keeps it, and `healthlog rederive-sleep` replays the archive into
+`sleep_sessions`.
+
 ### 4.4 Workouts
 
 HAE delivers, per workout, a **stable `id` (UUID)** — a better idempotency key than
@@ -321,8 +339,17 @@ indicated by `metric_registry.agg_default`:
 
 ```sql
 daily_metrics (day, metric, avg, vmin, vmax, sum, n)
-  -- (time AT TIME ZONE 'Europe/Vienna')::date  ← local day, NOT UTC!
+  -- (time AT TIME ZONE <app_settings.local_tz>)::date  ← local day (TZ), NOT UTC!
 ```
+The zone is the `TZ` setting. A view can't read the environment, so `TZ` is mirrored
+into the key/value table `app_settings` (`key = 'local_tz'`) at every container start
+(`app.db_settings`, run by the s6 `migrate` oneshot right after `alembic upgrade`);
+the view and the dashboards' hidden `$tz` variable read it from there (migration
+`0022_app_settings_local_tz`; before it, the view hard-coded `Europe/Vienna`).
+Daily dashboard panels return each `day` as its local midnight in `$tz`
+(`day::timestamp AT TIME ZONE '$tz'`), not the bare `date` (which Grafana reads as UTC
+midnight), so the dashboards can display in the browser's timezone and every bar still
+lands on its own date.
 The view uses `COALESCE(vavg, qty)` / `COALESCE(vmin, qty)` / `COALESCE(vmax, qty)`
 (migration `0005_daily_metrics_coalesce`), identical to the analysis loader
 `load_daily_series` — so Grafana and the pipeline see the same daily values. `avg` is
@@ -357,6 +384,13 @@ A thin **`findings_feed`** view (migration `0020`) exposes the snapshot with a
 per-kind one-line `detail` string and a display `day` (`ref_date` falling back
 to `window_end`), so the Grafana findings tables share one rendering definition
 instead of each duplicating the CASE expression.
+
+**Complete days only.** The metric series end at the last *complete* local day
+(`complete_days` in `pure.py`): a daily mean/sum over the still-running day is
+biased, not just noisy — at a morning run "today" holds only the night, so its heart
+rate reads low, its HRV high and its step/effort totals small, and it was flagged as
+an anomaly on every run. Sleep (keyed by wake day, so last night is already complete)
+and workout sessions are unaffected.
 
 **Finding types** (snapshot per run, `app/analysis/findings.py`):
 - **correlation** — Spearman on the **residual** series (STL trend *and* seasonal
@@ -564,6 +598,78 @@ trailing window (`body_battery.window_days`) and replaces those rows idempotentl
 Battery panels); a low-reserve day also becomes a `body_battery` finding (§4.8) for
 the narration. All tunables live under `body_battery.*` in `config.yaml`.
 
+### 4.11 State of Mind (own table)
+
+Apple Health's **State of Mind** entries (logged on the iPhone or Watch, exported by
+HAE as `data.stateOfMind`) land in `state_of_mind`, one row per entry keyed by HAE's
+stable UUID (`hae_id`), so replayed windows upsert in place — an entry edited on the
+phone is updated, never duplicated. Columns: `start_time`/`end_time`, `kind`
+(`momentary_emotion` or `daily_mood`), `valence` in [-1, 1] with Apple's seven-step
+`valence_classification`, and two `text[]` vocabularies: `labels` (emotions such as
+`anxious`, `calm`) and `associations` (life areas such as `work`, `family`).
+
+The vocabularies stay arrays of Apple's own slugs rather than lookup tables: Apple may
+add values, and an unknown one must never reject a payload (§4.0). A valence outside
+[-1, 1] is stored as NULL and counted as implausible — the entry's labels still carry
+signal — and an entry without a usable id or start time is dropped and counted; the
+raw archive keeps both (§4.1). These timestamps are ISO 8601 (`…T…Z`) rather than
+HAE's usual `… +0200` form; the shared parser accepts either, but never an
+offset-less value. State of Mind is mood data, not a metric: it stays out of
+`metric_samples` and the analysis does not read it yet. Grafana shows it descriptively
+only (Overview, row *Mood (State of Mind)*: daily mean valence in `TZ` days plus the
+individual entries, and the most frequent labels / associations); side-by-side
+comparisons with sleep or stress are left to the analysis, where they get FDR control.
+`healthlog rederive-state-of-mind` replays the raw archive into the table for
+payloads ingested before the table existed.
+
+### 4.12 Symptoms and medications (own tables)
+
+Apple Health **symptoms** (HAE `data.symptoms`) and **medication doses** (`data.medications`,
+iOS 26) are separate HAE data types, each with its own automation. Both differ from the
+other sources in two ways that shape the tables (migration `0024_symptoms_medications`):
+
+- **No entry id.** Symptoms are keyed on `(start_time, name, source)`; medication doses,
+  which carry no `source` either, on `(medication, dose_time)`, where `dose_time` is the
+  scheduled time for a scheduled dose (so logging it as taken or skipped updates the same
+  row) and the logging time for an as-needed dose. `medication` is the user's own display
+  name, so renaming a medication starts a new series.
+- **Localised values.** Symptom names, severities and dose statuses arrive in the phone's
+  language ("Kopfschmerzen", "Leicht", "Eingenommen"). As for workouts (§4.4), the raw value
+  is stored and a canonical slug sits next to it (`symptom`, `severity`, `status`; maps in
+  `health_vocab.py`). An unknown value maps to NULL and is never rejected (§4.0). The key
+  uses the raw name, so extending a map never re-keys rows: the slugs are coalesce-updated
+  on replay, and `healthlog rederive-symptoms` / `rederive-medications` fill them in for
+  stored rows. "Not present" is kept as a row (`severity = not_present`), an explicit "no"
+  rather than missing data. A symptom logged without a level is `present`; appetite changes
+  carry a direction instead (`no_change`, `increased`, `decreased`) in the same column.
+  Two entries of one symptom in the same minute share a key, so the last one wins.
+
+The German spellings in the maps are only those confirmed by a real HAE export
+(`backend/tests/fixtures/hae_*_de.json`); English keys follow Apple's display names. Entries
+without a name or start time are counted as `dropped_entries` and logged; the raw archive
+keeps them (§4.1). Like State of Mind, neither table feeds the analysis or the narration yet.
+
+### 4.13 Heart rate notifications and ECG summaries (own tables)
+
+Apple Watch **heart rate notifications** (HAE `data.heartRateNotifications`) and **ECG
+recordings** (`data.ecg`) are two more HAE data types without an entry id (migration
+`0026_heart_notifications_ecg`):
+
+- **Notifications** are keyed on `(start_time, kind, source)`, where `kind` is HAE's
+  `heartNotification` value (e.g. `low_heart_rate_notification`), already a stable
+  identifier rather than localised text. `threshold` is the alert's configured limit. The
+  heart-rate samples behind an alert (`heartRateData`) are summarised as
+  `hr_min`/`hr_avg`/`hr_max`/`hr_samples`; the raw archive keeps them. This section ships
+  `source` as `{name, identifier}`, not a string; the name is stored.
+- **ECG recordings** are keyed on `(start_time, source)` and stored as a **summary only**:
+  `classification` (raw text), `average_heart_rate`, `sampling_frequency` and the number
+  of voltage samples. The waveform stays in the raw archive (§10). HAE reports an average
+  heart rate of 0 for an inconclusive recording; that is stored as NULL.
+
+Entries without a start time (or a notification kind) are counted as `dropped_entries`.
+`healthlog rederive-heart-notifications` / `rederive-ecg` replay the raw archive. Neither
+table feeds the analysis or the narration yet.
+
 ## 5. Ingestion contract
 
 - **Idempotency/upsert:** on nightly exports HAE sends **overlapping windows**.
@@ -586,8 +692,10 @@ the narration. All tunables live under `body_battery.*` in `config.yaml`.
   committed on its own, so the `content_hash` dedup still holds per piece. Every file is
   tried whole first (in a savepoint) and only split when Postgres rejects it as too
   large, so a file that once fit as one row keeps its original hash.
-- **Time zone:** stored in `TIMESTAMPTZ`; all daily buckets in **local TZ
-  (Europe/Vienna)**, since the daily grid is the basis of all analyses.
+- **Time zone:** stored in `TIMESTAMPTZ`; all daily buckets in the **local `TZ`**
+  (default `Europe/Vienna`; mirrored into `app_settings` for SQL consumers, §4.7), since
+  the daily grid is the basis of all analyses. `healthlog audit` compares `TZ` with the
+  UTC offsets HAE stamps on incoming samples (the phone's zone) and warns on a mismatch.
 - **Robustness & extensibility:** payload size limit, secret header checked in constant
   time. **Unknown metrics are accepted, never rejected** (§4.0): they land in the raw
   archive **and** in `metric_samples` and automatically create a registry stub
@@ -688,7 +796,8 @@ Dependabot PRs pass the same `test.yml` gate as any other PR.
 - **Raw payload archived verbatim** (`raw_ingest`, JSONB), retention permanent —
   kept cheap by the native compression policy (§4.1); a CA can replace the
   daily-aggregate view later without a schema break.
-- **ECG deliberately off** (raw waveforms, no analytical value, payload burden).
+- **ECG waveforms deliberately off** (no analytical value, payload burden): only a
+  per-recording summary is stored (§4.13); the waveform stays in the raw archive.
   GPS routes are stored **only** when the operator enables route export in HAE
   (`workout_route_points`, display-only — the analysis never uses location).
   The generic model (§4.0) tolerates further health categories (medications,
@@ -696,8 +805,14 @@ Dependabot PRs pass the same `test.yml` gate as any other PR.
   become relevant.
 - **Optional / on the server, not built in:** interactive Jupyter exploration only
   covers the ad-hoc case that pipeline + Grafana already cover.
-- **Out of scope (addable on demand):** an arm64 image (currently `linux/amd64` only),
-  a dedicated web app.
+- **Out of scope for now (HealthLog itself may add it later):** an arm64 image
+  (currently `linux/amd64` only).
+- **Out of scope, by design:** a dedicated web app, editable user data (trackers,
+  diary) and write APIs beyond the HAE ingest. The core stays a single-user data
+  pipeline + analysis with no outbound calls. Apps built on top of HealthLog are
+  welcome as **independent projects** in their own repositories, reading through a
+  versioned read-only API rather than the database; they own their storage, their
+  security and any external services they use.
 
 ## 11. Methodological pitfalls
 
@@ -715,4 +830,7 @@ Dependabot PRs pass the same `test.yml` gate as any other PR.
 - DB not publicly exposed; Grafana behind auth.
 - LLM purely local (Ollama, no API key, no network egress); the narration receives only
   statistical finding quantities, never raw values (`scrub_details()`).
-- Don't enable telemetry in any component.
+- Don't enable telemetry in any component. Upstream defaults that phone home are switched
+  off: TimescaleDB's usage report (`TIMESCALEDB_TELEMETRY=off` for new volumes, migration
+  0027 for existing ones) and, in the documented Grafana setup, usage stats, update
+  checks, the news feed, Gravatar and external snapshots.
