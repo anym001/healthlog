@@ -2,7 +2,7 @@
 # python:3.14-slim + s6-overlay v3 (PID 1: clean signal handling + supervision).
 # Two long-run services (uvicorn ingest, APScheduler) plus oneshot init/migrate.
 # PUID/PGID + /config follow the LinuxServer/Unraid convention.
-FROM python:3.14-slim
+FROM python:3.15-slim
 
 # Not tracked by Dependabot: bump the version and both SHA-256 sums together
 # (release checklist in CONTRIBUTING.md). A tarball that doesn't match its sum
