@@ -23,6 +23,17 @@ Grafana:
 
 **1. Grafana running on the same Docker network as `healthlog-db`**
 
+**Which version:** the tag of the `grafana` service in
+[`docker-compose.yml`](../docker-compose.yml). CI tests the dashboards against
+exactly that version, and Dependabot proposes updates there, new majors included.
+Grafana migrates its own database on start and cannot go back, so back up its
+data directory (`/mnt/user/appdata/grafana` below) before a version jump.
+
+With **Docker Compose**, that service is ready to use: create the `grafana_ro`
+user (step 2), set `GRAFANA_ADMIN_PASSWORD` and `GRAFANA_RO_PASSWORD` in `.env`,
+then run `docker compose --profile grafana up -d`. It already provisions the
+datasource and dashboards ([Option B](#option-b--provisioning-recommended)).
+
 Unraid `docker run` example:
 
 ```bash
@@ -38,16 +49,18 @@ docker run -d \
   -e GF_NEWS_NEWS_FEED_ENABLED=false \
   -e GF_SECURITY_DISABLE_GRAVATAR=true \
   -e GF_SNAPSHOTS_EXTERNAL_ENABLED=false \
+  -e GF_PLUGINS_PREINSTALL_DISABLED=true \
+  -e GF_PLUGINS_PUBLIC_KEY_RETRIEVAL_DISABLED=true \
   -v /mnt/user/appdata/grafana:/var/lib/grafana \
   --restart unless-stopped \
-  grafana/grafana:11.5.2
+  grafana/grafana:VERSION   # the tag from docker-compose.yml, see above
 ```
 
-The `GF_ANALYTICS_*`, `GF_NEWS_*`, `GF_SECURITY_DISABLE_GRAVATAR` and
-`GF_SNAPSHOTS_EXTERNAL_ENABLED` lines stop Grafana from contacting the internet on
-its own: usage statistics, update checks, the news feed, Gravatar avatars, and
-publishing snapshots to an external service. Keep them for an existing Grafana as
-well.
+The `GF_*` lines stop Grafana from contacting the internet on its own: usage
+statistics, update checks, the news feed, Gravatar avatars, publishing snapshots to
+an external service, and installing plugins and their signing keys from
+grafana.com. The PostgreSQL datasource ships with the image, so nothing the
+dashboards need is missing. Keep these lines for an existing Grafana as well.
 
 **2. Read-only database user** (run once via `docker exec -it healthlog-db psql -U healthlog -d healthlog`):
 
@@ -110,12 +123,14 @@ docker run -d \
   -e GF_NEWS_NEWS_FEED_ENABLED=false \
   -e GF_SECURITY_DISABLE_GRAVATAR=true \
   -e GF_SNAPSHOTS_EXTERNAL_ENABLED=false \
+  -e GF_PLUGINS_PREINSTALL_DISABLED=true \
+  -e GF_PLUGINS_PUBLIC_KEY_RETRIEVAL_DISABLED=true \
   -e GRAFANA_RO_PASSWORD=change-me-grafana-ro \
   -v /mnt/user/appdata/grafana:/var/lib/grafana \
   -v /path/to/healthlog/grafana/provisioning:/etc/grafana/provisioning:ro \
   -v /path/to/healthlog/grafana/dashboards:/var/lib/grafana/dashboards/healthlog:ro \
   --restart unless-stopped \
-  grafana/grafana:11.5.2
+  grafana/grafana:VERSION   # the tag from docker-compose.yml, see above
 ```
 
 `GRAFANA_RO_PASSWORD` is the `grafana_ro` password from the prerequisites — the

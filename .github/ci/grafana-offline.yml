@@ -1,0 +1,9 @@
+# CI override for the `grafana` job in test.yml: the compose network gets no
+# internet access, so any request Grafana tries to make to the outside fails
+# and shows up in its log.
+services:
+  grafana:
+    ports: !reset []
+networks:
+  default:
+    internal: true

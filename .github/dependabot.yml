@@ -34,3 +34,16 @@ updates:
       docker:
         patterns:
           - "*"
+
+  # The Grafana image in docker-compose.yml (`grafana` profile). Its tag is the
+  # version grafana/README.md points to and CI tests the dashboards against, so
+  # every bump, new majors included, arrives as a tested PR. TimescaleDB is left
+  # out on purpose: database image updates are a deliberate step (README
+  # "Updating the database image").
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    target-branch: "dev"
+    allow:
+      - dependency-name: "grafana/grafana"
