@@ -12,8 +12,9 @@
   `:vX.Y.Z` / `:latest` is production.
 - Before a release:
   - If the TimescaleDB tag in `docker-compose.yml` changed since the last release,
-    say so in the release notes, with the `ALTER EXTENSION timescaledb UPDATE`
-    step for existing installs (README "Updating the database image").
+    say so in the release notes: back up, update the database image, restart
+    `healthlog` (it updates the extension on start; without superuser rights it
+    logs the manual command, README "Updating the database image").
   - Check [s6-overlay](https://github.com/just-containers/s6-overlay/releases) for
     a new release. Dependabot can't see it: bump `S6_OVERLAY_VERSION` and both
     `*_SHA256` sums in `backend/Dockerfile` together (from the release's

@@ -723,8 +723,10 @@ deliberately:
 
 - **TimescaleDB patch/minor** within the same Postgres major (e.g.
   `2.31.0 → 2.32.x`, still `-pg16`): back up, pull the new image, recreate the
-  container, then upgrade the extension once (the new binary does not do this for
-  you):
+  database container, then restart `healthlog`. The new binary does not upgrade the
+  installed extension by itself; HealthLog does it on start (log line `TimescaleDB
+  extension updated: …`). That needs its database user to be a superuser, which it
+  is in the default setup. Otherwise the log names the command to run as one:
 
   ```bash
   docker exec -t healthlog-db psql -X -U healthlog -d healthlog -c "ALTER EXTENSION timescaledb UPDATE;"

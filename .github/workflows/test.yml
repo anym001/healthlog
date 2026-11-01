@@ -80,25 +80,37 @@ jobs:
 
   smoke:
     # Build the image and boot it as an Unraid user would (PUID/PGID 99:100)
-    # against a real TimescaleDB. Proves: s6 comes up, init-config chowns
-    # /config, migrate runs alembic upgrade head, uvicorn serves, and a full
-    # HAE POST round-trips through to storage.
+    # against a real TimescaleDB that was just upgraded: the volume is created
+    # by an older image, then the current one takes it over. Proves: s6 comes
+    # up, init-config chowns /config, migrate updates the TimescaleDB extension
+    # and runs alembic upgrade head, uvicorn serves, and a full HAE POST
+    # round-trips through to storage.
     needs: versions
     runs-on: ubuntu-latest
+    env:
+      # An older image to upgrade from (the one HealthLog shipped with before
+      # 2.31); kept fixed on purpose so the update path stays exercised.
+      PREVIOUS_TIMESCALEDB: timescale/timescaledb:2.17.2-pg16
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Create network + TimescaleDB
+      - name: Create network + TimescaleDB (old image, then the current one)
         run: |
           docker network create hl
-          docker run -d --name tsdb --network hl \
-            -e POSTGRES_USER=healthlog -e POSTGRES_PASSWORD=healthlog -e POSTGRES_DB=healthlog \
-            --health-cmd="pg_isready -U healthlog" --health-interval=5s --health-timeout=5s --health-retries=20 \
-            ${{ needs.versions.outputs.timescaledb }}
-          for i in $(seq 1 30); do
-            [ "$(docker inspect -f '{{.State.Health.Status}}' tsdb)" = "healthy" ] && break
-            sleep 2
-          done
+          start_db() {
+            docker run -d --name tsdb --network hl -v tsdb-data:/var/lib/postgresql/data \
+              -e POSTGRES_USER=healthlog -e POSTGRES_PASSWORD=healthlog -e POSTGRES_DB=healthlog \
+              --health-cmd="pg_isready -U healthlog" --health-interval=5s --health-timeout=5s --health-retries=20 \
+              "$1"
+            for i in $(seq 1 30); do
+              [ "$(docker inspect -f '{{.State.Health.Status}}' tsdb)" = "healthy" ] && return 0
+              sleep 2
+            done
+            echo "database did not become healthy"; docker logs tsdb; exit 1
+          }
+          start_db "$PREVIOUS_TIMESCALEDB"
+          docker rm -f tsdb
+          start_db "${{ needs.versions.outputs.timescaledb }}"
 
       - name: Build image
         run: docker build -f backend/Dockerfile -t healthlog:ci .
@@ -137,9 +149,19 @@ jobs:
           [ "$code" = "200" ] || { docker logs hl; exit 1; }
           grep -q '"status":"stored"' /tmp/resp.json || { docker logs hl; exit 1; }
 
+      - name: TimescaleDB extension was updated on start
+        run: |
+          docker logs hl 2>&1 | grep "TimescaleDB extension updated" || { docker logs hl; exit 1; }
+          current=$(docker exec tsdb psql -X -U healthlog -d healthlog -tAc \
+            "SELECT e.extversion = a.default_version FROM pg_extension e
+             JOIN pg_available_extensions a ON a.name = e.extname WHERE e.extname = 'timescaledb'")
+          [ "$current" = "t" ] || { echo "extension not at the image's version"; exit 1; }
+
       - name: Cleanup
         if: always()
-        run: docker rm -f hl tsdb || true
+        run: |
+          docker rm -f hl tsdb || true
+          docker volume rm tsdb-data || true
 
   grafana:
     # Boot the Grafana pinned in docker-compose.yml (the version the docs point

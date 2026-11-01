@@ -40,8 +40,8 @@ updates:
   # - grafana/grafana: new majors included.
   # - timescale/timescaledb: Dependabot keeps the tag's suffix, so it stays on
   #   -pg16 and never proposes a Postgres major (that needs a dump/restore).
-  #   A merged bump needs `ALTER EXTENSION timescaledb UPDATE` on existing
-  #   installs; say so in the release notes (CONTRIBUTING.md).
+  #   Existing installs need the new image plus a `healthlog` restart, which
+  #   updates the extension; say so in the release notes (CONTRIBUTING.md).
   - package-ecosystem: "docker-compose"
     directory: "/"
     schedule:

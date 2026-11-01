@@ -726,6 +726,13 @@ table feeds the analysis or the narration yet.
   Grafana behind auth, reverse proxy/TLS in front of ingest.
 - **Public readiness:** shipped `docker-compose.yml` + `.env.example`, sensible
   defaults, no telemetry, documented HAE automation setup.
+- **Database image updates:** a newer TimescaleDB image does not upgrade the
+  extension installed in the database. The s6 `migrate` oneshot runs
+  `app.db_extensions` before `alembic upgrade`: if the image offers a newer version
+  and the app's role is a superuser, it runs `ALTER EXTENSION timescaledb UPDATE` as
+  the first statement of a fresh connection (the update must precede anything that
+  loads the old library); otherwise it logs the manual command, as migration 0027
+  does for telemetry. A failed update is logged and does not block the start.
 
 ## 7. Tests & quality
 
@@ -747,9 +754,10 @@ where the test focus sits.
 - **Migrations against real Postgres/TimescaleDB:** a `service` container in CI,
   `alembic upgrade head` from an empty schema — otherwise the DDL only ever runs at the
   end user's the first time.
-- **Smoke:** build the image, boot it with `PUID/PGID` + `/config` mount + Timescale
-  service, query `/api/health`, check that the entrypoint chowns and both s6 services
-  come up.
+- **Smoke:** build the image, boot it with `PUID/PGID` + `/config` mount against a
+  TimescaleDB volume created by an older image and taken over by the current one,
+  query `/api/health`, check that the entrypoint chowns, both s6 services come up and
+  the extension was updated.
 
 ## 8. CI/CD – GitHub workflows
 
