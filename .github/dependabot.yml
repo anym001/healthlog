@@ -35,11 +35,13 @@ updates:
         patterns:
           - "*"
 
-  # The Grafana image in docker-compose.yml (`grafana` profile). Its tag is the
-  # version grafana/README.md points to and CI tests the dashboards against, so
-  # every bump, new majors included, arrives as a tested PR. TimescaleDB is left
-  # out on purpose: database image updates are a deliberate step (README
-  # "Updating the database image").
+  # Images in docker-compose.yml. Their tags are the versions the docs point
+  # to and CI tests against, so every bump arrives as a tested PR:
+  # - grafana/grafana: new majors included.
+  # - timescale/timescaledb: Dependabot keeps the tag's suffix, so it stays on
+  #   -pg16 and never proposes a Postgres major (that needs a dump/restore).
+  #   Existing installs need the new image plus a `healthlog` restart, which
+  #   updates the extension; say so in the release notes (CONTRIBUTING.md).
   - package-ecosystem: "docker-compose"
     directory: "/"
     schedule:
@@ -47,3 +49,4 @@ updates:
     target-branch: "dev"
     allow:
       - dependency-name: "grafana/grafana"
+      - dependency-name: "timescale/timescaledb"

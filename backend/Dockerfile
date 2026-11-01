@@ -4,7 +4,12 @@
 # PUID/PGID + /config follow the LinuxServer/Unraid convention.
 FROM python:3.14-slim
 
-ARG S6_OVERLAY_VERSION=3.2.0.2
+# Not tracked by Dependabot: bump the version and both SHA-256 sums together
+# (release checklist in CONTRIBUTING.md). A tarball that doesn't match its sum
+# fails the build.
+ARG S6_OVERLAY_VERSION=3.2.3.2
+ARG S6_OVERLAY_NOARCH_SHA256=5379750ed30a84bbd2e2dd74847ba6b5bd29cd0b2e3ea2ec58049b57eb2eda12
+ARG S6_OVERLAY_X86_64_SHA256=e6befcc96a437a3831386ecfc51808c5d3e939dc5fe3c02ae9284599e8aa2408
 # Release version stamped by the build workflow (from the vX.Y.Z tag);
 # local builds run as "dev". Surfaced via /api/health.
 ARG APP_VERSION=dev
@@ -26,9 +31,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # --- s6-overlay (noarch + x86_64) ----------------------------------------
 ADD https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-noarch.tar.xz /tmp/s6-noarch.tar.xz
-RUN tar -C / -Jxpf /tmp/s6-noarch.tar.xz && rm /tmp/s6-noarch.tar.xz
+RUN echo "${S6_OVERLAY_NOARCH_SHA256}  /tmp/s6-noarch.tar.xz" | sha256sum -c - \
+    && tar -C / -Jxpf /tmp/s6-noarch.tar.xz && rm /tmp/s6-noarch.tar.xz
 ADD https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-x86_64.tar.xz /tmp/s6-x86_64.tar.xz
-RUN tar -C / -Jxpf /tmp/s6-x86_64.tar.xz && rm /tmp/s6-x86_64.tar.xz
+RUN echo "${S6_OVERLAY_X86_64_SHA256}  /tmp/s6-x86_64.tar.xz" | sha256sum -c - \
+    && tar -C / -Jxpf /tmp/s6-x86_64.tar.xz && rm /tmp/s6-x86_64.tar.xz
 
 # --- Application user (uid/gid adjusted at runtime from PUID/PGID) --------
 RUN groupadd -g 1000 healthlog \

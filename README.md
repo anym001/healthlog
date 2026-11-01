@@ -138,7 +138,7 @@ docker run -d \
   -e TIMESCALEDB_TELEMETRY=off \
   -v /mnt/user/appdata/healthlog-db:/var/lib/postgresql/data \
   --restart unless-stopped \
-  timescale/timescaledb:2.17.2-pg16     # pin the exact tag — see Operations
+  timescale/timescaledb:VERSION   # the exact tag from docker-compose.yml — see Operations
 ```
 
 **2. Start HealthLog** once the database is up:
@@ -714,16 +714,22 @@ chunks just take a little longer.
 
 ### Updating the database image
 
-Pin the **exact** TimescaleDB tag (`timescale/timescaledb:2.17.2-pg16`) — never
-`latest` or a floating tag — so recreating the container can't silently change
-the engine under your data. Then update deliberately:
+Pin the **exact** TimescaleDB tag — never `latest` or a floating tag — so
+recreating the container can't silently change the engine under your data. Use the
+tag from
+[`docker-compose.yml`](https://github.com/anym001/healthlog/blob/HEAD/docker-compose.yml):
+it is the one CI tests against, and release notes say when it changes. Then update
+deliberately:
 
 - **TimescaleDB patch/minor** within the same Postgres major (e.g.
-  `2.17.2 → 2.18.x`, still `-pg16`): pull the new image, recreate the container,
-  then upgrade the extension once (the new binary does not do this for you):
+  `2.31.0 → 2.32.x`, still `-pg16`): back up, pull the new image, recreate the
+  database container, then restart `healthlog`. The new binary does not upgrade the
+  installed extension by itself; HealthLog does it on start (log line `TimescaleDB
+  extension updated: …`). That needs its database user to be a superuser, which it
+  is in the default setup. Otherwise the log names the command to run as one:
 
   ```bash
-  docker exec -t healthlog-db psql -U healthlog -d healthlog -c "ALTER EXTENSION timescaledb UPDATE;"
+  docker exec -t healthlog-db psql -X -U healthlog -d healthlog -c "ALTER EXTENSION timescaledb UPDATE;"
   ```
 
 - **Postgres major bump** (`pg16 → pg17`): this changes the on-disk format and is

@@ -12,9 +12,11 @@ name: healthlog
 services:
   healthlog-db:
     # Pin the exact TimescaleDB tag — never a floating one — so recreating
-    # the container can't silently change the engine under your data
-    # (see README "Updating the database image").
-    image: timescale/timescaledb:2.17.2-pg16
+    # the container can't silently change the engine under your data. This
+    # tag is the one CI tests against and the docs point to; Dependabot
+    # proposes updates within -pg16. After an update, restart healthlog: it
+    # upgrades the extension on start (README "Updating the database image").
+    image: timescale/timescaledb:2.31.0-pg16
     container_name: healthlog-db
     environment:
       POSTGRES_USER: healthlog

@@ -58,7 +58,7 @@ local LLM. Everything runs on the user's own hardware — no external calls.
   ```bash
   docker run -d -p 5432:5432 \
     -e POSTGRES_USER=healthlog -e POSTGRES_PASSWORD=healthlog -e POSTGRES_DB=healthlog \
-    timescale/timescaledb:2.17.2-pg16
+    "$(grep -oE 'timescale/timescaledb:\S+' ../docker-compose.yml)"
   ```
 - **Dev deps:** `pip install -r requirements-dev.txt`.
 - **New migration:** `alembic revision -m "…"`, then hand-edit. Guard
