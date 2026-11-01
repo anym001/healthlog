@@ -10,6 +10,14 @@
   alone does *not* release.
 - Image channels: `:dev` (+ `:dev-<sha>`) is the maintainer staging channel;
   `:vX.Y.Z` / `:latest` is production.
+- Before a release:
+  - If the TimescaleDB tag in `docker-compose.yml` changed since the last release,
+    say so in the release notes, with the `ALTER EXTENSION timescaledb UPDATE`
+    step for existing installs (README "Updating the database image").
+  - Check [s6-overlay](https://github.com/just-containers/s6-overlay/releases) for
+    a new release. Dependabot can't see it: bump `S6_OVERLAY_VERSION` and both
+    `*_SHA256` sums in `backend/Dockerfile` together (from the release's
+    `.sha256` files).
 - `main` and `dev` are protected (PR required, green checks, no force pushes).
 
 ## Checks (must be green before merge)

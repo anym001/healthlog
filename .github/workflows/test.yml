@@ -10,14 +10,34 @@ permissions:
   contents: read
 
 jobs:
+  versions:
+    # Single source for the versions CI tests against: the TimescaleDB tag in
+    # docker-compose.yml and the Python of the app image's FROM line. Dependabot
+    # bumps those files; the jobs below follow without an edit here.
+    runs-on: ubuntu-latest
+    outputs:
+      timescaledb: ${{ steps.v.outputs.timescaledb }}
+      python: ${{ steps.v.outputs.python }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: v
+        run: |
+          tsdb=$(grep -oE 'timescale/timescaledb:[^[:space:]]+' docker-compose.yml | head -1)
+          py=$(sed -nE 's/^FROM python:([0-9]+\.[0-9]+).*/\1/p' backend/Dockerfile)
+          echo "timescaledb=$tsdb python=$py"
+          [ -n "$tsdb" ] && [ -n "$py" ] || { echo "could not read the versions"; exit 1; }
+          echo "timescaledb=$tsdb" >> "$GITHUB_OUTPUT"
+          echo "python=$py" >> "$GITHUB_OUTPUT"
+
   lint-backend:
     # Static gate: ruff lint + format check. Fast, no DB.
+    needs: versions
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.14"
+          python-version: ${{ needs.versions.outputs.python }}
       # Single source of truth for the ruff pin: requirements-dev.txt. A second
       # hardcoded pin here would let CI and local formatting silently disagree.
       - run: pip install "$(grep '^ruff==' backend/requirements-dev.txt)"
@@ -31,10 +51,11 @@ jobs:
   test:
     # Full pytest suite against a real TimescaleDB, so the hypertable migration
     # path and the local-timezone daily view are exercised exactly as in prod.
+    needs: versions
     runs-on: ubuntu-latest
     services:
       timescaledb:
-        image: timescale/timescaledb:2.17.2-pg16
+        image: ${{ needs.versions.outputs.timescaledb }}
         env:
           POSTGRES_USER: healthlog
           POSTGRES_PASSWORD: healthlog
@@ -52,7 +73,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.14"
+          python-version: ${{ needs.versions.outputs.python }}
       - run: pip install -r backend/requirements-dev.txt
       - run: python -m pytest -q
         working-directory: backend
@@ -62,6 +83,7 @@ jobs:
     # against a real TimescaleDB. Proves: s6 comes up, init-config chowns
     # /config, migrate runs alembic upgrade head, uvicorn serves, and a full
     # HAE POST round-trips through to storage.
+    needs: versions
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -72,7 +94,7 @@ jobs:
           docker run -d --name tsdb --network hl \
             -e POSTGRES_USER=healthlog -e POSTGRES_PASSWORD=healthlog -e POSTGRES_DB=healthlog \
             --health-cmd="pg_isready -U healthlog" --health-interval=5s --health-timeout=5s --health-retries=20 \
-            timescale/timescaledb:2.17.2-pg16
+            ${{ needs.versions.outputs.timescaledb }}
           for i in $(seq 1 30); do
             [ "$(docker inspect -f '{{.State.Health.Status}}' tsdb)" = "healthy" ] && break
             sleep 2
