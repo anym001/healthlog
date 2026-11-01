@@ -1,10 +1,10 @@
-fastapi==0.141.1
+fastapi==0.162.0
 uvicorn[standard]==0.54.0
-sqlalchemy==2.1.1
-alembic==1.20.0
+sqlalchemy==2.1.6
+alembic==1.20.1
 psycopg[binary]==3.3.6
-pydantic==2.13.5
-pydantic-settings==2.15.0
+pydantic==2.14.1
+pydantic-settings==2.16.2
 apscheduler==3.11.3
 # Structured config.yaml (behaviour/profile/tunables).
 pyyaml==6.0.3
@@ -14,7 +14,7 @@ httpx==0.28.1
 prometheus-client==0.26.0
 
 # Analysis pipeline (Phase 3): nightly statistical findings.
-numpy==2.5.3
-pandas==3.0.6
+numpy==2.5.4
+pandas==3.1.0
 scipy==1.18.1
 statsmodels==0.15.0
