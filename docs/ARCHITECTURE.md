@@ -837,4 +837,6 @@ Dependabot PRs pass the same `test.yml` gate as any other PR.
 - Don't enable telemetry in any component. Upstream defaults that phone home are switched
   off: TimescaleDB's usage report (`TIMESCALEDB_TELEMETRY=off` for new volumes, migration
   0027 for existing ones) and, in the documented Grafana setup, usage stats, update
-  checks, the news feed, Gravatar and external snapshots.
+  checks, the news feed, Gravatar, external snapshots, plugin preinstalls and
+  signing-key downloads. CI boots the pinned Grafana on a network without internet
+  access and fails on any outbound attempt in its log.
