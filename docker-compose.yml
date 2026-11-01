@@ -2,6 +2,7 @@
 #
 #   cp .env.example .env   # set POSTGRES_PASSWORD and INGEST_SECRET
 #   docker compose up -d
+#   docker compose --profile grafana up -d   # optional: Grafana + dashboards
 #
 # The database is not published on the host: it is reachable only by the app
 # over the compose network. Put a TLS reverse proxy in front of port 8000
@@ -11,9 +12,11 @@ name: healthlog
 services:
   healthlog-db:
     # Pin the exact TimescaleDB tag — never a floating one — so recreating
-    # the container can't silently change the engine under your data
-    # (see README "Updating the database image").
-    image: timescale/timescaledb:2.17.2-pg16
+    # the container can't silently change the engine under your data. This
+    # tag is the one CI tests against and the docs point to; Dependabot
+    # proposes updates within -pg16. After an update, restart healthlog: it
+    # upgrades the extension on start (README "Updating the database image").
+    image: timescale/timescaledb:2.31.0-pg16
     container_name: healthlog-db
     environment:
       POSTGRES_USER: healthlog
@@ -57,5 +60,40 @@ services:
       - ${CONFIG_DIR:-./config}:/config
     restart: unless-stopped
 
+  grafana:
+    # Optional, started only with `--profile grafana` (see grafana/README.md).
+    # This tag is the Grafana version the dashboards are tested against: CI
+    # boots it, the docs point here, and Dependabot proposes updates
+    # (new majors included) as PRs that CI then tests.
+    image: grafana/grafana:13.3.0
+    profiles: [grafana]
+    container_name: grafana
+    depends_on:
+      healthlog-db:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      # Password of the read-only `grafana_ro` DB user; the provisioned
+      # datasource reads it from here (grafana/README.md, prerequisites).
+      GRAFANA_RO_PASSWORD: ${GRAFANA_RO_PASSWORD:-}
+      # Grafana phones home by default: usage stats, update checks, news feed,
+      # Gravatar, external snapshots, plugin installs and signing keys.
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_SNAPSHOTS_EXTERNAL_ENABLED: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_PLUGINS_PUBLIC_KEY_RETRIEVAL_DISABLED: "true"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards/healthlog:ro
+    restart: unless-stopped
+
 volumes:
   db-data:
+  grafana-data:

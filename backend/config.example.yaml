@@ -40,6 +40,8 @@
 #     Outdoor Run: running     #   unmapped workouts still feed the aggregate
 #     Outdoor Cycle: cycling
 #     Traditional Strength Training: strength
+#                             # After changing it, `healthlog rederive-workout-types`
+#                             #   updates the dashboards for past workouts.
 
 # --- Analysis tunables -----------------------------------------------------
 # Retune the nightly pipeline without rebuilding the image. Defaults shown.

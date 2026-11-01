@@ -1,8 +1,10 @@
 #!/command/with-contenv bash
-# Bring the schema to head before the services start, then mirror TZ into
-# app_settings for SQL-side consumers (daily_metrics view, Grafana). Runs as
-# the dropped user so any state it touches is owned correctly.
+# Update the TimescaleDB extension if the database image is newer, bring the
+# schema to head before the services start, then mirror TZ into app_settings
+# for SQL-side consumers (daily_metrics view, Grafana). Runs as the dropped
+# user so any state it touches is owned correctly.
 set -euo pipefail
 cd /app/backend
+s6-setuidgid healthlog python -m app.db_extensions
 s6-setuidgid healthlog python -m alembic upgrade head
 exec s6-setuidgid healthlog python -m app.db_settings

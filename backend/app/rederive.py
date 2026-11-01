@@ -17,6 +17,12 @@ and medication doses; they also refresh the canonical slugs after an extension
 of ``health_vocab.py``. ``rederive-heart-notifications`` and ``rederive-ecg``
 replay Apple Watch heart rate notifications and ECG summaries.
 
+``rederive-workout-types`` needs no archive: it recomputes
+``workouts.canonical_type`` from the stored ``name`` with the current built-in
+map plus ``workouts.type_map``. The analysis resolves types from ``name`` on
+every run, but the Grafana dashboards read the stored column, which is only set
+at ingest, so a newly mapped name stays "Other" there until this runs.
+
 Usage (one-shot, typically via ``docker exec``)::
 
     healthlog rederive-workout-hr
@@ -27,6 +33,7 @@ Usage (one-shot, typically via ``docker exec``)::
     healthlog rederive-medications [--dry-run]
     healthlog rederive-heart-notifications [--dry-run]
     healthlog rederive-ecg [--dry-run]
+    healthlog rederive-workout-types [--dry-run]
 
 (equivalently ``python -m app rederive-workout-hr`` or ``python -m app.rederive``.)
 """
@@ -142,6 +149,52 @@ def run_rederive_ecg(db: Session, dry_run: bool = False) -> RederiveSummary:
     return _replay(db, lambda p: p.ecg_rows, ingest_svc.store_ecg_recordings, ("start_time", "source"), dry_run)
 
 
+@dataclass
+class WorkoutTypeSummary:
+    names: int = 0
+    changed_names: int = 0
+    workouts: int = 0
+
+
+def run_rederive_workout_types(
+    db: Session, type_map: dict[str, str] | None = None, dry_run: bool = False
+) -> WorkoutTypeSummary:
+    """Set ``workouts.canonical_type`` to what the current mapping resolves for
+    each distinct ``name`` (NULL when nothing maps it any more, matching the
+    analysis). Only rows whose value changes are touched, so a re-run is a no-op.
+    """
+    from sqlalchemy import func, select, update
+
+    from .models import Workout
+    from .workout_types import canonical_workout_type
+
+    summary = WorkoutTypeSummary()
+    rows = db.execute(
+        select(Workout.name, Workout.canonical_type, func.count())
+        .where(Workout.name.is_not(None))
+        .group_by(Workout.name, Workout.canonical_type)
+    ).all()
+    stale: dict[str, str | None] = {}
+    for name, stored, count in rows:
+        resolved = canonical_workout_type(name, type_map)
+        if resolved != stored:
+            stale[name] = resolved
+            summary.workouts += count
+    summary.names = len({name for name, _, _ in rows})
+    summary.changed_names = len(stale)
+    for name, resolved in stale.items():
+        log.info("workout type %r -> %s", name, resolved)
+        if not dry_run:
+            db.execute(
+                update(Workout)
+                .where(Workout.name == name, Workout.canonical_type.is_distinct_from(resolved))
+                .values(canonical_type=resolved)
+            )
+    if not dry_run:
+        db.commit()
+    return summary
+
+
 def _log_summary(summary: RederiveSummary, dry_run: bool, command: str = "rederive-workout-hr") -> None:
     log.info(
         "%s%s done: payloads=%d rows=%d failures=%d",
@@ -225,6 +278,25 @@ def run_ecg(args: argparse.Namespace) -> int:
 
     _log_summary(summary, args.dry_run, "rederive-ecg")
     return 1 if summary.failures else 0
+
+
+def run_workout_types(args: argparse.Namespace) -> int:
+    from .appconfig import get_app_config
+
+    bootstrap()
+    type_map = get_app_config().workouts.type_map
+
+    with db_session() as db:
+        summary = run_rederive_workout_types(db, type_map=type_map, dry_run=args.dry_run)
+
+    log.info(
+        "%srederive-workout-types done: names=%d changed=%d workouts=%d",
+        "[dry-run] " if args.dry_run else "",
+        summary.names,
+        summary.changed_names,
+        summary.workouts,
+    )
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:

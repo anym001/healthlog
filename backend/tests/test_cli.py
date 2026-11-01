@@ -40,6 +40,7 @@ def test_every_subcommand_is_wired_to_a_runner():
         ["rederive-medications"],
         ["rederive-heart-notifications"],
         ["rederive-ecg"],
+        ["rederive-workout-types"],
         ["rederive-stress"],
         ["rederive-body-battery"],
         ["narrate"],

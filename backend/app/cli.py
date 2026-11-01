@@ -18,6 +18,7 @@ instead of a module path::
     healthlog rederive-medications          # backfill medication doses from the archive
     healthlog rederive-heart-notifications  # backfill Apple Watch heart rate notifications from the archive
     healthlog rederive-ecg                  # backfill ECG summaries from the archive
+    healthlog rederive-workout-types        # recompute stored workout types after a map change
     healthlog rederive-stress               # recompute the stress timeline (full history)
     healthlog rederive-stress --days 30     # recompute only the trailing 30 days
     healthlog rederive-body-battery         # recompute the Body-Battery timeline (full history)
@@ -92,6 +93,10 @@ def build_parser() -> argparse.ArgumentParser:
     recg = sub.add_parser("rederive-ecg", help="backfill ECG summaries from the raw archive")
     rederive.add_arguments(recg)
     recg.set_defaults(func=rederive.run_ecg)
+
+    rwt = sub.add_parser("rederive-workout-types", help="recompute stored workout types from the current type map")
+    rederive.add_arguments(rwt)
+    rwt.set_defaults(func=rederive.run_workout_types)
 
     rst = sub.add_parser("rederive-stress", help="recompute the stress timeline from stored heart-rate history")
     stress_backfill.add_arguments(rst)

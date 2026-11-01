@@ -34,3 +34,19 @@ updates:
       docker:
         patterns:
           - "*"
+
+  # Images in docker-compose.yml. Their tags are the versions the docs point
+  # to and CI tests against, so every bump arrives as a tested PR:
+  # - grafana/grafana: new majors included.
+  # - timescale/timescaledb: Dependabot keeps the tag's suffix, so it stays on
+  #   -pg16 and never proposes a Postgres major (that needs a dump/restore).
+  #   Existing installs need the new image plus a `healthlog` restart, which
+  #   updates the extension; say so in the release notes (CONTRIBUTING.md).
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    target-branch: "dev"
+    allow:
+      - dependency-name: "grafana/grafana"
+      - dependency-name: "timescale/timescaledb"

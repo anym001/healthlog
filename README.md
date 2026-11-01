@@ -138,7 +138,7 @@ docker run -d \
   -e TIMESCALEDB_TELEMETRY=off \
   -v /mnt/user/appdata/healthlog-db:/var/lib/postgresql/data \
   --restart unless-stopped \
-  timescale/timescaledb:2.17.2-pg16     # pin the exact tag — see Operations
+  timescale/timescaledb:VERSION   # the exact tag from docker-compose.yml — see Operations
 ```
 
 **2. Start HealthLog** once the database is up:
@@ -182,7 +182,9 @@ Docker network as the database and point it at the DB container (`healthlog-db`
 in both the Compose and `docker run` setups). The repo ships
 ready-made **Grafana dashboards** — import them once by hand, or (recommended)
 let Grafana **provision** the datasource and dashboards straight from a checkout
-of this repo, so updates arrive with a `git pull`. Both paths are described in
+of this repo, so updates arrive with a `git pull`. With Compose, the optional
+`grafana` service does the latter (`docker compose --profile grafana up -d`). All
+paths are described in
 [`grafana/README.md`](https://github.com/anym001/healthlog/blob/HEAD/grafana/README.md).
 
 ## Image
@@ -334,6 +336,14 @@ whether `TZ` matches the UTC offsets Health Auto Export stamps on your data:
 
 ```bash
 docker exec healthlog healthlog audit
+```
+
+Workout types are resolved when a workout is ingested. After you extend
+`workouts.type_map` (or an update maps more names), recompute them so the dashboards
+regroup past workouts (idempotent; `--dry-run` lists the changes):
+
+```bash
+docker exec healthlog healthlog rederive-workout-types
 ```
 
 Zone-based (Edwards) training load needs the intra-workout HR series; check whether
@@ -704,16 +714,22 @@ chunks just take a little longer.
 
 ### Updating the database image
 
-Pin the **exact** TimescaleDB tag (`timescale/timescaledb:2.17.2-pg16`) — never
-`latest` or a floating tag — so recreating the container can't silently change
-the engine under your data. Then update deliberately:
+Pin the **exact** TimescaleDB tag — never `latest` or a floating tag — so
+recreating the container can't silently change the engine under your data. Use the
+tag from
+[`docker-compose.yml`](https://github.com/anym001/healthlog/blob/HEAD/docker-compose.yml):
+it is the one CI tests against, and release notes say when it changes. Then update
+deliberately:
 
 - **TimescaleDB patch/minor** within the same Postgres major (e.g.
-  `2.17.2 → 2.18.x`, still `-pg16`): pull the new image, recreate the container,
-  then upgrade the extension once (the new binary does not do this for you):
+  `2.31.0 → 2.32.x`, still `-pg16`): back up, pull the new image, recreate the
+  database container, then restart `healthlog`. The new binary does not upgrade the
+  installed extension by itself; HealthLog does it on start (log line `TimescaleDB
+  extension updated: …`). That needs its database user to be a superuser, which it
+  is in the default setup. Otherwise the log names the command to run as one:
 
   ```bash
-  docker exec -t healthlog-db psql -U healthlog -d healthlog -c "ALTER EXTENSION timescaledb UPDATE;"
+  docker exec -t healthlog-db psql -X -U healthlog -d healthlog -c "ALTER EXTENSION timescaledb UPDATE;"
   ```
 
 - **Postgres major bump** (`pg16 → pg17`): this changes the on-disk format and is
@@ -751,14 +767,21 @@ server {
     listen 443 ssl;
     server_name health.example.com;
 
+    client_max_body_size 32m;   # nginx default: 1 MB; matches MAX_PAYLOAD_BYTES
+
     location / {
         proxy_pass         http://localhost:8000;
         proxy_set_header   Host              $host;
         proxy_set_header   X-Real-IP         $remote_addr;
         proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;   # large payloads take a while to store
     }
 }
 ```
+
+Without `client_max_body_size`, nginx-based proxies (SWAG, Nginx Proxy Manager)
+answer larger syncs with their own `413 Request Entity Too Large`. Bigger imports
+belong in the [backfill CLI](#bulk-backfill-full-history).
 
 ## Logging
 

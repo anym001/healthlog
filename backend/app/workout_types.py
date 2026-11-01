@@ -8,9 +8,10 @@ from ``Laufen`` (ARCHITECTURE.md §4.4). This module is the workout-side counter
 box, and the operator's ``workouts.type_map`` (config.yaml) layers on top for
 custom names — config wins, the built-in is the fallback.
 
-Pure functions, no DB. The raw ``name`` is always preserved in ``workouts``;
-canonicalisation happens at analysis time so the mapping can evolve without a
-re-ingest.
+Pure functions, no DB. The raw ``name`` is always preserved in ``workouts``, so
+the mapping can evolve without a re-ingest: the analysis re-resolves it on every
+run, and ``healthlog rederive-workout-types`` refreshes the stored
+``canonical_type`` the dashboards read.
 """
 
 from __future__ import annotations
@@ -61,6 +62,8 @@ BUILTIN_WORKOUT_TYPES: dict[str, str] = {
     "cycling": "cycling",
     "outdoor cycle": "cycling",
     "indoor cycle": "cycling",
+    "outdoor cycling": "cycling",
+    "indoor cycling": "cycling",
     "rad outdoor": "cycling",
     "rad indoor": "cycling",
     "radfahren": "cycling",

@@ -33,6 +33,13 @@ def test_german_hae_export_names_resolve():
     assert canonical_workout_type("Elliptisch") == "elliptical"
 
 
+def test_english_hae_export_names_resolve():
+    # HAE exports "Outdoor Cycling" / "Indoor Cycling" in English, not the
+    # "Outdoor Cycle" spelling, which left the type NULL.
+    assert canonical_workout_type("Outdoor Cycling") == "cycling"
+    assert canonical_workout_type("Indoor Cycling") == "cycling"
+
+
 def test_apple_fitness_picker_names_resolve():
     # The other spelling of the same sports, as shown in the German app picker.
     assert canonical_workout_type("Rad outdoor") == "cycling"

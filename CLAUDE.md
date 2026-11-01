@@ -34,7 +34,7 @@ local LLM. Everything runs on the user's own hardware — no external calls.
   - `cli.py` — the `healthlog` operator CLI (`backfill`, `analyze`, `audit`,
     `narrate`, `check-workout-hr`, `rederive-workout-hr`, `rederive-state-of-mind`,
     `rederive-sleep`, `rederive-symptoms`, `rederive-medications`,
-    `rederive-heart-notifications`, `rederive-ecg`, `rederive-stress`, `rederive-body-battery`); `cli_support.py` — shared command scaffolding
+    `rederive-heart-notifications`, `rederive-ecg`, `rederive-workout-types`, `rederive-stress`, `rederive-body-battery`); `cli_support.py` — shared command scaffolding
     (`bootstrap`, `db_session`, `module_main`)
   - `registry.py`, `units.py`, `workout_types.py`, `health_vocab.py` — normalisation
     (metric registry, unit guard, localised workout / symptom / medication values →
@@ -58,7 +58,7 @@ local LLM. Everything runs on the user's own hardware — no external calls.
   ```bash
   docker run -d -p 5432:5432 \
     -e POSTGRES_USER=healthlog -e POSTGRES_PASSWORD=healthlog -e POSTGRES_DB=healthlog \
-    timescale/timescaledb:2.17.2-pg16
+    "$(grep -oE 'timescale/timescaledb:\S+' ../docker-compose.yml)"
   ```
 - **Dev deps:** `pip install -r requirements-dev.txt`.
 - **New migration:** `alembic revision -m "…"`, then hand-edit. Guard

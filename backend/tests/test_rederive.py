@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 
 from app.ingest import archive_raw
 from app.models import Workout, WorkoutHrSample
-from app.rederive import run_rederive
+from app.rederive import run_rederive, run_rederive_workout_types
 
 _WID = "3213AD95-044D-4777-9D99-B473968262F1"
 
@@ -76,3 +76,50 @@ def test_rederive_dry_run_writes_nothing(db):
     summary = run_rederive(db, dry_run=True)
     assert summary.payloads == 1 and summary.samples == 2 and summary.failures == 0
     assert _count(db, WorkoutHrSample) == 0  # dry run never writes
+
+
+def _workout(db, name: str, canonical_type: str | None) -> uuid.UUID:
+    hae_id = uuid.uuid4()
+    db.add(
+        Workout(
+            hae_id=hae_id,
+            name=name,
+            canonical_type=canonical_type,
+            start_time=dt.datetime(2026, 6, 15, 10, 28, tzinfo=dt.UTC),
+            duration_s=1800.0,
+            source="",
+        )
+    )
+    db.flush()
+    return hae_id
+
+
+def test_rederive_workout_types_recomputes_stored_column(db):
+    # Ingested before the map knew "Outdoor Cycling"; one custom name the
+    # config maps; one stale value nothing maps any more; one already correct.
+    cycling = [_workout(db, "Outdoor Cycling", None) for _ in range(2)]
+    custom = _workout(db, "Kanu", None)
+    stale = _workout(db, "Something Else", "old_type")
+    correct = _workout(db, "Outdoor Run", "running")
+
+    summary = run_rederive_workout_types(db, type_map={"Kanu": "paddling"})
+
+    assert (summary.names, summary.changed_names, summary.workouts) == (4, 3, 4)
+    types = dict(db.execute(select(Workout.hae_id, Workout.canonical_type)).all())
+    assert [types[w] for w in cycling] == ["cycling", "cycling"]
+    assert types[custom] == "paddling"
+    assert types[stale] is None
+    assert types[correct] == "running"
+
+    again = run_rederive_workout_types(db, type_map={"Kanu": "paddling"})
+    assert (again.changed_names, again.workouts) == (0, 0)
+
+
+def test_rederive_workout_types_dry_run_writes_nothing(db):
+    wid = _workout(db, "Indoor Cycling", None)
+
+    summary = run_rederive_workout_types(db, dry_run=True)
+
+    assert (summary.changed_names, summary.workouts) == (1, 1)
+    stored = db.execute(select(Workout.canonical_type).where(Workout.hae_id == wid)).scalar_one()
+    assert stored is None

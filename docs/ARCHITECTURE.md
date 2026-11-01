@@ -241,6 +241,10 @@ workout_route_points (workout_hae_id UUID REFERENCES workouts ON DELETE CASCADE,
 units, workout types need normalisation (mapping localised→canonical), otherwise
 types fragment across language switches. `app/workout_types.py` handles this (built-in
 DE+EN map → canonical slug, extensible via `workouts.type_map` in `config.yaml`).
+The slug is stored in `workouts.canonical_type` at ingest, which the Grafana panels
+group by; the analysis re-resolves from `name` on every run. After a map change,
+`healthlog rederive-workout-types` recomputes the stored column from `name`, so
+both agree again.
 `duration` in seconds, energy in `kJ` (→ normalise to kcal, §4.5).
 
 Two **SQL functions** (`workout_trimp(p_tz, p_hr_max, p_since)` per session,
@@ -722,6 +726,13 @@ table feeds the analysis or the narration yet.
   Grafana behind auth, reverse proxy/TLS in front of ingest.
 - **Public readiness:** shipped `docker-compose.yml` + `.env.example`, sensible
   defaults, no telemetry, documented HAE automation setup.
+- **Database image updates:** a newer TimescaleDB image does not upgrade the
+  extension installed in the database. The s6 `migrate` oneshot runs
+  `app.db_extensions` before `alembic upgrade`: if the image offers a newer version
+  and the app's role is a superuser, it runs `ALTER EXTENSION timescaledb UPDATE` as
+  the first statement of a fresh connection (the update must precede anything that
+  loads the old library); otherwise it logs the manual command, as migration 0027
+  does for telemetry. A failed update is logged and does not block the start.
 
 ## 7. Tests & quality
 
@@ -743,9 +754,10 @@ where the test focus sits.
 - **Migrations against real Postgres/TimescaleDB:** a `service` container in CI,
   `alembic upgrade head` from an empty schema — otherwise the DDL only ever runs at the
   end user's the first time.
-- **Smoke:** build the image, boot it with `PUID/PGID` + `/config` mount + Timescale
-  service, query `/api/health`, check that the entrypoint chowns and both s6 services
-  come up.
+- **Smoke:** build the image, boot it with `PUID/PGID` + `/config` mount against a
+  TimescaleDB volume created by an older image and taken over by the current one,
+  query `/api/health`, check that the entrypoint chowns, both s6 services come up and
+  the extension was updated.
 
 ## 8. CI/CD – GitHub workflows
 
@@ -833,4 +845,6 @@ Dependabot PRs pass the same `test.yml` gate as any other PR.
 - Don't enable telemetry in any component. Upstream defaults that phone home are switched
   off: TimescaleDB's usage report (`TIMESCALEDB_TELEMETRY=off` for new volumes, migration
   0027 for existing ones) and, in the documented Grafana setup, usage stats, update
-  checks, the news feed, Gravatar and external snapshots.
+  checks, the news feed, Gravatar, external snapshots, plugin preinstalls and
+  signing-key downloads. CI boots the pinned Grafana on a network without internet
+  access and fails on any outbound attempt in its log.
