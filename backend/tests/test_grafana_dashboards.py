@@ -41,6 +41,17 @@ _FALLBACK = {
     "workout": ("00000000-0000-0000-0000-000000000000", "Workout"),
 }
 
+
+@dataclass(frozen=True)
+class Value:
+    value: str
+    text: str
+    # A multi-value or include-all variable: Grafana's SQL datasources then
+    # quote it as a literal even when a single value is in scope (a repeated
+    # panel), so ``'$var'`` in such a query would become ``''value''``.
+    multi: bool = False
+
+
 _VARIABLE = re.compile(r"\$\{(\w+)(?::(\w+))?\}|\$(?!__)(\w+)")
 _MACRO = re.compile(r"\$__(\w+)\(")
 
@@ -130,17 +141,29 @@ def _render_macros(sql: str) -> str:
     return "".join(out) + sql[pos:]
 
 
-def _render(sql: str, values: dict[str, tuple[str, str]]) -> str:
+def _quote(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _render(sql: str, values: dict[str, Value]) -> str:
+    """Template variables as Grafana's SQL datasources interpolate them
+    (``SqlDatasource.interpolateVariable`` and the named formats), then the
+    macros."""
+
     def variable(match: re.Match) -> str:
         name = match.group(1) or match.group(3)
         if name not in values:
             raise AssertionError(f"variable ${name} has no value; add it to _FALLBACK")
-        value, text = values[name]
+        var = values[name]
         fmt = match.group(2)
-        if fmt in (None, "raw"):
-            return value
+        if fmt is None:
+            return _quote(var.value) if var.multi else var.value.replace("'", "''")
+        if fmt == "raw":
+            return var.value
+        if fmt == "sqlstring":
+            return _quote(var.value)
         if fmt == "text":
-            return text
+            return var.text
         raise AssertionError(f"variable format ${{{name}:{fmt}}} is not rendered by this test yet")
 
     return _render_macros(_VARIABLE.sub(variable, sql))
@@ -163,24 +186,26 @@ def _execute(db_conn, sql: str) -> tuple[list[str], list[tuple]]:
     return columns, rows
 
 
-def _variable_values(db_conn, board: dict) -> dict[str, tuple[str, str]]:
+def _variable_values(db_conn, board: dict) -> dict[str, Value]:
     """Each variable's value as Grafana would pick it: the first row its query
     returns on the seeded data (in dashboard order, so a variable can use the
     ones above it), else the fallback; a textbox keeps its default."""
-    values: dict[str, tuple[str, str]] = {}
+    values: dict[str, Value] = {}
+    fallback = {name: Value(*pair) for name, pair in _FALLBACK.items()}
     for variable in board.get("templating", {}).get("list", []):
         name = variable["name"]
+        multi = bool(variable.get("multi") or variable.get("includeAll"))
         if variable.get("type") == "textbox":
             default = str(variable.get("query") or "")
-            values[name] = (default, default)
+            values[name] = Value(default, default)
         elif variable.get("type") == "query" and _variable_sql(variable):
-            columns, rows = _execute(db_conn, _render(_variable_sql(variable), _FALLBACK | values))
+            columns, rows = _execute(db_conn, _render(_variable_sql(variable), fallback | values))
             if rows:
                 row = dict(zip(columns, rows[0], strict=True))
                 value = str(row.get("__value", rows[0][0]))
-                values[name] = (value, str(row.get("__text", value)))
+                values[name] = Value(value, str(row.get("__text", value)), multi)
             elif name in _FALLBACK:
-                values[name] = _FALLBACK[name]
+                values[name] = Value(*_FALLBACK[name], multi)
     return values
 
 
@@ -193,6 +218,34 @@ def seeded_conn(db_conn, sample_payload):
     session.commit()
     session.close()
     return db_conn
+
+
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("WHERE tz = '$tz'", "WHERE tz = 'Europe/Vienna'"),
+        ("WHERE m IN ($metric)", "WHERE m IN ('step_count')"),  # multi: quoted by Grafana
+        ("WHERE m = '$metric'", "WHERE m = ''step_count''"),  # the bug this models
+        ("WHERE m IN (${metric:sqlstring})", "WHERE m IN ('step_count')"),
+        ("WHERE m = '${metric:raw}'", "WHERE m = 'step_count'"),
+        ("SELECT '${metric:text}'", "SELECT 'Steps'"),
+        (
+            "WHERE $__timeFilter((d::timestamp AT TIME ZONE '$tz'))",
+            "WHERE (d::timestamp AT TIME ZONE 'Europe/Vienna') BETWEEN "
+            f"{_grafana_time(TIME_FROM)} AND {_grafana_time(TIME_TO)}",
+        ),
+    ],
+)
+def test_render_matches_grafana(sql, expected):
+    values = {"tz": Value("Europe/Vienna", "Europe/Vienna"), "metric": Value("step_count", "Steps", multi=True)}
+    assert _render(sql, values) == expected
+
+
+def test_render_rejects_unknown_macros_and_variables():
+    with pytest.raises(AssertionError, match="timeGroup"):
+        _render("SELECT $__timeGroup(ts, '1d')", {})
+    with pytest.raises(AssertionError, match="nope"):
+        _render("SELECT '$nope'", {})
 
 
 def test_dashboards_are_found():
