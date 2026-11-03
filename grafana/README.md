@@ -1,6 +1,6 @@
 # Grafana Dashboards
 
-Three pre-built Grafana dashboards for HealthLog. Two ways to get them into
+Five pre-built Grafana dashboards for HealthLog. Two ways to get them into
 Grafana:
 
 - **[Option A — manual import](#option-a--manual-import):** click through the
@@ -102,6 +102,8 @@ Dashboards → New → Import → upload JSON file (repeat for each):
 | `dashboards/overview.json` | Overview — daily summary, sleep (phases, efficiency, bedtime, overnight vitals), stress & Body Battery, activity, body weight, findings (30-day window) |
 | `dashboards/training.json` | Training — TRIMP & weekly volume by sport, nightly load models (Banister vs. Edwards, zone load by sport), fitness & form (CTL/ATL/TSB, ACWR), recovery, workouts table with a per-session Workout Detail drill-down (intra-workout HR curve, route map, metadata; 30-day window) |
 | `dashboards/metrics.json` | Metrics Explorer — raw values for any metric, Apple-Health-style (30-day window) |
+| `dashboards/sleep-activity.json` | Sleep & Activity — sleep stages per night with a colour key, sleep and the next day's exercise and steps on one timeline (each ranked 0–100 against your own days), overnight measures (wrist temperature, respiratory rate, breathing disturbances; 90-day window) |
+| `dashboards/all-metrics.json` | All Metrics — one small chart per metric with data in the selected range, grouped by category, no dropdowns: totals as daily bars, measurements as lines, each with a 7-day average (90-day window) |
 
 ## Option B — provisioning (recommended)
 

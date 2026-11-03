@@ -1,0 +1,437 @@
+{
+  "uid": "healthlog-all-metrics",
+  "title": "HealthLog – All Metrics",
+  "description": "Every metric with data in the selected range as its own small chart, no dropdowns.",
+  "tags": [
+    "healthlog"
+  ],
+  "editable": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "",
+  "timezone": "browser",
+  "time": {
+    "from": "now-90d",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "tz",
+        "type": "query",
+        "label": "Timezone",
+        "hide": 2,
+        "datasource": {
+          "uid": "healthlog-db"
+        },
+        "description": "Hidden. HealthLog's configured TZ (app_settings.local_tz), as in the upstream dashboards.",
+        "query": "SELECT value FROM app_settings WHERE key = 'local_tz'",
+        "definition": "SELECT value FROM app_settings WHERE key = 'local_tz'",
+        "refresh": 1,
+        "sort": 0,
+        "multi": false,
+        "includeAll": false,
+        "current": {},
+        "options": []
+      },
+      {
+        "name": "total",
+        "type": "query",
+        "label": "Metric",
+        "hide": 2,
+        "datasource": {
+          "uid": "healthlog-db"
+        },
+        "description": "Hidden: every metric of this kind with data in the selected time range, in category order. The page repeats one chart per metric.",
+        "query": "SELECT initcap(COALESCE(NULLIF(r.category, 'unknown'), 'other')) || ' · ' || COALESCE(r.display_name, m.metric) || COALESCE(' (' || CASE r.unit_canonical WHEN 'degC' THEN '°C' WHEN 'dBASPL' THEN 'dB' WHEN 'km/hr' THEN 'km/h' WHEN 'count/min' THEN CASE m.metric WHEN 'respiratory_rate' THEN 'breaths/min' ELSE 'bpm' END WHEN 'count' THEN NULL ELSE NULLIF(r.unit_canonical, '') END || ')', '') AS __text, m.metric AS __value FROM (SELECT DISTINCT metric FROM daily_metrics WHERE $__timeFilter((day::timestamp AT TIME ZONE '$tz'))) m LEFT JOIN metric_registry r USING (metric) WHERE COALESCE(r.agg_default, 'avg') = 'sum' ORDER BY COALESCE(NULLIF(r.category, 'unknown'), 'zz'), 1",
+        "refresh": 2,
+        "sort": 0,
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [],
+        "definition": "SELECT initcap(COALESCE(NULLIF(r.category, 'unknown'), 'other')) || ' · ' || COALESCE(r.display_name, m.metric) || COALESCE(' (' || CASE r.unit_canonical WHEN 'degC' THEN '°C' WHEN 'dBASPL' THEN 'dB' WHEN 'km/hr' THEN 'km/h' WHEN 'count/min' THEN CASE m.metric WHEN 'respiratory_rate' THEN 'breaths/min' ELSE 'bpm' END WHEN 'count' THEN NULL ELSE NULLIF(r.unit_canonical, '') END || ')', '') AS __text, m.metric AS __value FROM (SELECT DISTINCT metric FROM daily_metrics WHERE $__timeFilter((day::timestamp AT TIME ZONE '$tz'))) m LEFT JOIN metric_registry r USING (metric) WHERE COALESCE(r.agg_default, 'avg') = 'sum' ORDER BY COALESCE(NULLIF(r.category, 'unknown'), 'zz'), 1"
+      },
+      {
+        "name": "measured",
+        "type": "query",
+        "label": "Metric",
+        "hide": 2,
+        "datasource": {
+          "uid": "healthlog-db"
+        },
+        "description": "Hidden: every metric of this kind with data in the selected time range, in category order. The page repeats one chart per metric.",
+        "query": "SELECT initcap(COALESCE(NULLIF(r.category, 'unknown'), 'other')) || ' · ' || COALESCE(r.display_name, m.metric) || COALESCE(' (' || CASE r.unit_canonical WHEN 'degC' THEN '°C' WHEN 'dBASPL' THEN 'dB' WHEN 'km/hr' THEN 'km/h' WHEN 'count/min' THEN CASE m.metric WHEN 'respiratory_rate' THEN 'breaths/min' ELSE 'bpm' END WHEN 'count' THEN NULL ELSE NULLIF(r.unit_canonical, '') END || ')', '') AS __text, m.metric AS __value FROM (SELECT DISTINCT metric FROM daily_metrics WHERE $__timeFilter((day::timestamp AT TIME ZONE '$tz'))) m LEFT JOIN metric_registry r USING (metric) WHERE COALESCE(r.agg_default, 'avg') <> 'sum' ORDER BY COALESCE(NULLIF(r.category, 'unknown'), 'zz'), 1",
+        "refresh": 2,
+        "sort": 0,
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [],
+        "definition": "SELECT initcap(COALESCE(NULLIF(r.category, 'unknown'), 'other')) || ' · ' || COALESCE(r.display_name, m.metric) || COALESCE(' (' || CASE r.unit_canonical WHEN 'degC' THEN '°C' WHEN 'dBASPL' THEN 'dB' WHEN 'km/hr' THEN 'km/h' WHEN 'count/min' THEN CASE m.metric WHEN 'respiratory_rate' THEN 'breaths/min' ELSE 'bpm' END WHEN 'count' THEN NULL ELSE NULLIF(r.unit_canonical, '') END || ')', '') AS __text, m.metric AS __value FROM (SELECT DISTINCT metric FROM daily_metrics WHERE $__timeFilter((day::timestamp AT TIME ZONE '$tz'))) m LEFT JOIN metric_registry r USING (metric) WHERE COALESCE(r.agg_default, 'avg') <> 'sum' ORDER BY COALESCE(NULLIF(r.category, 'unknown'), 'zz'), 1"
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "links": [
+    {
+      "title": "Overview",
+      "url": "/d/healthlog-overview",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": true,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Overview dashboard"
+    },
+    {
+      "title": "Training",
+      "url": "/d/healthlog-training",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": true,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Training dashboard"
+    },
+    {
+      "title": "Metrics Explorer",
+      "url": "/d/healthlog-metrics",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": true,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Metrics Explorer"
+    },
+    {
+      "title": "Sleep & Activity",
+      "url": "/d/healthlog-sleep-activity",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": true,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Sleep & Activity dashboard"
+    }
+  ],
+  "panels": [
+    {
+      "type": "row",
+      "title": "About this dashboard",
+      "collapsed": true,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": [
+        {
+          "id": 2,
+          "type": "text",
+          "title": "How to read this page",
+          "gridPos": {
+            "x": 0,
+            "y": 1,
+            "w": 24,
+            "h": 9
+          },
+          "options": {
+            "mode": "html",
+            "content": "<div style=\"font-size:15px;line-height:1.6\">\n<p>Every measure your devices sent in the selected time range, one chart each, grouped by kind. Nothing to choose:\na measure your watch doesn't record simply isn't listed, and older watches report fewer.</p>\n<p><b>Totals</b> are things that add up (steps, exercise minutes, energy): each day is a\n<b style=\"color:#5c7cfa\">bar</b> from zero. <b>Measurements</b> are things that are measured (heart rate, walking\nspeed): each day is a <b style=\"color:#5c7cfa\">point on a line</b>, the day's average, or the lowest reading\nfor resting heart rate. The <b style=\"color:#868e96\">dashed line</b> is the 7-day average, which shows the trend\nunder the day-to-day noise.</p>\n<p><b style=\"color:#c2255c\">Heart rate variability</b> (HRV) is how much the time between heartbeats varies; it runs\nhigher when you're rested and is very personal, so compare it with your own history, not other people's.\n<b style=\"color:#e8590c\">Resting heart rate</b> is the lowest steady rate of the day.\n<b style=\"color:#1971c2\">Walking asymmetry</b> and <b style=\"color:#1971c2\">double support</b> come from the iPhone in\nyour pocket: how evenly you step, and how much of each stride both feet are on the ground.</p></div>"
+          }
+        }
+      ],
+      "id": 1
+    },
+    {
+      "id": 3,
+      "type": "row",
+      "title": "Totals",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "$total",
+      "description": "Each day's value (bars) and the 7-day average (dashed).",
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 2,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "healthlog-db"
+          },
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT (day::timestamp AT TIME ZONE '$tz') AS time,\n  CASE COALESCE(r.agg_default, 'avg') WHEN 'sum' THEN d.sum WHEN 'min' THEN d.vmin WHEN 'max' THEN d.vmax ELSE d.avg END AS \"Daily\",\n  AVG(CASE COALESCE(r.agg_default, 'avg') WHEN 'sum' THEN d.sum WHEN 'min' THEN d.vmin WHEN 'max' THEN d.vmax ELSE d.avg END)\n    OVER (ORDER BY d.day RANGE BETWEEN INTERVAL '6 days' PRECEDING AND CURRENT ROW) AS \"7-day average\"\nFROM daily_metrics d LEFT JOIN metric_registry r USING (metric)\nWHERE d.metric IN (${total:sqlstring}) AND $__timeFilter((day::timestamp AT TIME ZONE '$tz'))\nORDER BY d.day",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 1,
+          "noValue": "Not reported by your devices in this range",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 2,
+            "fillOpacity": 60,
+            "lineInterpolation": "smooth",
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Daily"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5c7cfa"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "7-day average"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#868e96"
+                }
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    6,
+                    4
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "repeat": "total",
+      "repeatDirection": "h",
+      "maxPerRow": 3
+    },
+    {
+      "id": 5,
+      "type": "row",
+      "title": "Measurements",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "$measured",
+      "description": "Each day's value (solid line) and the 7-day average (dashed).",
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "healthlog-db"
+          },
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT (day::timestamp AT TIME ZONE '$tz') AS time,\n  CASE COALESCE(r.agg_default, 'avg') WHEN 'sum' THEN d.sum WHEN 'min' THEN d.vmin WHEN 'max' THEN d.vmax ELSE d.avg END AS \"Daily\",\n  AVG(CASE COALESCE(r.agg_default, 'avg') WHEN 'sum' THEN d.sum WHEN 'min' THEN d.vmin WHEN 'max' THEN d.vmax ELSE d.avg END)\n    OVER (ORDER BY d.day RANGE BETWEEN INTERVAL '6 days' PRECEDING AND CURRENT ROW) AS \"7-day average\"\nFROM daily_metrics d LEFT JOIN metric_registry r USING (metric)\nWHERE d.metric IN (${measured:sqlstring}) AND $__timeFilter((day::timestamp AT TIME ZONE '$tz'))\nORDER BY d.day",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 1,
+          "noValue": "Not reported by your devices in this range",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "lineInterpolation": "smooth",
+            "showPoints": "always",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "pointSize": 4
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Daily"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5c7cfa"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "7-day average"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#868e96"
+                }
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    6,
+                    4
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "repeat": "measured",
+      "repeatDirection": "h",
+      "maxPerRow": 3
+    }
+  ]
+}

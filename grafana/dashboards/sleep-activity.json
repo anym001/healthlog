@@ -1,0 +1,860 @@
+{
+  "uid": "healthlog-sleep-activity",
+  "title": "HealthLog – Sleep & Activity",
+  "description": "Sleep stages, and sleep against the next day's activity on one scale.",
+  "tags": [
+    "healthlog"
+  ],
+  "editable": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "",
+  "timezone": "browser",
+  "time": {
+    "from": "now-90d",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "tz",
+        "type": "query",
+        "label": "Timezone",
+        "hide": 2,
+        "datasource": {
+          "uid": "healthlog-db"
+        },
+        "description": "Hidden. HealthLog's configured TZ (app_settings.local_tz), as in the upstream dashboards.",
+        "query": "SELECT value FROM app_settings WHERE key = 'local_tz'",
+        "definition": "SELECT value FROM app_settings WHERE key = 'local_tz'",
+        "refresh": 1,
+        "sort": 0,
+        "multi": false,
+        "includeAll": false,
+        "current": {},
+        "options": []
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "links": [
+    {
+      "title": "Overview",
+      "url": "/d/healthlog-overview",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": true,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Overview dashboard"
+    },
+    {
+      "title": "Training",
+      "url": "/d/healthlog-training",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": true,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Training dashboard"
+    },
+    {
+      "title": "Metrics Explorer",
+      "url": "/d/healthlog-metrics",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": true,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Metrics Explorer"
+    },
+    {
+      "title": "All Metrics",
+      "url": "/d/healthlog-all-metrics",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": true,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open All Metrics dashboard"
+    }
+  ],
+  "panels": [
+    {
+      "type": "row",
+      "title": "About this dashboard",
+      "collapsed": true,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": [
+        {
+          "id": 2,
+          "type": "text",
+          "title": "How to read this page",
+          "gridPos": {
+            "x": 0,
+            "y": 1,
+            "w": 24,
+            "h": 8
+          },
+          "options": {
+            "mode": "html",
+            "content": "<div style=\"font-size:15px;line-height:1.6\">\n<p>Each night is dated by the morning you woke up. Your watch estimates the stages from movement and heart rate,\nnot a sleep lab, so the pattern over weeks says more than any single night.</p>\n<p><b style=\"color:#5c7cfa\">Total sleep</b> is time asleep, all stages together.\n<b style=\"color:#3b5bdb\">Deep sleep</b> is the slow-wave stage, when you are hardest to wake; most of it comes in the first half\nof the night. <b style=\"color:#74c0fc\">Core sleep</b> is Apple's name for light sleep and usually fills most of the night.\n<b style=\"color:#9c36b5\">REM sleep</b> is the stage with the most vivid dreaming; its stretches get longer towards morning, so a\nshort night trims REM first. <b style=\"color:#f08c00\">Awake</b> counts brief wakings; everyone has some and most are never\nremembered.</p>\n<p>Some measures only come from newer watches or once a feature is switched on. A panel that says\n<i>not reported by your devices in this range</i> means no data, never zero.</p></div>"
+          }
+        }
+      ],
+      "id": 1
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Last night",
+      "description": "Total sleep, the most recent night recorded.",
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "healthlog-db"
+          },
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT total_sleep_h AS \"Total sleep\" FROM sleep_nightly ORDER BY sleep_date DESC LIMIT 1",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "h",
+          "decimals": 1,
+          "noValue": "–",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#5c7cfa"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": true
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Average night",
+      "description": "Mean total sleep over the nights in the selected range.",
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "healthlog-db"
+          },
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT AVG(total_sleep_h) AS \"Total sleep\" FROM sleep_nightly WHERE $__timeFilter((sleep_date::timestamp AT TIME ZONE '$tz'))",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "h",
+          "decimals": 1,
+          "noValue": "–",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#5c7cfa"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": true
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Nights recorded",
+      "description": "Nights with sleep data in the selected range. Nights without the watch are missing, not zero.",
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "healthlog-db"
+          },
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT COUNT(*) AS \"Nights\" FROM sleep_nightly WHERE $__timeFilter((sleep_date::timestamp AT TIME ZONE '$tz'))",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "–",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#5c7cfa"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": true
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "REM share",
+      "description": "REM sleep as a share of total sleep over the range.",
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "healthlog-db"
+          },
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT 100 * SUM(rem_h) / NULLIF(SUM(total_sleep_h), 0) AS \"REM\" FROM sleep_nightly WHERE $__timeFilter((sleep_date::timestamp AT TIME ZONE '$tz'))",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 0,
+          "noValue": "–",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#9c36b5"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": true
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      }
+    },
+    {
+      "id": 7,
+      "type": "row",
+      "title": "Your nights",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Sleep stages per night (h)",
+      "description": "Hours in each stage, stacked: the bar's height is time in bed asleep plus brief wakings.",
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "healthlog-db"
+          },
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT (sleep_date::timestamp AT TIME ZONE '$tz') AS time, deep_h AS \"Deep\", core_h AS \"Core\", rem_h AS \"REM\", awake_h AS \"Awake\" FROM sleep_nightly WHERE $__timeFilter((sleep_date::timestamp AT TIME ZONE '$tz')) ORDER BY sleep_date",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "h",
+          "decimals": 1,
+          "noValue": "Not reported by your devices in this range",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 2,
+            "fillOpacity": 70,
+            "lineInterpolation": "smooth",
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Deep"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3b5bdb"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Core"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#74c0fc"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "REM"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#9c36b5"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Awake"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#f08c00"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "row",
+      "title": "Sleep and the next day",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 10,
+      "type": "text",
+      "title": "",
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 24,
+        "h": 5
+      },
+      "options": {
+        "mode": "html",
+        "content": "<div style=\"font-size:15px;line-height:1.6\">\n<p><b>Reading the combined chart.</b> Hours of sleep, minutes of exercise and steps don't share a scale, so each line\nshows <b>where that day ranks among your own days</b> on screen: 100 is your highest, 0 your lowest, and the grey\nline at 50 is a typical day. Ranking puts a long night and a big exercise day on the same footing, however different\nthe units, and one extreme day can't flatten the rest. Each date pairs\n<b style=\"color:#5c7cfa\">the night that ended that morning</b> with that day's\n<b style=\"color:#2f9e44\">exercise</b> and <b style=\"color:#e8590c\">steps</b>: the day after the night.</p>\n<p>Peaks and dips that line up are worth a look, not proof: over a few weeks, lines can match by chance.</p></div>"
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Sleep and the next day's activity, ranked against your own days",
+      "description": "Each series as its percentile rank over the selected range: 100 = your highest day, 50 = typical, 0 = lowest.",
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "healthlog-db"
+          },
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "WITH s AS (\n  SELECT sleep_date AS day, total_sleep_h AS v FROM sleep_nightly WHERE $__timeFilter((sleep_date::timestamp AT TIME ZONE '$tz'))\n), e AS (\n  SELECT day, sum AS v FROM daily_metrics WHERE metric = 'apple_exercise_time' AND $__timeFilter((day::timestamp AT TIME ZONE '$tz'))\n), st AS (\n  SELECT day, sum AS v FROM daily_metrics WHERE metric = 'step_count' AND $__timeFilter((day::timestamp AT TIME ZONE '$tz'))\n), days AS (SELECT day FROM s UNION SELECT day FROM e UNION SELECT day FROM st)\nSELECT (day::timestamp AT TIME ZONE '$tz') AS time,\n  s.r AS \"Sleep (the night before)\", e.r AS \"Exercise\", st.r AS \"Steps\"\nFROM days\n  LEFT JOIN (SELECT day, 100 * percent_rank() OVER (ORDER BY v) AS r FROM s) s USING (day)\n  LEFT JOIN (SELECT day, 100 * percent_rank() OVER (ORDER BY v) AS r FROM e) e USING (day)\n  LEFT JOIN (SELECT day, 100 * percent_rank() OVER (ORDER BY v) AS r FROM st) st USING (day)\nORDER BY day",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "Not reported by your devices in this range",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "lineInterpolation": "smooth",
+            "showPoints": "always",
+            "pointSize": 5,
+            "spanNulls": false,
+            "thresholdsStyle": {
+              "mode": "line+area"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "#adb5bd",
+                "value": 50
+              }
+            ]
+          },
+          "min": 0,
+          "max": 100
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Sleep (the night before)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5c7cfa"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 3
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Exercise"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#2f9e44"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Steps"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#e8590c"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 12,
+      "type": "row",
+      "title": "Overnight measures",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Sleeping wrist temperature (°C)",
+      "description": "Only from watches that measure it (some need a newer model or a setting turned on).",
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "healthlog-db"
+          },
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT (day::timestamp AT TIME ZONE '$tz') AS time, avg AS \"Sleeping wrist temperature\" FROM daily_metrics WHERE metric = 'apple_sleeping_wrist_temperature' AND $__timeFilter((day::timestamp AT TIME ZONE '$tz')) ORDER BY day",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "decimals": 1,
+          "noValue": "Not reported by your devices in this range",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "lineInterpolation": "smooth",
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Sleeping wrist temperature"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5c7cfa"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Respiratory rate (breaths/min)",
+      "description": "Only from watches that measure it (some need a newer model or a setting turned on).",
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 32,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "healthlog-db"
+          },
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT (day::timestamp AT TIME ZONE '$tz') AS time, avg AS \"Respiratory rate (breaths/min)\" FROM daily_metrics WHERE metric = 'respiratory_rate' AND $__timeFilter((day::timestamp AT TIME ZONE '$tz')) ORDER BY day",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 1,
+          "noValue": "Not reported by your devices in this range",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "lineInterpolation": "smooth",
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Respiratory rate (breaths/min)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5c7cfa"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Breathing disturbances (per night)",
+      "description": "Only from watches that measure it (some need a newer model or a setting turned on).",
+      "datasource": {
+        "uid": "healthlog-db"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 32,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "uid": "healthlog-db"
+          },
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT (day::timestamp AT TIME ZONE '$tz') AS time, sum AS \"Breathing disturbances\" FROM daily_metrics WHERE metric = 'breathing_disturbances' AND $__timeFilter((day::timestamp AT TIME ZONE '$tz')) ORDER BY day",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 1,
+          "noValue": "Not reported by your devices in this range",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "lineInterpolation": "smooth",
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Breathing disturbances"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5c7cfa"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    }
+  ]
+}
