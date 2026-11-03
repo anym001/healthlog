@@ -757,10 +757,10 @@ where the test focus sits.
 - **Dashboard queries:** every SQL query of the shipped Grafana dashboards (panels and
   query variables) is rendered the way Grafana's PostgreSQL datasource does it
   (variables, including the quoting of multi-value ones, and the `$__time*` macros) and
-  executed against the migrated schema with the
-  sample payload loaded. A migration that renames or drops something a panel reads
-  fails the suite instead of leaving an empty panel; time-series queries must return
-  a `time` column. A new macro or variable fails until the test knows how to render it.
+  executed against the migrated schema with the sample payload loaded. A migration that
+  renames or drops something a panel reads fails the suite instead of leaving an empty
+  panel; time-series queries must return a `time` column. A new macro or variable fails
+  until the test knows how to render it.
 - **Smoke:** build the image, boot it with `PUID/PGID` + `/config` mount against a
   TimescaleDB volume created by an older image and taken over by the current one,
   query `/api/health`, check that the entrypoint chowns, both s6 services come up and
