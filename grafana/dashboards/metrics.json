@@ -33,6 +33,26 @@
       "targetBlank": false,
       "includeVars": false,
       "tooltip": "Open Training dashboard"
+    },
+    {
+      "title": "Sleep & Activity",
+      "url": "/d/healthlog-sleep-activity",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": true,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open Sleep & Activity dashboard"
+    },
+    {
+      "title": "All Metrics",
+      "url": "/d/healthlog-all-metrics",
+      "type": "link",
+      "icon": "external link",
+      "keepTime": true,
+      "targetBlank": false,
+      "includeVars": false,
+      "tooltip": "Open All Metrics dashboard"
     }
   ],
   "templating": {
