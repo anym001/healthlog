@@ -84,7 +84,7 @@
   "panels": [
     {
       "type": "row",
-      "title": "About this dashboard",
+      "title": "About this dashboard: how to read it, terms explained",
       "collapsed": true,
       "gridPos": {
         "x": 0,
