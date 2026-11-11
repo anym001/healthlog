@@ -196,3 +196,11 @@ def test_run_analysis_survives_crashing_notifier(tmp_path, monkeypatch):
         assert read_last_run(tmp_path / "state" / "last_analysis") is None
     finally:
         config.get_settings.cache_clear()
+
+
+def test_run_freshness_check_survives_a_failing_subprocess(monkeypatch):
+    def boom(*a, **k):
+        raise subprocess.TimeoutExpired("app.freshness", 300)
+
+    monkeypatch.setattr(scheduler.subprocess, "run", boom)
+    scheduler.run_freshness_check()  # must not raise
