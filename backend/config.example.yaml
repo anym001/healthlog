@@ -192,6 +192,15 @@
 #                             # in the Ollama request); improves analysis depth at
 #                             # the cost of latency; ignored by non-qwen3 models
 
+# --- Data freshness --------------------------------------------------------
+# When incoming data counts as overdue: no new Health Auto Export payload, or
+# no new data point, for longer than this. `healthlog audit` reports it and the
+# `freshness` notification source pushes one alert per gap (and the all-clear).
+# Keep it above your HAE automation's sync interval: a locked iPhone releases
+# no Health data, so gaps of several hours overnight are normal.
+# freshness:
+#   max_age_hours: 24
+
 # --- Notifications ---------------------------------------------------------
 # Push run outcomes / health alerts to a push-notification service. The
 # behaviour lives here; the SECRET token does NOT — set it via the NOTIFY_TOKEN
@@ -200,7 +209,9 @@
 #   type: gotify                    # service selector; only "gotify" today
 #                                   # (covers Gotify and PushBits)
 #   url: https://push.example.com   # service base URL
-#   events: [analysis, findings]    # any of: ingest, analysis, findings
-#                                   # (findings: only alerts new since the last run)
+#   events: [analysis, findings, freshness]
+#                                   # any of: ingest, analysis, findings, freshness
+#                                   # (findings: only alerts new since the last run;
+#                                   # freshness: no new data, see freshness: above)
 #   level: problems                 # problems | always
 #   verify_tls: true

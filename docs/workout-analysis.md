@@ -134,7 +134,7 @@ analysis:                 # nightly-pipeline tunables (lags, anomaly window, ACW
 
 notify:                   # token stays in ENV (NOTIFY_TOKEN)
   url:
-  events: [analysis, findings]   # ingest | analysis | findings
+  events: [analysis, findings, freshness]   # ingest | analysis | findings | freshness
   level: problems                # problems | always
   verify_tls: true
 ```

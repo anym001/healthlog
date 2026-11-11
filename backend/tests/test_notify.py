@@ -26,11 +26,14 @@ from app.notify import (
     build_notifier,
     compose_analysis_crash_message,
     compose_analysis_run_message,
+    compose_data_resumed_message,
     compose_findings_message,
     compose_ingest_message,
+    compose_stale_message,
     new_alerts,
     notify_analysis,
     notify_analysis_crash,
+    notify_freshness,
     notify_ingest,
 )
 
@@ -339,3 +342,61 @@ def test_dispatch_swallows_missing_token():
 def test_dispatch_noop_when_notifications_off():
     cfg = NotifyConfig(url=None, events=["analysis", "findings"])
     notify_analysis(cfg, _result(anomalies=5))  # no exception, nothing sent
+
+
+# --- freshness ----------------------------------------------------------------
+
+
+def _stale(payloads_overdue: bool = True) -> Notification:
+    return compose_stale_message(
+        max_age_hours=24,
+        last_payload="2026-11-09 07:00",
+        newest_sample="2026-11-09 06:58",
+        payloads_overdue=payloads_overdue,
+    )
+
+
+def test_compose_stale_message_names_the_likely_cause():
+    sent_nothing = _stale(payloads_overdue=True)
+    assert sent_nothing.problem and sent_nothing.priority == PRIORITY_PROBLEM
+    assert "more than 24 h" in sent_nothing.message and "2026-11-09 07:00" in sent_nothing.message
+    assert "automation" in sent_nothing.message
+    assert "Watch syncs" in _stale(payloads_overdue=False).message
+
+
+def test_compose_data_resumed_message_is_info():
+    note = compose_data_resumed_message(
+        last_payload="2026-11-10 13:00", newest_sample="2026-11-10 12:55", alerted_at="2026-11-09 07:45"
+    )
+    assert not note.problem and note.priority == PRIORITY_INFO
+    assert "2026-11-09 07:45" in note.message
+
+
+def test_freshness_is_a_default_source():
+    assert "freshness" in NotifyConfig().event_set()
+
+
+def test_notify_freshness_sends_at_problems_level_and_reports_delivery(recorder):
+    assert notify_freshness(_notify(level="problems"), _stale()) is True
+    assert [n.title for n in recorder.sent] == ["HealthLog: no new data"]
+
+
+def test_notify_freshness_respects_disabled_source(recorder):
+    assert notify_freshness(_notify(events=["analysis"]), _stale()) is False
+    assert recorder.sent == []
+
+
+def test_notify_freshness_reports_a_failed_push(monkeypatch):
+    class Failing:
+        def send(self, notification):
+            return False
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(notify, "build_notifier", lambda settings: Failing())
+    assert notify_freshness(_notify(), _stale()) is False
+
+
+def test_notify_freshness_reports_notifications_off():
+    assert notify_freshness(NotifyConfig(url=None), _stale()) is False

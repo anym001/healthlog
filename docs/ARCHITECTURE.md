@@ -62,6 +62,13 @@ file under `/config/state/` and, when the most recent cron slot passed without a
 run (container down at 03:30), runs the analysis immediately on startup — the
 snapshot-replace write makes the extra run idempotent.
 
+A missing sync raises no error anywhere (no request, no failure), so the scheduler
+also runs an hourly **data-freshness check** (`python -m app.freshness`, same
+subprocess pattern): when the last new payload or the newest data point is older
+than `freshness.max_age_hours`, it pushes one alert per gap and an all-clear once
+data arrives again, remembering a sent alert in `/config/state/` like the catch-up
+marker. `healthlog audit` reports the same two timestamps.
+
 | Component | Where | Why |
 |---|---|---|
 | Ingestion (uvicorn) | app container, long-running process | 24/7 intake of HAE POSTs |

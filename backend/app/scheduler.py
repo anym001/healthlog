@@ -3,7 +3,10 @@
 Runs as its own process (s6 service), separate from uvicorn, so the heavy
 analysis never blocks the ingest event loop. At the scheduled time it launches
 the analysis as a *subprocess* (`python -m app.analysis`) so a crash in a C
-extension can take down neither the scheduler nor uvicorn.
+extension can take down neither the scheduler nor uvicorn. Two light jobs run
+the same way: the hourly intraday refresh (``app.analysis.refresh``) and the
+hourly data-freshness check (``app.freshness``), which alerts when no new data
+arrives.
 
 Three robustness guards around the cron slot:
 
@@ -52,6 +55,11 @@ ANALYSIS_TIMEOUT_S = 4 * 3600
 INTRADAY_MISFIRE_GRACE_S = 300
 INTRADAY_TIMEOUT_S = 15 * 60
 
+# Hourly data-freshness check (app.freshness): two indexed queries. Off the
+# :15 intraday slot; a missed slot simply waits for the next hour.
+FRESHNESS_CRON = "45 * * * *"
+FRESHNESS_TIMEOUT_S = 5 * 60
+
 
 def run_analysis() -> None:
     """Launch the analysis as an isolated subprocess (fault containment).
@@ -92,6 +100,16 @@ def run_intraday_refresh() -> None:
         subprocess.run([sys.executable, "-m", "app.analysis.refresh"], check=True, timeout=INTRADAY_TIMEOUT_S)
     except Exception as exc:
         log.error("intraday refresh subprocess failed: %s", exc)
+
+
+def run_freshness_check() -> None:
+    """Launch the data-freshness check (``python -m app.freshness``) as a
+    subprocess. Never raises (same containment as :func:`run_analysis`); the
+    check sends its own alert, so a failed run only logs."""
+    try:
+        subprocess.run([sys.executable, "-m", "app.freshness"], check=True, timeout=FRESHNESS_TIMEOUT_S)
+    except Exception as exc:
+        log.error("freshness check subprocess failed: %s", exc)
 
 
 def build_trigger(settings: Settings) -> CronTrigger:
@@ -184,6 +202,13 @@ def main() -> None:
             coalesce=True,
             misfire_grace_time=INTRADAY_MISFIRE_GRACE_S,
         )
+    scheduler.add_job(
+        run_freshness_check,
+        CronTrigger.from_crontab(FRESHNESS_CRON, timezone=settings.local_tz),
+        id="freshness_check",
+        coalesce=True,
+        misfire_grace_time=INTRADAY_MISFIRE_GRACE_S,
+    )
     log.info(
         "scheduler started: nightly analysis cron='%s', intraday refresh cron='%s', tz=%s",
         settings.analysis_cron.strip() or DEFAULT_CRON,

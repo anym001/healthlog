@@ -291,7 +291,19 @@ class BodyBatteryConfig(BaseModel):
     alert_recent_days: int = Field(default=31, ge=1)
 
 
-NotifyEvent = Literal["ingest", "analysis", "findings"]
+class FreshnessConfig(BaseModel):
+    """When incoming data counts as overdue (``healthlog audit`` and the
+    ``freshness`` notification): no new HAE payload, or no new data point, for
+    longer than this. Keep it above the HAE automation's sync interval; an
+    iPhone that stays locked overnight releases no Health data, so gaps of
+    several hours are normal."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    max_age_hours: int = Field(default=24, ge=1, le=24 * 14)
+
+
+NotifyEvent = Literal["ingest", "analysis", "findings", "freshness"]
 
 
 class NotifyConfig(BaseModel):
@@ -308,8 +320,8 @@ class NotifyConfig(BaseModel):
     # notify.build_notifier() to support a new service without touching callers.
     type: Literal["gotify"] = "gotify"
     url: str | None = None
-    # Which sources may notify (subset of ingest/analysis/findings).
-    events: list[NotifyEvent] = Field(default_factory=lambda: ["analysis", "findings"])
+    # Which sources may notify (subset of ingest/analysis/findings/freshness).
+    events: list[NotifyEvent] = Field(default_factory=lambda: ["analysis", "findings", "freshness"])
     # "problems" => failures + empty ingests + health alerts; "always" => also
     # routine OK summaries.
     level: Literal["problems", "always"] = "problems"
@@ -386,6 +398,7 @@ class AppConfig(BaseModel):
     analysis: AnalysisConfig = Field(default_factory=AnalysisConfig)
     stress: StressConfig = Field(default_factory=StressConfig)
     body_battery: BodyBatteryConfig = Field(default_factory=BodyBatteryConfig)
+    freshness: FreshnessConfig = Field(default_factory=FreshnessConfig)
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
     narrate: NarrateConfig = Field(default_factory=NarrateConfig)
 

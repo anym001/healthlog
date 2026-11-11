@@ -8,7 +8,7 @@ Gotify's message API: ``POST {url}/message?token=<token>`` with a JSON body
 never logged (it travels as a query parameter, so request URLs must not be
 logged either).
 
-Three independent sources can notify, selected via ``NOTIFY_EVENTS``:
+Four independent sources can notify, selected via ``notify.events``:
 
 - ``analysis``  the nightly analysis run outcome (a crash, and — at
                 ``NOTIFY_LEVEL=always`` — the clean OK summary).
@@ -16,6 +16,9 @@ Three independent sources can notify, selected via ``NOTIFY_EVENTS``:
                 training-load alerts not already in the previous snapshot).
 - ``ingest``    an empty ingest (a problem) and — at ``always`` — each
                 successful HAE sync.
+- ``freshness`` no new data for longer than ``freshness.max_age_hours`` (a
+                problem, once per gap) and the all-clear once data arrives
+                again (see ``app.freshness``).
 
 Notifications are strictly best-effort: a failed send (or a misconfiguration)
 is logged and swallowed — ingestion and analysis never depend on the notifier.
@@ -241,6 +244,44 @@ def _row_line(label: str, total: int, new: int) -> str:
     return f"{label}: {new} new, {updated} updated"
 
 
+def compose_stale_message(
+    *,
+    max_age_hours: int,
+    last_payload: str,
+    newest_sample: str,
+    payloads_overdue: bool,
+) -> Notification:
+    """Alert that no new data arrived for longer than ``max_age_hours``.
+    Timestamps come preformatted (local time, or "none"); no health values."""
+    if payloads_overdue:
+        hint = (
+            "Health Auto Export has sent nothing new: check its automation on the iPhone "
+            "(enabled, Background App Refresh, URL and token)."
+        )
+    else:
+        hint = (
+            "Payloads arrive but carry no new readings: check that the Watch syncs to the "
+            "iPhone and that the iPhone is unlocked now and then."
+        )
+    lines = [
+        f"No new data for more than {max_age_hours} h.",
+        f"last new payload: {last_payload}",
+        f"newest data point: {newest_sample}",
+        hint,
+    ]
+    return Notification("HealthLog: no new data", "\n".join(lines), PRIORITY_PROBLEM, True)
+
+
+def compose_data_resumed_message(*, last_payload: str, newest_sample: str, alerted_at: str) -> Notification:
+    """The all-clear after a ``compose_stale_message`` alert."""
+    lines = [
+        f"New data is arriving again (alert sent {alerted_at}).",
+        f"last new payload: {last_payload}",
+        f"newest data point: {newest_sample}",
+    ]
+    return Notification("HealthLog: data arriving again", "\n".join(lines), PRIORITY_INFO, False)
+
+
 def compose_ingest_message(
     kind: str,
     metric_rows: int,
@@ -271,22 +312,22 @@ def compose_ingest_message(
 # ---------------------------------------------------------------------------
 
 
-def _send_all(notify: NotifyConfig, messages: list[Notification | None]) -> None:
+def _send_all(notify: NotifyConfig, messages: list[Notification | None]) -> bool:
     """Build the notifier once and push every (non-None) message; swallow all
-    errors so a notification can never break the surrounding run."""
+    errors so a notification can never break the surrounding run. Returns
+    True only when every message was delivered."""
     pending = [m for m in messages if m is not None]
     if not pending:
-        return
+        return True
     try:
         notifier = build_notifier(notify)
     except ValueError as exc:
         log.warning("notifications disabled: %s", safe(exc))
-        return
+        return False
     if notifier is None:
-        return
+        return False
     try:
-        for message in pending:
-            notifier.send(message)
+        return all([notifier.send(message) for message in pending])
     finally:
         notifier.close()
 
@@ -340,3 +381,12 @@ def notify_ingest(
     else:
         return
     _send_all(notify, [message])
+
+
+def notify_freshness(notify: NotifyConfig, message: Notification) -> bool:
+    """Push a data-freshness alert or all-clear (``freshness`` source, any
+    level: the all-clear closes an alert, so it is not routine info). Returns
+    True when it was delivered, so the caller only records what was sent."""
+    if "freshness" not in notify.event_set():
+        return False
+    return _send_all(notify, [message])

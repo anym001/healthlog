@@ -40,7 +40,8 @@ local LLM. Everything runs on the user's own hardware — no external calls.
     (metric registry, unit guard, localised workout / symptom / medication values →
     canonical slugs)
   - `appconfig.py` — `config.yaml` model; `config.py` — env-var `Settings`
-  - `notify.py`, `audit.py`, `diagnostics.py`, `rederive.py`,
+  - `notify.py`, `audit.py`, `freshness.py` (is new data still arriving; hourly
+    check + audit section), `diagnostics.py`, `rederive.py`,
     `stress_backfill.py`, `body_battery_backfill.py`, `backfill.py`, `scheduler.py`
 - `backend/migrations/versions/` — Alembic migrations (the schema is migrations-only)
 - `backend/tests/` — pytest (parser, idempotency, analysis math, registry, …)

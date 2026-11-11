@@ -8,17 +8,21 @@ from __future__ import annotations
 
 import datetime as dt
 
+import pytest
+
 from app.audit import (
     AuditReport,
     MetricCoverage,
     UnitAnomaly,
     UnmappedWorkout,
+    _log_report,
     build_coverage,
     check_tz,
     detect_unit_anomalies,
     detect_unmapped_workouts,
     summarize_findings,
 )
+from app.freshness import assess
 
 REGISTRY = {
     "heart_rate": {"tier": "core", "unit_canonical": "count/min"},
@@ -171,3 +175,27 @@ def test_check_tz_passes_when_offsets_match():
 def test_check_tz_skips_missing_and_malformed_dates():
     check = check_tz([None, "garbage", "2026-07-01 08:00:00 +0200"], "Europe/Vienna")
     assert (check.checked, check.mismatched) == (1, 0)
+
+
+# --- Freshness ----------------------------------------------------------------
+
+
+def _freshness_report(payload_age_h: float, sample_age_h: float) -> AuditReport:
+    now = dt.datetime(2026, 11, 10, 12, 0, tzinfo=dt.UTC)
+    f = assess(now - dt.timedelta(hours=payload_age_h), now - dt.timedelta(hours=sample_age_h), now, 24)
+    return AuditReport(min_overlap=42, freshness=f, local_tz="Europe/Vienna")
+
+
+@pytest.mark.parametrize(
+    ("payload_age", "sample_age", "level", "text"),
+    [
+        (2, 3, "INFO", "within 24 h"),
+        (30, 30, "WARNING", "no new payload for more than 24 h"),
+        (1, 30, "WARNING", "no new data point for more than 24 h"),
+    ],
+)
+def test_audit_reports_freshness(caplog, payload_age, sample_age, level, text):
+    with caplog.at_level("INFO", logger="healthlog.audit"):
+        _log_report(_freshness_report(payload_age, sample_age))
+    lines = [r for r in caplog.records if r.getMessage().startswith("freshness:")]
+    assert len(lines) == 1 and lines[0].levelname == level and text in lines[0].getMessage()

@@ -7,7 +7,7 @@ those tests cannot see is the real database: whether enough clean history has
 actually accumulated, whether stored units drifted from their canonical form,
 and whether the last pipeline run produced anything.
 
-The scan is **read-only** and reports five things:
+The scan is **read-only** and reports six things:
 
 1. **Findings snapshot** — total and per-kind counts of the latest ``findings``
    batch, with the run timestamp. Zero findings is surfaced loudly: a silent
@@ -26,6 +26,9 @@ The scan is **read-only** and reports five things:
 5. **Time zone** — whether ``TZ`` matches the UTC offsets HAE stamps on recent
    payloads (the phone's local offset). A mismatch means every daily value is
    bucketed on shifted days, e.g. a US user left on the ``Europe/Vienna`` default.
+6. **Freshness** — when the last new payload arrived and how new the newest data
+   point is, flagged when either is older than ``freshness.max_age_hours`` (the
+   hourly check in ``app.freshness`` pushes the same as a notification).
 
 Usage (one-shot, typically via ``docker exec``)::
 
@@ -48,6 +51,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from .cli_support import bootstrap, db_session, module_main
+from .freshness import Freshness, assess, format_local, read_timestamps
 from .timeutil import offset_mismatches, parse_hae_datetime
 from .workout_types import canonical_workout_type
 
@@ -113,6 +117,8 @@ class AuditReport:
     unmapped_workouts: list[UnmappedWorkout] = field(default_factory=list)
     findings_last_run: dt.datetime | None = None
     tz_check: TzCheck | None = None
+    freshness: Freshness | None = None
+    local_tz: str = "UTC"
 
     @property
     def findings_total(self) -> int:
@@ -314,6 +320,32 @@ def _log_report(report: AuditReport) -> None:
     else:
         log.info("timezone: TZ=%r matches the UTC offsets of %d recent payload timestamps", tz.tz, tz.checked)
 
+    # --- 6. Freshness ------------------------------------------------------
+    f = report.freshness
+    if f is None or not f.has_data:
+        log.info("freshness: no payload received yet")
+    else:
+        hours = int(f.max_age.total_seconds() // 3600)
+        stamps = (
+            f"last new payload {format_local(f.last_payload, report.local_tz)}, "
+            f"newest data point {format_local(f.newest_sample, report.local_tz)}"
+        )
+        if f.payloads_overdue:
+            log.warning(
+                "freshness: no new payload for more than %d h (%s) - check the Health Auto Export automation",
+                hours,
+                stamps,
+            )
+        elif f.samples_overdue:
+            log.warning(
+                "freshness: payloads arrive but no new data point for more than %d h (%s) - "
+                "check that the Watch syncs to the iPhone",
+                hours,
+                stamps,
+            )
+        else:
+            log.info("freshness: %s (within %d h)", stamps, hours)
+
 
 # ===========================================================================
 # CLI entry point (DB work lives here, kept out of the pure builders above).
@@ -367,6 +399,9 @@ def run(_args: argparse.Namespace) -> int:
         ).scalars()
         tz_check = check_tz(recent_dates, settings.local_tz)
 
+        now = dt.datetime.now(dt.UTC)
+        freshness = assess(*read_timestamps(db, now), now, cfg.freshness.max_age_hours)
+
     report = AuditReport(
         min_overlap=min_overlap,
         coverage=build_coverage(coverage_rows, registry),
@@ -375,6 +410,8 @@ def run(_args: argparse.Namespace) -> int:
         unmapped_workouts=detect_unmapped_workouts(workout_rows, type_map),
         findings_last_run=last_run,
         tz_check=tz_check,
+        freshness=freshness,
+        local_tz=settings.local_tz,
     )
     _log_report(report)
     return 0

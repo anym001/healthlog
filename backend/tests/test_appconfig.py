@@ -96,7 +96,7 @@ def test_hr_max_must_exceed_hr_rest(tmp_path):
 def test_notify_defaults(tmp_path):
     n = load_config(tmp_path / "nope.yaml").notify
     assert n.url is None
-    assert n.event_set() == {"analysis", "findings"}
+    assert n.event_set() == {"analysis", "findings", "freshness"}
     assert n.level == "problems"
     assert n.verify_tls is True
     assert n.token is None
@@ -342,3 +342,13 @@ def test_stress_and_body_battery_both_disabled_ok(tmp_path):
     cfg = load_config(p)
     assert cfg.stress.enabled is False
     assert cfg.body_battery.enabled is False
+
+
+def test_freshness_default_and_bounds(tmp_path):
+    assert load_config(tmp_path / "nope.yaml").freshness.max_age_hours == 24
+    p = tmp_path / "config.yaml"
+    p.write_text("freshness:\n  max_age_hours: 36\n")
+    assert load_config(p).freshness.max_age_hours == 36
+    p.write_text("freshness:\n  max_age_hours: 0\n")
+    with pytest.raises(ValueError):
+        load_config(p)

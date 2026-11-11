@@ -331,8 +331,10 @@ Schedule: `INTRADAY_CRON`, default `15 * * * *` (hourly at :15); set it to
 Before trusting the findings, run a read-only data-quality audit — it reports the
 latest findings snapshot, per-metric coverage (flagging core metrics with no data or
 below the ~6-week `analysis.min_overlap` floor), units that diverge from canonical,
-workout names that map to no canonical sport (map them via `workouts.type_map`), and
-whether `TZ` matches the UTC offsets Health Auto Export stamps on your data:
+workout names that map to no canonical sport (map them via `workouts.type_map`),
+whether `TZ` matches the UTC offsets Health Auto Export stamps on your data, and
+whether new data is still arriving (the last new payload and the newest data point,
+flagged when older than `freshness.max_age_hours`, default 24):
 
 ```bash
 docker exec healthlog healthlog audit
@@ -664,7 +666,7 @@ HealthLog can push run outcomes and health alerts to a
 Matrix room). Configure the behaviour under `notify:` in `config.yaml`; the
 **token is the one secret** and comes from the `NOTIFY_TOKEN` environment
 variable (putting it in YAML is rejected). Leave `notify.url` empty to disable.
-Three independent sources can notify, chosen via `notify.events`:
+Four independent sources can notify, chosen via `notify.events`:
 
 - **`analysis`** — the nightly analysis run: a crash always pages; the clean OK
   summary is sent only at `level: always`.
@@ -677,6 +679,12 @@ Three independent sources can notify, chosen via `notify.events`:
   of level.
 - **`ingest`** — an *empty* HAE sync (a payload that produced no rows) always
   pages; each successful sync is reported only at `level: always`.
+- **`freshness`** — no new data for longer than `freshness.max_age_hours`
+  (default 24): no new payload from Health Auto Export, or payloads without any
+  new data point (the Watch hasn't synced). Checked hourly; one alert per gap,
+  and an all-clear once data arrives again. Sent regardless of level. Set the
+  threshold above your HAE sync interval. If your `config.yaml` lists
+  `notify.events` explicitly, add `freshness` there to get it.
 
 Messages carry only counters, metric names and dates — never raw health values.
 Notifications are strictly best-effort: a failed or misconfigured push is
