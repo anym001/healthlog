@@ -740,17 +740,6 @@ table feeds the analysis or the narration yet.
   the first statement of a fresh connection (the update must precede anything that
   loads the old library); otherwise it logs the manual command, as migration 0027
   does for telemetry. A failed update is logged and does not block the start.
-- **Grafana's database access:** Grafana connects as the read-only `grafana_ro`
-  login, which the operator creates with `CONNECT` only. The `migrate` oneshot's
-  last step, `app.grafana_access`, resets its privileges in `public` to `SELECT`
-  on the relations the shipped dashboards read (`DASHBOARD_RELATIONS`) and revokes
-  the rest, default privileges included: least privilege, so `raw_ingest` and
-  tables added later stay unreadable. It runs at every start because explicit
-  grants do not survive a migration that recreates a view. The dashboard SQL test
-  runs every dashboard query as a role with exactly these grants, so a panel that
-  reads a new relation fails in CI until the relation is listed. Without a
-  `grafana_ro` role the step does nothing; a failure is logged and does not block
-  the start.
 
 ## 7. Tests & quality
 
