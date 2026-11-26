@@ -740,6 +740,17 @@ table feeds the analysis or the narration yet.
   the first statement of a fresh connection (the update must precede anything that
   loads the old library); otherwise it logs the manual command, as migration 0027
   does for telemetry. A failed update is logged and does not block the start.
+- **Grafana's database access:** Grafana connects as the read-only `grafana_ro`
+  login, which the operator creates with `CONNECT` only. The `migrate` oneshot's
+  last step, `app.grafana_access`, resets its privileges in `public` to `SELECT`
+  on the relations the shipped dashboards read (`DASHBOARD_RELATIONS`) and revokes
+  the rest, default privileges included: least privilege, so `raw_ingest` and
+  tables added later stay unreadable. It runs at every start because explicit
+  grants do not survive a migration that recreates a view. The dashboard SQL test
+  runs every dashboard query as a role with exactly these grants, so a panel that
+  reads a new relation fails in CI until the relation is listed. Without a
+  `grafana_ro` role the step does nothing; a failure is logged and does not block
+  the start.
 
 ## 7. Tests & quality
 
@@ -836,9 +847,11 @@ Dependabot PRs pass the same `test.yml` gate as any other PR.
 - **Out of scope, by design:** a dedicated web app, editable user data (trackers,
   diary) and write APIs beyond the HAE ingest. The core stays a single-user data
   pipeline + analysis with no outbound calls. Apps built on top of HealthLog are
-  welcome as **independent projects** in their own repositories, reading through a
-  versioned read-only API rather than the database; they own their storage, their
-  security and any external services they use.
+  welcome as **independent projects** in their own repositories; they own their
+  storage, their security and any external services they use. The database schema
+  is internal, not a contract: it changes with correctness fixes, new HAE data
+  types and performance work, so reading the tables directly is **unsupported** and
+  may break with any release.
 
 ## 11. Methodological pitfalls
 

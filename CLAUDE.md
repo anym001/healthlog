@@ -43,6 +43,10 @@ local LLM. Everything runs on the user's own hardware — no external calls.
   - `notify.py`, `audit.py`, `freshness.py` (is new data still arriving; hourly
     check + audit section), `diagnostics.py`, `rederive.py`,
     `stress_backfill.py`, `body_battery_backfill.py`, `backfill.py`, `scheduler.py`
+  - startup steps run by the s6 `migrate` oneshot: `db_extensions.py` (TimescaleDB
+    update), `db_settings.py` (`TZ` → `app_settings`), `grafana_access.py`
+    (`grafana_ro` grants = the relations the dashboards read; a dashboard reading
+    a new relation needs it added there)
 - `backend/migrations/versions/` — Alembic migrations (the schema is migrations-only)
 - `backend/tests/` — pytest (parser, idempotency, analysis math, registry, …)
 - `grafana/` — dashboards (JSON) + optional Grafana provisioning (`provisioning/`: datasource + dashboard-provider YAML)

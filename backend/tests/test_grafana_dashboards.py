@@ -1,12 +1,14 @@
 """Every SQL query of the shipped Grafana dashboards runs against the current schema.
 
 The CI ``grafana`` job proves the dashboards provision; this proves their
-queries still fit the tables and views after a migration. Each panel query and
-each query variable is rendered the way Grafana's PostgreSQL datasource renders
+queries still fit the tables and views after a migration. Each panel query,
+each query variable and each annotation query is rendered the way Grafana's PostgreSQL datasource renders
 it (template variables, then the ``$__time*`` macros) and executed on the
-migrated test database, seeded with the sample HAE payload. A query that
-references a dropped or renamed column, view or function fails here instead of
-showing an empty, red panel after an update.
+migrated test database, seeded with the sample HAE payload, as a role with
+only the grants ``app.grafana_access`` gives ``grafana_ro``. A query that
+references a dropped or renamed column, view or function, or a relation
+Grafana has no grant for, fails here instead of showing an empty, red panel
+after an update.
 
 A new macro or variable in a dashboard fails with a clear message until it is
 taught to ``_render`` / ``_FALLBACK``, so nothing is silently left unchecked.
@@ -22,7 +24,11 @@ from pathlib import Path
 
 import pytest
 
+from app.grafana_access import sync_grafana_grants
 from app.ingest import parse_payload, store
+
+# Stands in for grafana_ro, which may exist (with real grants) on the test server.
+_GRAFANA_TEST_ROLE = "healthlog_grafana_test"
 
 DASHBOARD_DIR = Path(__file__).resolve().parents[2] / "grafana" / "dashboards"
 DASHBOARDS = sorted(DASHBOARD_DIR.glob("*.json"))
@@ -97,6 +103,10 @@ def _all_queries() -> list[Query]:
         for variable in board.get("templating", {}).get("list", []):
             if variable.get("type") == "query" and _variable_sql(variable):
                 out.append(Query(path.name, f"variable {variable['name']}", _variable_sql(variable), None))
+        for annotation in board.get("annotations", {}).get("list", []):
+            target = annotation.get("target") or {}
+            if target.get("rawSql"):
+                out.append(Query(path.name, f"annotation {annotation['name']}", target["rawSql"], target.get("format")))
         out += _panel_queries(path.name, board.get("panels", []))
     return out
 
@@ -211,12 +221,20 @@ def _variable_values(db_conn, board: dict) -> dict[str, Value]:
 
 @pytest.fixture
 def seeded_conn(db_conn, sample_payload):
+    """The seeded test transaction, switched to a role with exactly the grants
+    ``app.grafana_access`` gives ``grafana_ro``: a query that reads a relation
+    missing from ``DASHBOARD_RELATIONS`` fails with "permission denied". The
+    role and the ``SET ROLE`` roll back with the transaction."""
+    from sqlalchemy import text
     from sqlalchemy.orm import Session
 
     session = Session(bind=db_conn, join_transaction_mode="create_savepoint")
     store(session, parse_payload(sample_payload))
+    session.execute(text(f"CREATE ROLE {_GRAFANA_TEST_ROLE} NOLOGIN"))
+    assert sync_grafana_grants(session, _GRAFANA_TEST_ROLE)
     session.commit()
     session.close()
+    db_conn.execute(text(f"SET ROLE {_GRAFANA_TEST_ROLE}"))
     return db_conn
 
 

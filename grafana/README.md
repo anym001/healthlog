@@ -67,10 +67,29 @@ dashboards need is missing. Keep these lines for an existing Grafana as well.
 ```sql
 CREATE USER grafana_ro WITH PASSWORD 'change-me-grafana-ro';
 GRANT CONNECT ON DATABASE healthlog TO grafana_ro;
-GRANT USAGE ON SCHEMA public TO grafana_ro;
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO grafana_ro;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO grafana_ro;
 ```
+
+Then restart HealthLog (`docker compose restart healthlog`, or restart the
+container on Unraid). At every start, right after the schema migration,
+HealthLog grants `grafana_ro` `SELECT` on exactly the tables and views the
+shipped dashboards read and revokes everything else. The list is
+`DASHBOARD_RELATIONS` in
+[`backend/app/grafana_access.py`](../backend/app/grafana_access.py), and CI runs
+every dashboard query with only those grants. `raw_ingest` (the archive of raw
+Health Auto Export payloads) and tables added by later releases are not
+readable. Running this at every start also restores grants that a migration
+dropped by recreating a view.
+
+`grafana_ro`'s privileges are managed by HealthLog: grants you add by hand are
+reset at the next start. For your own panels on other tables, create a separate
+read-only user.
+
+> **Upgrading from an earlier setup:** the previous instructions here granted
+> `SELECT` on *all* tables plus default privileges for future ones. You don't
+> need to do anything: the next start of HealthLog revokes both. One exception:
+> if you ran the old `ALTER DEFAULT PRIVILEGES` as a user other than HealthLog's
+> database user, revoke it as that user:
+> `ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM grafana_ro;`
 
 ## Option A — manual import
 
