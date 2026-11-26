@@ -1,13 +1,10 @@
 #!/command/with-contenv bash
 # Update the TimescaleDB extension if the database image is newer, bring the
-# schema to head before the services start, mirror TZ into app_settings for
-# SQL-side consumers (daily_metrics view, Grafana), then reset the read-only
-# grafana_ro role's grants to the dashboard relations (after the migration,
-# which can recreate views and drop their grants). Runs as the dropped user so
-# any state it touches is owned correctly.
+# schema to head before the services start, then mirror TZ into app_settings
+# for SQL-side consumers (daily_metrics view, Grafana). Runs as the dropped
+# user so any state it touches is owned correctly.
 set -euo pipefail
 cd /app/backend
 s6-setuidgid healthlog python -m app.db_extensions
 s6-setuidgid healthlog python -m alembic upgrade head
-s6-setuidgid healthlog python -m app.db_settings
-exec s6-setuidgid healthlog python -m app.grafana_access
+exec s6-setuidgid healthlog python -m app.db_settings
