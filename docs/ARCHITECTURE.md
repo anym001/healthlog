@@ -851,9 +851,7 @@ Dependabot PRs pass the same `test.yml` gate as any other PR.
   storage, their security and any external services they use. The database schema
   is internal, not a contract: it changes with correctness fixes, new HAE data
   types and performance work, so reading the tables directly is **unsupported** and
-  may break with any release. The stable interface for such apps would be a
-  versioned read-only HTTP API; it is offered as a contribution
-  ([#107](https://github.com/anym001/healthlog/issues/107)) but not built yet.
+  may break with any release.
 
 ## 11. Methodological pitfalls
 
