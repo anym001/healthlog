@@ -777,7 +777,7 @@ server {
 
     client_max_body_size 32m;   # nginx default: 1 MB; matches MAX_PAYLOAD_BYTES
 
-    location / {
+    location ~ ^/api/(ingest|health)$ {
         proxy_pass         http://localhost:8000;
         proxy_set_header   Host              $host;
         proxy_set_header   X-Real-IP         $remote_addr;
