@@ -784,10 +784,6 @@ server {
         proxy_set_header   X-Forwarded-Proto $scheme;
         proxy_read_timeout 300s;   # large payloads take a while to store
     }
-
-    location / {
-        return 404;
-    }
 }
 ```
 
