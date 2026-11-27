@@ -195,9 +195,11 @@ tokens. Auth failures and rate-limit hits are logged with the client IP.
 
 ## 12. Implementation plan
 
-Each step is its own PR against `dev`, with tests and docs (README:
+One PR against `dev` with the whole of v1, tests and docs (README:
 `READ_TOKENS`, `READ_API_PORT`, `healthlog read-token`; `ARCHITECTURE.md`: a
-read-API section).
+read-API section). v1 is only useful to the Companion once every read it
+makes is covered, so shipping it in parts would only add releases without a
+usable state in between. Within the PR, the work is ordered as:
 
 1. **Skeleton:** `read-api` s6 service, `READ_TOKENS` / `READ_API_PORT`,
    `healthlog read-token new`, auth, rate limit, audit, read-only
@@ -208,7 +210,7 @@ read-API section).
 3. **Events:** `/sleep/sessions`, `/workouts`, `/state-of-mind`.
 4. **Derived:** `model_version` constants, `/stress/*`, `/body-battery/*`.
 
-After step 4 the Companion can drop every direct read.
+Once it is released, the Companion can drop every direct read.
 
 ## 13. Costs and risks
 
@@ -216,7 +218,7 @@ After step 4 the Companion can drop every direct read.
   `queries.py` and the API output unchanged. The tests make this visible, but
   it is real work for each such change.
 - **No committed consumer yet** (§1). Mitigated by not building before
-  confirmation, and by the step-by-step plan: step 1 alone is small.
+  confirmation.
 - **Derived values change** under the same format. Mitigated by
   `meta.model_version`.
 - **Contract surface:** 11 endpoints. Smaller than direct table access (no
