@@ -791,6 +791,11 @@ Without `client_max_body_size`, nginx-based proxies (SWAG, Nginx Proxy Manager)
 answer larger syncs with their own `413 Request Entity Too Large`. Bigger imports
 belong in the [backfill CLI](#bulk-backfill-full-history).
 
+The example forwards everything on port 8000. With the defaults that is fine,
+because [`/metrics`](#metrics-optional) (`METRICS_ENABLED`) and the API docs
+(`API_DOCS_ENABLED`) are off. If you turn either on, forward only `/api/ingest`
+and `/api/health` instead of `location /`.
+
 ## Logging
 
 By default the app logs to `stdout`/`stderr` (`docker logs`). Set `LOG_FORMAT=json`
